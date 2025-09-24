@@ -362,6 +362,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     (increment = 1) => {
       setDashboard((current) => {
         const updated = recordAyahProgress(profile.id, increment)
+        if (updated && current) {
+          const delta = updated.dailyTarget.completedAyahs - current.dailyTarget.completedAyahs
+          if (delta > 0) {
+            setStats((previous) => ({
+              ...previous,
+              ayahsRead: previous.ayahsRead + delta,
+            }))
+          }
+        } else if (updated && !current) {
+          setStats((previous) => ({
+            ...previous,
+            ayahsRead: previous.ayahsRead + updated.dailyTarget.completedAyahs,
+          }))
+        }
         return updated ?? current
       })
     },

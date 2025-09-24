@@ -66,6 +66,7 @@ export default function DashboardPage() {
   const [goalFormOpen, setGoalFormOpen] = useState(false)
   const [newGoalTitle, setNewGoalTitle] = useState("")
   const [newGoalDeadline, setNewGoalDeadline] = useState("")
+  const [hasShownCelebration, setHasShownCelebration] = useState(false)
 
   useEffect(() => {
     setCustomTarget(dashboard.dailyTarget.targetAyahs)
@@ -143,11 +144,7 @@ export default function DashboardPage() {
   }
 
   const handleNextAyah = () => {
-    const predicted = Math.min(dashboard.dailyTarget.completedAyahs + 1, dashboard.dailyTarget.targetAyahs)
     incrementDailyTarget(1)
-    if (predicted >= dashboard.dailyTarget.targetAyahs) {
-      setIsCelebrating(true)
-    }
   }
 
   const dailyGoalMet = dashboard.dailyTarget.completedAyahs >= dashboard.dailyTarget.targetAyahs
@@ -161,6 +158,23 @@ export default function DashboardPage() {
     setNewGoalTitle("")
     setNewGoalDeadline("")
   }
+
+  useEffect(() => {
+    const goalCompleted =
+      dashboard.dailyTarget.targetAyahs > 0 &&
+      dashboard.dailyTarget.completedAyahs >= dashboard.dailyTarget.targetAyahs
+    if (goalCompleted && !hasShownCelebration) {
+      setIsCelebrating(true)
+      setHasShownCelebration(true)
+    }
+    if (!goalCompleted && hasShownCelebration) {
+      setHasShownCelebration(false)
+    }
+  }, [
+    dashboard.dailyTarget.completedAyahs,
+    dashboard.dailyTarget.targetAyahs,
+    hasShownCelebration,
+  ])
 
   return (
     <>
@@ -290,8 +304,8 @@ export default function DashboardPage() {
                   <div className="flex flex-col md:flex-row md:items-center gap-3">
                     <Slider
                       value={[customTarget]}
-                      min={3}
-                      max={40}
+                      min={1}
+                      max={100}
                       step={1}
                       onValueChange={(value) => setCustomTarget(value[0] ?? dashboard.dailyTarget.targetAyahs)}
                       className="flex-1"
