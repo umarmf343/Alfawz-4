@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import crypto from "crypto"
+import { createHmac } from "node:crypto"
 
 // Paystack webhook handler
 export async function POST(request: NextRequest) {
@@ -17,7 +17,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify webhook signature
-    const hash = crypto.createHmac("sha512", process.env.PAYSTACK_SECRET_KEY!).update(body).digest("hex")
+    const hash = createHmac("sha512", process.env.PAYSTACK_SECRET_KEY!)
+      .update(body)
+      .digest("hex")
 
     if (hash !== signature) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 })
