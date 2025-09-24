@@ -1,9 +1,16 @@
 import { type NextRequest, NextResponse } from "next/server"
 import OpenAI from "openai"
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+let openaiClient: OpenAI | null = null
+
+function getOpenAIClient() {
+  if (!openaiClient) {
+    openaiClient = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+  }
+  return openaiClient
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,6 +22,17 @@ export async function POST(request: NextRequest) {
     if (!audioFile) {
       return NextResponse.json({ error: "No audio file provided" }, { status: 400 })
     }
+
+    if (!expectedText) {
+      return NextResponse.json({ error: "Missing expected text" }, { status: 400 })
+    }
+
+    if (!process.env.OPENAI_API_KEY) {
+      console.error("Transcription error: OPENAI_API_KEY is not configured")
+      return NextResponse.json({ error: "Transcription service not configured" }, { status: 500 })
+    }
+
+    const openai = getOpenAIClient()
 
     // Convert File to Buffer for OpenAI API
     const arrayBuffer = await audioFile.arrayBuffer()

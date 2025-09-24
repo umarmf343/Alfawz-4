@@ -4,6 +4,20 @@ export async function POST(request: NextRequest) {
   try {
     const { email, amount, plan, userId } = await request.json()
 
+    if (!process.env.PAYSTACK_SECRET_KEY) {
+      console.error("[v0] Payment initialization error: PAYSTACK_SECRET_KEY is not configured")
+      return NextResponse.json({ error: "Payment gateway not configured" }, { status: 500 })
+    }
+
+    if (!process.env.NEXT_PUBLIC_APP_URL) {
+      console.error("[v0] Payment initialization error: NEXT_PUBLIC_APP_URL is not configured")
+      return NextResponse.json({ error: "Application URL not configured" }, { status: 500 })
+    }
+
+    if (!email || !amount || !plan || !userId) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    }
+
     // Initialize Paystack payment
     const paystackResponse = await fetch("https://api.paystack.co/transaction/initialize", {
       method: "POST",
