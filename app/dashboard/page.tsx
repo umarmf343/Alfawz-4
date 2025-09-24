@@ -1,11 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import Link from "next/link"
+import { useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import AppLayout from "@/components/app-layout"
+import { PremiumGate } from "@/components/premium-gate"
+import { useUser } from "@/hooks/use-user"
 import {
   BookOpen,
   Play,
@@ -18,11 +21,21 @@ import {
   Award,
   Mic,
   HeadphonesIcon,
+  Sparkles,
 } from "lucide-react"
-import Link from "next/link"
 
 export default function DashboardPage() {
-  const [userRole] = useState("student") // This would come from auth context
+  const { profile, stats, habits } = useUser()
+
+  const LEVEL_TARGET = 500
+  const firstName = useMemo(() => profile.name.split(" ")[0] ?? profile.name, [profile.name])
+  const studyMinutes = stats.studyMinutes
+  const studyHours = Math.floor(studyMinutes / 60)
+  const remainingMinutes = studyMinutes % 60
+  const formattedStudyTime = `${studyHours > 0 ? `${studyHours}h ` : ""}${remainingMinutes}m`
+  const xpProgress = Math.max(0, Math.min(100, Math.round(((LEVEL_TARGET - stats.xpToNext) / LEVEL_TARGET) * 100)))
+  const weeklyXpTotal = stats.weeklyXP.reduce((total, value) => total + value, 0)
+  const featuredHabit = habits[0]
 
   const recentActivity = [
     { type: "reading", surah: "Al-Fatiha", ayahs: 7, time: "2 hours ago" },
@@ -41,12 +54,12 @@ export default function DashboardPage() {
       <div className="p-6">
         {/* Welcome Section */}
         <div className="mb-8">
-          <h2 className="text-3xl font-bold text-maroon-900 mb-2">Assalamu Alaikum, Ahmad</h2>
+          <h2 className="text-3xl font-bold text-maroon-900 mb-2">Assalamu Alaikum, {firstName}</h2>
           <p className="text-lg text-maroon-700">Continue your journey of Qur'anic excellence</p>
           <div className="flex items-center mt-4">
             <Badge className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0 px-3 py-1">
               <Star className="w-3 h-3 mr-1" />
-              1,247 Hasanat Points
+              {stats.hasanat.toLocaleString()} Hasanat Points
             </Badge>
           </div>
         </div>
@@ -58,7 +71,7 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-blue-100 text-sm">Daily Streak</p>
-                  <p className="text-2xl font-bold">7 days</p>
+                  <p className="text-2xl font-bold">{stats.streak} days</p>
                 </div>
                 <Calendar className="w-8 h-8 text-blue-200" />
               </div>
@@ -70,7 +83,7 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-green-100 text-sm">Ayahs Read</p>
-                  <p className="text-2xl font-bold">342</p>
+                  <p className="text-2xl font-bold">{stats.ayahsRead.toLocaleString()}</p>
                 </div>
                 <BookOpen className="w-8 h-8 text-green-200" />
               </div>
@@ -82,7 +95,7 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-purple-100 text-sm">Study Time</p>
-                  <p className="text-2xl font-bold">2h 15m</p>
+                  <p className="text-2xl font-bold">{formattedStudyTime}</p>
                 </div>
                 <Clock className="w-8 h-8 text-purple-200" />
               </div>
@@ -94,7 +107,7 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-orange-100 text-sm">Rank</p>
-                  <p className="text-2xl font-bold">#12</p>
+                  <p className="text-2xl font-bold">#{stats.rank}</p>
                 </div>
                 <Trophy className="w-8 h-8 text-orange-200" />
               </div>
@@ -105,6 +118,58 @@ export default function DashboardPage() {
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-8">
+            <Card className="shadow-lg">
+              <CardHeader>
+                <CardTitle className="text-xl flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-maroon-600" />
+                  Level Progress
+                </CardTitle>
+                <CardDescription>Earn XP from daily habits to unlock advanced recitation challenges.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-maroon-600">Current Level</p>
+                    <p className="text-3xl font-bold text-maroon-900">Level {stats.level}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-500">XP to next level</p>
+                    <p className="text-lg font-semibold text-maroon-700">{stats.xpToNext} XP</p>
+                  </div>
+                </div>
+                <Progress value={xpProgress} className="h-2" />
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Weekly XP</p>
+                    <p className="text-lg font-semibold text-maroon-900">{weeklyXpTotal} XP</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Habits Completed</p>
+                    <p className="text-lg font-semibold text-maroon-900">{stats.completedHabits}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Hasanat Earned</p>
+                    <p className="text-lg font-semibold text-maroon-900">{stats.hasanat.toLocaleString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-500">Daily Power-Up</p>
+                    <p className="text-lg font-semibold text-maroon-900">+{featuredHabit?.xpReward ?? 0} XP</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-maroon-100 bg-maroon-50 p-4">
+                  <div>
+                    <p className="text-sm font-medium text-maroon-900">Keep the streak alive</p>
+                    <p className="text-xs text-maroon-600">
+                      Complete any Habit Quest today to push your streak past {stats.streak} days.
+                    </p>
+                  </div>
+                  <Link href="/habits">
+                    <Button className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0">Open Habit Quest</Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Continue Learning */}
             <Card className="shadow-lg">
               <CardHeader>
@@ -119,10 +184,10 @@ export default function DashboardPage() {
                       <p className="text-sm text-maroon-600">The Cow • Ayah 156 of 286</p>
                     </div>
                     <Badge className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0">
-                      54% Complete
+                      Level {featuredHabit?.level ?? 1}
                     </Badge>
                   </div>
-                  <Progress value={54} className="mb-4" />
+                  <Progress value={featuredHabit?.progress ?? 0} className="mb-4" />
                   <div className="flex space-x-3">
                     <Link href="/reader" className="flex-1">
                       <Button className="w-full bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0">
@@ -131,8 +196,8 @@ export default function DashboardPage() {
                       </Button>
                     </Link>
                     <Button variant="outline" className="bg-white">
-                      <Mic className="w-4 h-4 mr-2" />
-                      Practice
+                      <Target className="w-4 h-4 mr-2" />
+                      View Habit
                     </Button>
                   </div>
                 </div>
@@ -168,6 +233,52 @@ export default function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
+
+            <PremiumGate featureName="AI Tajweed Coach" description="Unlock instant pronunciation scoring and tajweed drills.">
+              <Card className="shadow-lg relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-maroon-600/10 via-transparent to-yellow-200/20 pointer-events-none" aria-hidden="true" />
+                <CardHeader>
+                  <CardTitle className="text-xl flex items-center gap-2">
+                    <Mic className="w-5 h-5 text-maroon-600" />
+                    AI Tajweed Coach
+                  </CardTitle>
+                  <CardDescription>Personalized tajweed drills with real-time corrections powered by premium AI.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-maroon-600 to-maroon-700 flex items-center justify-center text-white">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-maroon-900">Precision feedback</p>
+                        <p className="text-xs text-maroon-600">Get phoneme-level scoring after every recitation.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-yellow-500 to-orange-500 flex items-center justify-center text-white">
+                        <Award className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-maroon-900">Custom drills</p>
+                        <p className="text-xs text-maroon-600">Focus on weak letters and memorize with confidence.</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-dashed border-maroon-200 bg-maroon-50/60 p-4 flex flex-col justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-maroon-900">Today's premium boost</p>
+                      <p className="text-xs text-maroon-600">
+                        Earn +120 bonus XP for completing a tajweed mastery session.
+                      </p>
+                    </div>
+                    <Button className="mt-4 w-full bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0">
+                      Start Premium Session
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </PremiumGate>
 
             {/* Recent Activity */}
             <Card>
