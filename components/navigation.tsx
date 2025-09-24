@@ -1,10 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { useUser } from "@/hooks/use-user"
 import {
   BookOpen,
   Users,
@@ -21,14 +22,18 @@ import {
   Crown,
   Shield,
   Bell,
+  Gamepad2,
+  Sparkles,
 } from "lucide-react"
 
 export default function Navigation() {
   const [isOpen, setIsOpen] = useState(false)
   const pathname = usePathname()
+  const { profile, isPremium } = useUser()
 
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: Home },
+    { name: "Habit Quest", href: "/habits", icon: Gamepad2 },
     { name: "Qur'an Reader", href: "/reader", icon: BookOpen },
     { name: "Memorization", href: "/memorization", icon: Target },
     { name: "Progress", href: "/progress", icon: BarChart3 },
@@ -48,6 +53,12 @@ export default function Navigation() {
   ]
 
   const isActive = (href: string) => pathname === href
+
+  const planLabel = useMemo(() => {
+    const roleLabel = profile.role.charAt(0).toUpperCase() + profile.role.slice(1)
+    const planName = isPremium ? "Premium" : "Free"
+    return `${planName} ${roleLabel}`
+  }, [profile.role, isPremium])
 
   return (
     <>
@@ -93,6 +104,12 @@ export default function Navigation() {
                   >
                     <Icon className="h-4 w-4" />
                     {item.name}
+                    {item.name === "Habit Quest" && !isPremium && (
+                      <Badge className="ml-auto bg-gradient-to-r from-yellow-400 to-orange-500 text-white border-0 flex items-center gap-1">
+                        <Sparkles className="h-3 w-3" />
+                        New
+                      </Badge>
+                    )}
                     {item.name === "Achievements" && (
                       <Badge className="ml-auto bg-yellow-100 text-yellow-800 border-yellow-200">3</Badge>
                     )}
@@ -158,8 +175,8 @@ export default function Navigation() {
                 <User className="h-4 w-4 text-maroon-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">Ahmad Al-Hafiz</p>
-                <p className="text-xs text-gray-500">Premium Student</p>
+                <p className="text-sm font-medium text-gray-900 truncate">{profile.name}</p>
+                <p className="text-xs text-gray-500">{planLabel}</p>
               </div>
               <Button variant="ghost" size="sm">
                 <Bell className="h-4 w-4" />
