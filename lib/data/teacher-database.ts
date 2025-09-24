@@ -87,6 +87,7 @@ interface TeacherDatabaseSchema {
 const now = new Date()
 
 const iso = (date: Date) => date.toISOString()
+const MAX_ACTIVITY_ENTRIES = 50
 
 const database: TeacherDatabaseSchema = {
   teachers: [
@@ -272,11 +273,40 @@ export function updateDailyTarget(studentId: string, target: number): StudentDas
 export function recordAyahProgress(studentId: string, increment = 1): StudentDashboardRecord | undefined {
   const record = database.dashboards[studentId]
   if (!record) return undefined
-  record.dailyTarget.completedAyahs = Math.min(
-    record.dailyTarget.completedAyahs + increment,
+  const normalizedIncrement = Number.isFinite(increment) ? Math.max(0, Math.floor(increment)) : 0
+  const previousCompleted = record.dailyTarget.completedAyahs
+  const nextCompleted = Math.min(
+    previousCompleted + normalizedIncrement,
     record.dailyTarget.targetAyahs,
   )
+
+  const actualIncrement = Math.max(0, nextCompleted - previousCompleted)
+
+  record.dailyTarget.completedAyahs = nextCompleted
   record.dailyTarget.lastUpdated = iso(new Date())
+
+  if (actualIncrement > 0) {
+    const timestamp = new Date()
+    record.activities.unshift({
+      id: `activity_${timestamp.getTime()}`,
+      type: "reading",
+      surah: record.lastRead.surah || "Daily Recitation",
+      ayahs: actualIncrement,
+      timestamp: iso(timestamp),
+    })
+
+    if (record.activities.length > MAX_ACTIVITY_ENTRIES) {
+      record.activities = record.activities.slice(0, MAX_ACTIVITY_ENTRIES)
+    }
+
+    if (record.lastRead.ayah < record.lastRead.totalAyahs) {
+      record.lastRead.ayah = Math.min(
+        record.lastRead.totalAyahs,
+        record.lastRead.ayah + actualIncrement,
+      )
+    }
+  }
+
   return getStudentDashboardRecord(studentId)
 }
 
