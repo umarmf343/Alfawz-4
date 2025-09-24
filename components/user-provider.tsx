@@ -2,6 +2,20 @@
 
 import { createContext, useCallback, useContext, useMemo, useState } from "react"
 
+import {
+  getTeacherProfiles,
+  getStudentDashboardRecord,
+  recordAyahProgress,
+  resetDailyProgress,
+  setPreferredHabit,
+  GoalRecord,
+  TeacherProfile,
+  StudentDashboardRecord,
+  updateDailyTarget as updateDailyTargetRecord,
+  upsertGoalProgress,
+  addGoal as addGoalRecord,
+} from "@/lib/data/teacher-database"
+
 type UserRole = "student" | "teacher" | "parent" | "admin"
 type SubscriptionPlan = "free" | "premium"
 type HabitDifficulty = "easy" | "medium" | "hard"
@@ -57,10 +71,19 @@ interface UserContextValue {
   profile: UserProfile
   stats: UserStats
   habits: HabitQuest[]
+  teachers: TeacherProfile[]
   perks: string[]
   lockedPerks: string[]
   isPremium: boolean
+  dashboard: StudentDashboardRecord
   completeHabit: (habitId: string) => CompleteHabitResult
+  updateDailyTarget: (target: number) => void
+  incrementDailyTarget: (increment?: number) => void
+  resetDailyTargetProgress: () => void
+  setFeaturedHabit: (habitId: string) => void
+  updateGoalProgress: (goalId: string, progress: number) => void
+  toggleGoalCompletion: (goalId: string, completed: boolean) => void
+  addGoal: (goal: { title: string; deadline: string }) => void
   upgradeToPremium: () => void
   downgradeToFree: () => void
 }
@@ -180,6 +203,25 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [stats, setStats] = useState<UserStats>(initialStats)
   const [habits, setHabits] = useState<HabitQuest[]>(initialHabits)
   const [lastActivityDate, setLastActivityDate] = useState<string | null>(yesterdayKey)
+  const [teachers] = useState<TeacherProfile[]>(() => getTeacherProfiles())
+  const [dashboard, setDashboard] = useState<StudentDashboardRecord>(() => {
+    return (
+      getStudentDashboardRecord(initialProfile.id) ?? {
+        studentId: initialProfile.id,
+        dailyTarget: { targetAyahs: 10, completedAyahs: 0, lastUpdated: new Date().toISOString() },
+        recitationPercentage: 0,
+        memorizationPercentage: 0,
+        lastRead: { surah: "", ayah: 0, totalAyahs: 0 },
+        preferredHabitId: initialHabits[0]?.id,
+        activities: [],
+        goals: [],
+        achievements: [],
+        leaderboard: [],
+        teacherNotes: [],
+        premiumBoost: { xpBonus: 0, description: "", isActive: false },
+      }
+    )
+  })
 
   const isPremium = profile.plan === "premium"
 
@@ -247,6 +289,17 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         }),
       )
 
+      setDashboard((current) => {
+        if (!current) {
+          return current
+        }
+        if (habitId === current.preferredHabitId) {
+          const updated = recordAyahProgress(profile.id, 0)
+          return updated ?? current
+        }
+        return current
+      })
+
       if (!result.success) {
         return result
       }
@@ -292,7 +345,88 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
       return result
     },
-    [lastActivityDate],
+    [lastActivityDate, profile.id],
+  )
+
+  const updateDailyTarget = useCallback(
+    (target: number) => {
+      setDashboard((current) => {
+        const updated = updateDailyTargetRecord(profile.id, target)
+        return updated ?? current
+      })
+    },
+    [profile.id],
+  )
+
+  const incrementDailyTarget = useCallback(
+    (increment = 1) => {
+      setDashboard((current) => {
+        const updated = recordAyahProgress(profile.id, increment)
+        return updated ?? current
+      })
+    },
+    [profile.id],
+  )
+
+  const resetDailyTargetProgress = useCallback(() => {
+    setDashboard((current) => {
+      const updated = resetDailyProgress(profile.id)
+      return updated ?? current
+    })
+  }, [profile.id])
+
+  const setFeaturedHabit = useCallback(
+    (habitId: string) => {
+      setDashboard((current) => {
+        const updated = setPreferredHabit(profile.id, habitId)
+        return updated ?? current
+      })
+    },
+    [profile.id],
+  )
+
+  const updateGoalProgress = useCallback(
+    (goalId: string, progress: number) => {
+      setDashboard((current) => {
+        const updated = upsertGoalProgress(profile.id, goalId, progress)
+        return updated ?? current
+      })
+    },
+    [profile.id],
+  )
+
+  const toggleGoalCompletion = useCallback(
+    (goalId: string, completed: boolean) => {
+      setDashboard((current) => {
+        if (!current) return current
+        const existing = current.goals.find((goal) => goal.id === goalId)
+        const updated = upsertGoalProgress(
+          profile.id,
+          goalId,
+          completed ? 100 : (existing?.progress ?? 0),
+          completed ? "completed" : (existing?.status ?? "active"),
+        )
+        return updated ?? current
+      })
+    },
+    [profile.id],
+  )
+
+  const addGoal = useCallback(
+    (goal: { title: string; deadline: string }) => {
+      setDashboard((current) => {
+        const newGoal: GoalRecord = {
+          id: `goal_${Date.now()}`,
+          title: goal.title,
+          deadline: goal.deadline,
+          progress: 0,
+          status: "active",
+        }
+        const updated = addGoalRecord(profile.id, newGoal)
+        return updated ?? current
+      })
+    },
+    [profile.id],
   )
 
   const upgradeToPremium = useCallback(() => {
@@ -308,14 +442,42 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       profile,
       stats,
       habits,
+      teachers,
       perks,
       lockedPerks,
       isPremium,
+      dashboard,
       completeHabit,
+      updateDailyTarget,
+      incrementDailyTarget,
+      resetDailyTargetProgress,
+      setFeaturedHabit,
+      updateGoalProgress,
+      toggleGoalCompletion,
+      addGoal,
       upgradeToPremium,
       downgradeToFree,
     }),
-    [profile, stats, habits, perks, lockedPerks, isPremium, completeHabit, upgradeToPremium, downgradeToFree],
+    [
+      profile,
+      stats,
+      habits,
+      teachers,
+      perks,
+      lockedPerks,
+      isPremium,
+      dashboard,
+      completeHabit,
+      updateDailyTarget,
+      incrementDailyTarget,
+      resetDailyTargetProgress,
+      setFeaturedHabit,
+      updateGoalProgress,
+      toggleGoalCompletion,
+      addGoal,
+      upgradeToPremium,
+      downgradeToFree,
+    ],
   )
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>
