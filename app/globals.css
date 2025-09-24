@@ -1,0 +1,379 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Updated theme to match Islamic educational platform with maroon and cream colors */
+  --background: oklch(0.98 0.01 45); /* Warm cream background */
+  --foreground: oklch(0.15 0.02 15); /* Dark brown text */
+  --card: oklch(0.99 0.005 45);
+  --card-foreground: oklch(0.15 0.02 15);
+  --popover: oklch(0.99 0.005 45);
+  --popover-foreground: oklch(0.15 0.02 15);
+  --primary: oklch(0.35 0.15 15); /* Rich maroon */
+  --primary-foreground: oklch(0.98 0.01 45);
+  --secondary: oklch(0.92 0.02 45); /* Light cream */
+  --secondary-foreground: oklch(0.35 0.15 15);
+  --muted: oklch(0.94 0.015 45);
+  --muted-foreground: oklch(0.45 0.05 15);
+  --accent: oklch(0.65 0.12 35); /* Warm gold accent */
+  --accent-foreground: oklch(0.98 0.01 45);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.98 0.01 45);
+  --border: oklch(0.88 0.02 45);
+  --input: oklch(0.96 0.01 45);
+  --ring: oklch(0.35 0.15 15);
+  --chart-1: oklch(0.35 0.15 15);
+  --chart-2: oklch(0.65 0.12 35);
+  --chart-3: oklch(0.55 0.08 25);
+  --chart-4: oklch(0.75 0.06 55);
+  --chart-5: oklch(0.45 0.1 5);
+  --radius: 0.75rem;
+  --sidebar: oklch(0.96 0.01 45);
+  --sidebar-foreground: oklch(0.15 0.02 15);
+  --sidebar-primary: oklch(0.35 0.15 15);
+  --sidebar-primary-foreground: oklch(0.98 0.01 45);
+  --sidebar-accent: oklch(0.92 0.02 45);
+  --sidebar-accent-foreground: oklch(0.35 0.15 15);
+  --sidebar-border: oklch(0.88 0.02 45);
+  --sidebar-ring: oklch(0.35 0.15 15);
+}
+
+.dark {
+  --background: oklch(0.12 0.02 15);
+  --foreground: oklch(0.95 0.01 45);
+  --card: oklch(0.14 0.02 15);
+  --card-foreground: oklch(0.95 0.01 45);
+  --popover: oklch(0.14 0.02 15);
+  --popover-foreground: oklch(0.95 0.01 45);
+  --primary: oklch(0.65 0.12 35);
+  --primary-foreground: oklch(0.12 0.02 15);
+  --secondary: oklch(0.22 0.03 15);
+  --secondary-foreground: oklch(0.95 0.01 45);
+  --muted: oklch(0.18 0.02 15);
+  --muted-foreground: oklch(0.65 0.05 25);
+  --accent: oklch(0.75 0.1 45);
+  --accent-foreground: oklch(0.12 0.02 15);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.95 0.01 45);
+  --border: oklch(0.22 0.03 15);
+  --input: oklch(0.18 0.02 15);
+  --ring: oklch(0.65 0.12 35);
+  --sidebar: oklch(0.16 0.02 15);
+  --sidebar-foreground: oklch(0.95 0.01 45);
+  --sidebar-primary: oklch(0.65 0.12 35);
+  --sidebar-primary-foreground: oklch(0.12 0.02 15);
+  --sidebar-accent: oklch(0.22 0.03 15);
+  --sidebar-accent-foreground: oklch(0.95 0.01 45);
+  --sidebar-border: oklch(0.22 0.03 15);
+  --sidebar-ring: oklch(0.65 0.12 35);
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Enhanced Arabic typography with multiple font options and better RTL support */
+  .font-arabic {
+    font-family: "Amiri", "Scheherazade New", "Noto Naskh Arabic", serif;
+    direction: rtl;
+    text-align: right;
+    line-height: 2.2;
+    font-feature-settings: "liga" 1, "dlig" 1, "kern" 1;
+    text-rendering: optimizeLegibility;
+  }
+
+  .font-arabic-modern {
+    font-family: "Noto Sans Arabic", "Reem Kufi", sans-serif;
+    direction: rtl;
+    text-align: right;
+    line-height: 1.8;
+    font-feature-settings: "liga" 1, "kern" 1;
+  }
+
+  .font-quran {
+    font-family: "Scheherazade New", "Amiri", "Noto Naskh Arabic", serif;
+    direction: rtl;
+    text-align: right;
+    line-height: 2.5;
+    font-size: 1.25em;
+    font-feature-settings: "liga" 1, "dlig" 1, "kern" 1, "mark" 1, "mkmk" 1;
+    text-rendering: optimizeLegibility;
+    letter-spacing: 0.02em;
+  }
+
+  /* RTL layout utilities */
+  .rtl {
+    direction: rtl;
+    text-align: right;
+  }
+
+  .ltr {
+    direction: ltr;
+    text-align: left;
+  }
+
+  .rtl-flex {
+    direction: rtl;
+    display: flex;
+  }
+
+  .rtl-grid {
+    direction: rtl;
+    display: grid;
+  }
+
+  /* Arabic text sizing utilities */
+  .text-arabic-sm {
+    font-size: 1rem;
+    line-height: 2;
+  }
+
+  .text-arabic-base {
+    font-size: 1.125rem;
+    line-height: 2.2;
+  }
+
+  .text-arabic-lg {
+    font-size: 1.25rem;
+    line-height: 2.4;
+  }
+
+  .text-arabic-xl {
+    font-size: 1.5rem;
+    line-height: 2.6;
+  }
+
+  .text-arabic-2xl {
+    font-size: 1.875rem;
+    line-height: 2.8;
+  }
+
+  .text-arabic-3xl {
+    font-size: 2.25rem;
+    line-height: 3;
+  }
+
+  /* Enhanced Arabic text styling with proper diacritics support */
+  .arabic-diacritics {
+    font-feature-settings: "mark" 1, "mkmk" 1, "kern" 1, "liga" 1;
+    text-rendering: optimizeLegibility;
+  }
+
+  .arabic-no-diacritics {
+    font-feature-settings: "mark" 0, "mkmk" 0, "kern" 1, "liga" 1;
+  }
+
+  /* Improved scrollbar for RTL content */
+  .rtl-scrollbar::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .rtl-scrollbar::-webkit-scrollbar-track {
+    @apply bg-muted rounded-lg;
+  }
+
+  .rtl-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-primary/40 rounded-lg;
+  }
+
+  .rtl-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-primary/60;
+  }
+
+  /* Arabic input field styling */
+  .arabic-input {
+    direction: rtl;
+    text-align: right;
+    font-family: "Noto Sans Arabic", "Reem Kufi", sans-serif;
+    font-feature-settings: "liga" 1, "kern" 1;
+  }
+
+  .arabic-input::placeholder {
+    direction: rtl;
+    text-align: right;
+    opacity: 0.6;
+  }
+
+  /* Improved focus states for Arabic text */
+  .arabic-focus:focus {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 0.375rem;
+  }
+
+  /* Arabic text selection styling */
+  .arabic-text::selection {
+    background-color: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  /* Responsive Arabic text sizing */
+  @media (max-width: 640px) {
+    .font-quran {
+      font-size: 1.1em;
+      line-height: 2.2;
+    }
+
+    .text-arabic-responsive {
+      font-size: 1rem;
+      line-height: 2;
+    }
+  }
+
+  @media (min-width: 641px) and (max-width: 1024px) {
+    .text-arabic-responsive {
+      font-size: 1.125rem;
+      line-height: 2.2;
+    }
+  }
+
+  @media (min-width: 1025px) {
+    .text-arabic-responsive {
+      font-size: 1.25rem;
+      line-height: 2.4;
+    }
+  }
+
+  /* Arabic animation utilities */
+  .arabic-fade-in {
+    animation: arabicFadeIn 0.6s ease-in-out;
+  }
+
+  @keyframes arabicFadeIn {
+    from {
+      opacity: 0;
+      transform: translateX(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
+  .arabic-slide-in {
+    animation: arabicSlideIn 0.8s ease-out;
+  }
+
+  @keyframes arabicSlideIn {
+    from {
+      opacity: 0;
+      transform: translateX(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+}
+
+/* Enhanced gradient utilities with Arabic-inspired colors */
+@layer utilities {
+  .gradient-maroon {
+    background: linear-gradient(135deg, oklch(0.35 0.15 15) 0%, oklch(0.45 0.12 20) 100%);
+  }
+
+  .gradient-gold {
+    background: linear-gradient(135deg, oklch(0.65 0.12 35) 0%, oklch(0.75 0.1 45) 100%);
+  }
+
+  .gradient-cream {
+    background: linear-gradient(135deg, oklch(0.98 0.01 45) 0%, oklch(0.96 0.02 50) 100%);
+  }
+
+  .text-gradient-gold {
+    background: linear-gradient(135deg, oklch(0.65 0.12 35) 0%, oklch(0.75 0.1 45) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Added Arabic-specific gradient utilities */
+  .gradient-islamic {
+    background: linear-gradient(135deg, oklch(0.35 0.15 15) 0%, oklch(0.65 0.12 35) 50%, oklch(0.45 0.12 20) 100%);
+  }
+
+  .text-gradient-islamic {
+    background: linear-gradient(135deg, oklch(0.35 0.15 15) 0%, oklch(0.65 0.12 35) 50%, oklch(0.45 0.12 20) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* RTL-specific utilities */
+  .rtl-space-x-reverse > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-x-reverse: 1;
+  }
+
+  .rtl-divide-x-reverse > :not([hidden]) ~ :not([hidden]) {
+    --tw-divide-x-reverse: 1;
+  }
+
+  /* Arabic text decoration utilities */
+  .arabic-underline {
+    text-decoration: underline;
+    text-decoration-color: var(--primary);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 4px;
+  }
+
+  .arabic-highlight {
+    background: linear-gradient(
+      120deg,
+      transparent 0%,
+      transparent 40%,
+      oklch(0.65 0.12 35) 40%,
+      oklch(0.65 0.12 35) 60%,
+      transparent 60%
+    );
+    background-size: 100% 0.3em;
+    background-repeat: no-repeat;
+    background-position: 0 85%;
+  }
+}
