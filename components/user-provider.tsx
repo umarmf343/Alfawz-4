@@ -14,6 +14,7 @@ import {
   completeHabitQuest as persistCompleteHabitQuest,
   logRecitationSession as persistRecitationSession,
   setSubscriptionPlan as persistSubscriptionPlan,
+  reviewMemorizationTask as persistMemorizationReview,
   type GoalRecord,
   type TeacherProfile,
   type StudentDashboardRecord,
@@ -24,6 +25,7 @@ import {
   type CompleteHabitResult as PersistHabitResult,
   type SubscriptionPlan,
   type RecitationSubmissionInput,
+  type MemorizationReviewInput,
 } from "@/lib/data/teacher-database"
 import { getActiveSession } from "@/lib/data/auth"
 
@@ -54,6 +56,7 @@ interface UserContextValue {
   upgradeToPremium: () => void
   downgradeToFree: () => void
   submitRecitationResult: (submission: RecitationSubmissionInput) => void
+  reviewMemorizationTask: (review: MemorizationReviewInput) => void
 }
 
 const perksByPlan: Record<SubscriptionPlan, string[]> = {
@@ -113,6 +116,18 @@ function createFallbackDashboardRecord(studentId: string): StudentDashboardRecor
     premiumBoost: { xpBonus: 0, description: "", isActive: false, availableSessions: 0 },
     recitationTasks: [],
     recitationSessions: [],
+    memorizationQueue: [],
+    memorizationPlaylists: [],
+    memorizationSummary: {
+      dueToday: 0,
+      newCount: 0,
+      totalMastered: 0,
+      streak: 0,
+      recommendedDuration: 0,
+      focusArea: "",
+      lastReviewedOn: null,
+      reviewHeatmap: [],
+    },
   }
 }
 
@@ -296,6 +311,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     [applyLearnerState, studentId],
   )
 
+  const reviewMemorizationTask = useCallback(
+    (review: MemorizationReviewInput) => {
+      const state = persistMemorizationReview(studentId, review)
+      if (state) {
+        applyLearnerState(state)
+      }
+    },
+    [applyLearnerState, studentId],
+  )
+
   const upgradeToPremium = useCallback(() => {
     const state = persistSubscriptionPlan(studentId, "premium")
     if (state) {
@@ -335,6 +360,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       toggleGoalCompletion,
       addGoal,
       submitRecitationResult,
+      reviewMemorizationTask,
       upgradeToPremium,
       downgradeToFree,
     }),
@@ -358,6 +384,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       toggleGoalCompletion,
       addGoal,
       submitRecitationResult,
+      reviewMemorizationTask,
       upgradeToPremium,
       downgradeToFree,
     ],
