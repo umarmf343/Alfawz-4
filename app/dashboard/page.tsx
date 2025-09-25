@@ -16,6 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 import AppLayout from "@/components/app-layout"
 import { PremiumGate } from "@/components/premium-gate"
+import { QuranFlipBook } from "@/components/quran-flipbook"
 import { useUser } from "@/hooks/use-user"
 import {
   BookOpen,
@@ -231,6 +232,14 @@ export default function DashboardPage() {
     : 0
   const nextRecitationTask = pendingRecitations[0] ?? recitationTasks[0]
   const lastRecitationSession = recitationSessions[0]
+  const recitationFlipbookSurah = nextRecitationTask?.surah ?? lastRecitationSession?.surah
+  const recitationFlipbookInitialAyah = useMemo(() => {
+    const range = nextRecitationTask?.ayahRange ?? lastRecitationSession?.ayahRange
+    if (!range) return undefined
+    const [start] = range.split("-")
+    const parsed = Number.parseInt(start ?? "", 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+  }, [nextRecitationTask?.ayahRange, lastRecitationSession?.ayahRange])
   const averageRecitationScore = recitationSessions.length
     ? Math.round(recitationSessions.reduce((total, session) => total + session.accuracy, 0) / recitationSessions.length)
     : 0
@@ -1130,6 +1139,19 @@ export default function DashboardPage() {
                       Tajweed spotlight: {nextTajweedFocus.rule} — target {nextTajweedFocus.targetScore}%
                     </p>
                   )}
+                </div>
+              )}
+
+              {recitationFlipbookSurah && (
+                <div className="space-y-3">
+                  <p className="text-xs text-gray-600">
+                    Explore your current assignment directly inside the interactive mushaf reader.
+                  </p>
+                  <QuranFlipBook
+                    initialSurahName={recitationFlipbookSurah}
+                    initialAyah={recitationFlipbookInitialAyah}
+                    className="border-maroon-100 bg-white"
+                  />
                 </div>
               )}
 
