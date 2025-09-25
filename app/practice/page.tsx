@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 import { RecordingInterface } from "@/components/recording-interface"
 import { QuranFlipBook } from "@/components/quran-flipbook"
 import { useUser } from "@/hooks/use-user"
@@ -93,6 +95,10 @@ export default function PracticePage() {
   )
 
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null)
+  const [isSingleVerseMode, setIsSingleVerseMode] = useState(false)
+  const [currentVerseIndex, setCurrentVerseIndex] = useState(0)
+  const [verseHasanatEarned, setVerseHasanatEarned] = useState(0)
+  const [countedVerses, setCountedVerses] = useState<boolean[]>([])
 
   useEffect(() => {
     if (recitationTasks.length === 0) {
@@ -137,6 +143,13 @@ export default function PracticePage() {
   const totalHasanat = recitationSessions.reduce((sum, session) => sum + session.hasanatEarned, 0)
   const latestSession = recitationSessions[0]
 
+  const verseCount = activeTask.verses.length
+  const currentVerse = activeTask.verses[currentVerseIndex] ?? activeTask.verses[0]
+  const countedTotal = countedVerses.filter(Boolean).length
+  const verseProgress = verseCount > 0 ? Math.round((countedTotal / verseCount) * 100) : 0
+  const hasCurrentVerseCounted = countedVerses[currentVerseIndex] ?? false
+  const isLastVerse = currentVerseIndex >= verseCount - 1
+
   const assignmentStartAyah = useMemo(() => {
     const range = activeTask.ayahRange
     if (!range) return 1
@@ -162,6 +175,42 @@ export default function PracticePage() {
     },
     [submitRecitationResult, currentTask?.id, activeTask.surah, activeTask.ayahRange, expectedText],
   )
+
+  useEffect(() => {
+    setCurrentVerseIndex(0)
+    setVerseHasanatEarned(0)
+    setCountedVerses(new Array(activeTask.verses.length).fill(false))
+  }, [activeTask.id, activeTask.verses.length])
+
+  const calculateVerseHasanat = useCallback((text: string) => {
+    const matches = text.match(/[\u0621-\u063A\u0641-\u064A]/g)
+    return (matches?.length ?? 0) * 10
+  }, [])
+
+  const handlePreviousVerse = useCallback(() => {
+    setCurrentVerseIndex((prev) => (prev > 0 ? prev - 1 : prev))
+  }, [])
+
+  const handleNextVerse = useCallback(() => {
+    if (!currentVerse) return
+
+    setCountedVerses((prev) => {
+      const next = [...prev]
+      if (!next[currentVerseIndex]) {
+        next[currentVerseIndex] = true
+        const hasanatForVerse = calculateVerseHasanat(currentVerse.arabic)
+        setVerseHasanatEarned((total) => total + hasanatForVerse)
+      }
+      return next
+    })
+
+    setCurrentVerseIndex((prev) => {
+      if (prev >= verseCount - 1) {
+        return prev
+      }
+      return prev + 1
+    })
+  }, [calculateVerseHasanat, currentVerse, currentVerseIndex, verseCount])
 
   const isUsingFallback = recitationTasks.length === 0
 
@@ -305,17 +354,101 @@ export default function PracticePage() {
               <p className="text-sm font-semibold text-gray-700">
                 Assigned by {teacherMap.get(activeTask.teacherId) ?? "Your instructor"}
               </p>
-              <div className="space-y-3">
-                {activeTask.verses.map((verse) => (
-                  <div key={verse.ayah} className="rounded-lg border border-maroon-100 bg-cream-50 p-4">
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>Ayah {verse.ayah}</span>
-                      <span>{activeTask.surah}</span>
-                    </div>
-                    <div className="mt-2 text-right text-2xl font-arabic text-maroon-900">{verse.arabic}</div>
-                    <div className="mt-3 text-sm text-gray-600">{verse.translation}</div>
+              <div className="space-y-4 rounded-lg border border-maroon-100/60 bg-white/70 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-maroon-800">Single-verse recitation mode</p>
+                    <p className="text-xs text-gray-600">
+                      Focus on one ayah at a time and tally hasanat as you progress.
+                    </p>
                   </div>
-                ))}
+                  <div className="flex items-center gap-3">
+                    <Label htmlFor="single-verse-mode" className="text-sm text-gray-700">
+                      {isSingleVerseMode ? "On" : "Off"}
+                    </Label>
+                    <Switch
+                      id="single-verse-mode"
+                      checked={isSingleVerseMode}
+                      onCheckedChange={setIsSingleVerseMode}
+                    />
+                  </div>
+                </div>
+
+                {isSingleVerseMode ? (
+                  <div className="space-y-5">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="text-sm font-semibold text-maroon-700">
+                        Verse {currentVerseIndex + 1} of {verseCount}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-gray-600">
+                        <Badge variant="secondary" className="bg-amber-100 text-amber-700">
+                          Session hasanat: {verseHasanatEarned}
+                        </Badge>
+                        <Badge variant="outline" className="border-maroon-200 text-maroon-700">
+                          {verseProgress}% complete
+                        </Badge>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-xl border border-maroon-100 bg-cream-50/80 p-6 shadow-inner">
+                      <div
+                        key={currentVerse?.ayah}
+                        className="space-y-4 animate-in fade-in-0 slide-in-from-bottom-2 duration-300"
+                      >
+                        <div className="text-right text-3xl font-arabic leading-relaxed text-maroon-900" dir="rtl">
+                          {currentVerse?.arabic}
+                        </div>
+                        <p className="text-sm text-gray-700">{currentVerse?.translation}</p>
+                        <p className="text-xs text-gray-500">
+                          Surah {activeTask.surah} • Ayah {currentVerse?.ayah}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <Progress value={verseProgress} className="h-2" />
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <Button
+                          variant="outline"
+                          onClick={handlePreviousVerse}
+                          disabled={currentVerseIndex === 0}
+                        >
+                          Previous ayah
+                        </Button>
+                        <div className="text-sm text-gray-600">
+                          {hasCurrentVerseCounted
+                            ? "Hasanat counted for this ayah."
+                            : `+${calculateVerseHasanat(currentVerse?.arabic ?? "0")} hasanat when you proceed.`}
+                        </div>
+                        <Button
+                          className="bg-maroon-600 text-white hover:bg-maroon-700"
+                          onClick={handleNextVerse}
+                          disabled={isLastVerse && hasCurrentVerseCounted}
+                        >
+                          {isLastVerse ? (hasCurrentVerseCounted ? "Completed" : "Complete recitation") : "Next ayah"}
+                        </Button>
+                      </div>
+                      {isLastVerse && hasCurrentVerseCounted && (
+                        <p className="text-sm font-medium text-green-700">
+                          Masha’Allah! You have recited all assigned verses and earned {verseHasanatEarned} hasanat this round.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {activeTask.verses.map((verse) => (
+                      <div key={verse.ayah} className="rounded-lg border border-maroon-100 bg-cream-50 p-4">
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <span>Ayah {verse.ayah}</span>
+                          <span>{activeTask.surah}</span>
+                        </div>
+                        <div className="mt-2 text-right text-2xl font-arabic text-maroon-900">{verse.arabic}</div>
+                        <div className="mt-3 text-sm text-gray-600">{verse.translation}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
