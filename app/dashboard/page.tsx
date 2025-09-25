@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Skeleton } from "@/components/ui/skeleton"
 import AppLayout from "@/components/app-layout"
 import { PremiumGate } from "@/components/premium-gate"
 import { useUser } from "@/hooks/use-user"
@@ -29,6 +31,11 @@ import {
   HeadphonesIcon,
   Sparkles,
   CheckCircle2,
+  ArrowUpRight,
+  ArrowDownRight,
+  AlertCircle,
+  Minus,
+  NotebookPen,
 } from "lucide-react"
 
 export default function DashboardPage() {
@@ -38,6 +45,8 @@ export default function DashboardPage() {
     habits,
     teachers,
     dashboard,
+    isLoading,
+    error,
     updateDailyTarget,
     incrementDailyTarget,
     resetDailyTargetProgress,
@@ -55,11 +64,43 @@ export default function DashboardPage() {
   const levelTarget = stats.xp + stats.xpToNext
   const xpProgress = levelTarget === 0 ? 0 : Math.max(0, Math.min(100, Math.round((stats.xp / levelTarget) * 100)))
   const weeklyXpTotal = stats.weeklyXP.reduce((total, value) => total + value, 0)
+  const preferredHabitId = dashboard?.preferredHabitId
+  const dailyTarget = dashboard?.dailyTarget
+  const activities = useMemo(() => dashboard?.activities ?? [], [dashboard?.activities])
+  const goals = useMemo(() => dashboard?.goals ?? [], [dashboard?.goals])
+  const leaderboardData = useMemo(() => dashboard?.leaderboard ?? [], [dashboard?.leaderboard])
+  const dailyTargetCompleted = dailyTarget?.completedAyahs ?? 0
+  const dailyTargetGoal = dailyTarget?.targetAyahs ?? 0
+  const habitCompletionTarget = dashboard?.habitCompletion.target ?? Math.max(habits.length * 4, 1)
+  const habitCompletionCompleted = Math.min(
+    dashboard?.habitCompletion.completed ?? stats.completedHabits,
+    habitCompletionTarget,
+  )
+  const habitCompletionPercent = habitCompletionTarget
+    ? Math.max(0, Math.min(100, Math.round((habitCompletionCompleted / habitCompletionTarget) * 100)))
+    : 0
+  const habitWeeklyChange = dashboard?.habitCompletion.weeklyChange ?? 0
+  const habitRingRadius = 44
+  const habitRingCircumference = 2 * Math.PI * habitRingRadius
+  const habitRingOffset = habitRingCircumference - (habitCompletionPercent / 100) * habitRingCircumference
+  const leaderboardSummary = useMemo(() => {
+    return (
+      leaderboardData.find(
+        (entry) => entry.name === "You" && entry.scope === "class" && entry.timeframe === "weekly",
+      ) ?? null
+    )
+  }, [leaderboardData])
+  const leaderboardTrend = leaderboardSummary?.trend ?? 0
+  const leaderboardPercentile = leaderboardSummary?.percentile
   const featuredHabit = useMemo(() => {
-    return habits.find((habit) => habit.id === dashboard.preferredHabitId) ?? habits[0]
-  }, [dashboard.preferredHabitId, habits])
+    if (!preferredHabitId) {
+      return habits[0]
+    }
+    return habits.find((habit) => habit.id === preferredHabitId) ?? habits[0]
+  }, [preferredHabitId, habits])
+  const hasHabits = habits.length > 0
 
-  const [customTarget, setCustomTarget] = useState(dashboard.dailyTarget.targetAyahs)
+  const [customTarget, setCustomTarget] = useState(() => dashboard?.dailyTarget.targetAyahs ?? 10)
   const [isCelebrating, setIsCelebrating] = useState(false)
   const [leaderboardScope, setLeaderboardScope] = useState<"class" | "global">("class")
   const [leaderboardTimeframe, setLeaderboardTimeframe] = useState<"weekly" | "monthly">("weekly")
@@ -69,8 +110,10 @@ export default function DashboardPage() {
   const [hasShownCelebration, setHasShownCelebration] = useState(false)
 
   useEffect(() => {
-    setCustomTarget(dashboard.dailyTarget.targetAyahs)
-  }, [dashboard.dailyTarget.targetAyahs])
+    if (dailyTarget) {
+      setCustomTarget(dailyTargetGoal)
+    }
+  }, [dailyTargetGoal, dailyTarget])
 
   useEffect(() => {
     if (goalFormOpen && newGoalDeadline.trim().length === 0) {
@@ -79,15 +122,12 @@ export default function DashboardPage() {
   }, [goalFormOpen, newGoalDeadline])
 
   const dailyTargetPercent = useMemo(() => {
-    if (dashboard.dailyTarget.targetAyahs === 0) return 0
-    return Math.max(
-      0,
-      Math.min(100, Math.round((dashboard.dailyTarget.completedAyahs / dashboard.dailyTarget.targetAyahs) * 100)),
-    )
-  }, [dashboard.dailyTarget.completedAyahs, dashboard.dailyTarget.targetAyahs])
+    if (dailyTargetGoal === 0) return 0
+    return Math.max(0, Math.min(100, Math.round((dailyTargetCompleted / dailyTargetGoal) * 100)))
+  }, [dailyTargetCompleted, dailyTargetGoal])
 
   const formattedActivity = useMemo(() => {
-    return dashboard.activities.map((activity) => {
+    return activities.map((activity) => {
       const date = new Date(activity.timestamp)
       const diffMs = Date.now() - date.getTime()
       const diffMinutes = Math.round(diffMs / (60 * 1000))
@@ -109,10 +149,10 @@ export default function DashboardPage() {
         time: label,
       }
     })
-  }, [dashboard.activities])
+  }, [activities])
 
   const upcomingGoals = useMemo(() => {
-    return dashboard.goals.map((goal) => {
+    return goals.map((goal) => {
       const deadline = new Date(goal.deadline)
       const now = new Date()
       const diffMs = deadline.getTime() - now.getTime()
@@ -129,13 +169,13 @@ export default function DashboardPage() {
         deadlineLabel: label,
       }
     })
-  }, [dashboard.goals])
+  }, [goals])
 
   const leaderboardEntries = useMemo(() => {
-    return dashboard.leaderboard.filter(
+    return leaderboardData.filter(
       (entry) => entry.scope === leaderboardScope && entry.timeframe === leaderboardTimeframe,
     )
-  }, [dashboard.leaderboard, leaderboardScope, leaderboardTimeframe])
+  }, [leaderboardData, leaderboardScope, leaderboardTimeframe])
 
   const teacherMap = useMemo(() => new Map(teachers.map((teacher) => [teacher.id, teacher.name])), [teachers])
 
@@ -147,7 +187,7 @@ export default function DashboardPage() {
     incrementDailyTarget(1)
   }
 
-  const dailyGoalMet = dashboard.dailyTarget.completedAyahs >= dashboard.dailyTarget.targetAyahs
+  const dailyGoalMet = dailyTargetGoal > 0 && dailyTargetCompleted >= dailyTargetGoal
   const canCreateGoal = newGoalTitle.trim().length > 0 && newGoalDeadline.trim().length > 0
 
   const handleCreateGoal = () => {
@@ -160,9 +200,11 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
+    if (!dailyTarget) {
+      return
+    }
     const goalCompleted =
-      dashboard.dailyTarget.targetAyahs > 0 &&
-      dashboard.dailyTarget.completedAyahs >= dashboard.dailyTarget.targetAyahs
+      dailyTarget.targetAyahs > 0 && dailyTarget.completedAyahs >= dailyTarget.targetAyahs
     if (goalCompleted && !hasShownCelebration) {
       setIsCelebrating(true)
       setHasShownCelebration(true)
@@ -170,11 +212,29 @@ export default function DashboardPage() {
     if (!goalCompleted && hasShownCelebration) {
       setHasShownCelebration(false)
     }
-  }, [
-    dashboard.dailyTarget.completedAyahs,
-    dashboard.dailyTarget.targetAyahs,
-    hasShownCelebration,
-  ])
+  }, [dailyTarget?.completedAyahs, dailyTarget?.targetAyahs, dailyTarget, hasShownCelebration])
+
+  if (isLoading || !dashboard) {
+    return (
+      <AppLayout>
+        <div className="p-6 space-y-8">
+          <div className="space-y-3">
+            <Skeleton className="h-8 w-64" />
+            <Skeleton className="h-4 w-80" />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={index} className="h-28 w-full rounded-2xl" />
+            ))}
+          </div>
+          <div className="grid lg:grid-cols-3 gap-8">
+            <Skeleton className="h-[520px] w-full rounded-2xl lg:col-span-2" />
+            <Skeleton className="h-[520px] w-full rounded-2xl" />
+          </div>
+        </div>
+      </AppLayout>
+    )
+  }
 
   return (
     <>
@@ -183,7 +243,7 @@ export default function DashboardPage() {
         {/* Welcome Section */}
         <div className="mb-8">
           <h2 className="text-3xl font-bold text-maroon-900 mb-2">Assalamu Alaikum, {firstName}</h2>
-          <p className="text-lg text-maroon-700">Continue your journey of Qur'anic excellence</p>
+          <p className="text-lg text-maroon-700">Continue your journey of Qur’anic excellence</p>
           <div className="flex items-center mt-4">
             <Badge className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0 px-3 py-1">
               <Star className="w-3 h-3 mr-1" />
@@ -191,6 +251,16 @@ export default function DashboardPage() {
             </Badge>
           </div>
         </div>
+
+        {error && (
+          <Alert className="mb-8 border-amber-200 bg-amber-50 text-amber-800">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Dashboard data may be out of date</AlertTitle>
+            <AlertDescription>
+              {error}. We&apos;re showing your last saved progress while we retry in the background.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
@@ -231,13 +301,39 @@ export default function DashboardPage() {
           </Card>
 
           <Card className="bg-gradient-to-br from-orange-600 to-orange-700 text-white border-0">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-orange-100 text-sm">Rank</p>
-                  <p className="text-2xl font-bold">#{stats.rank}</p>
+            <CardContent className="p-6 space-y-4">
+              <div className="flex items-start justify-between">
+                <div className="space-y-1.5">
+                  <p className="text-orange-100 text-sm">Leaderboard Rank</p>
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-3xl font-bold">#{stats.rank}</p>
+                    {typeof leaderboardPercentile === "number" && (
+                      <span className="text-sm font-medium text-orange-100/80">
+                        Top {leaderboardPercentile}%
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <Trophy className="w-8 h-8 text-orange-200" />
+              </div>
+              <div className="flex items-center justify-between text-xs text-orange-50/80">
+                <div className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-1">
+                  {leaderboardTrend > 0 ? (
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  ) : leaderboardTrend < 0 ? (
+                    <ArrowDownRight className="h-3.5 w-3.5" />
+                  ) : (
+                    <Minus className="h-3.5 w-3.5" />
+                  )}
+                  <span>
+                    {leaderboardTrend === 0
+                      ? "Holding steady"
+                      : `${Math.abs(leaderboardTrend)} place${Math.abs(leaderboardTrend) === 1 ? "" : "s"} ${
+                          leaderboardTrend > 0 ? "up" : "down"
+                        }`}
+                  </span>
+                </div>
+                <span>Weekly class standings</span>
               </div>
             </CardContent>
           </Card>
@@ -277,24 +373,26 @@ export default function DashboardPage() {
                 <CardTitle className="text-xl flex items-center gap-2">
                   <Target className="w-5 h-5 text-maroon-600" /> Daily Target
                 </CardTitle>
-                <CardDescription>Stay on pace for today's recitation goal.</CardDescription>
+                <CardDescription>Stay on pace for today’s recitation goal.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm text-maroon-600">Today's Goal</p>
-                    <p className="text-3xl font-bold text-maroon-900">{dashboard.dailyTarget.targetAyahs} Ayahs</p>
+                    <p className="text-sm text-maroon-600">Today’s Goal</p>
+                    <p className="text-3xl font-bold text-maroon-900">{dailyTarget?.targetAyahs ?? 0} Ayahs</p>
                   </div>
                   <div className="text-right">
                     <p className="text-sm text-gray-500">Completed</p>
-                    <p className="text-3xl font-bold text-maroon-700">{dashboard.dailyTarget.completedAyahs}</p>
+                    <p className="text-3xl font-bold text-maroon-700">{dailyTarget?.completedAyahs ?? 0}</p>
                   </div>
                 </div>
                 <div>
                   <Progress value={dailyTargetPercent} className="h-3" />
                   <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
                     <span>{dailyTargetPercent}% of goal complete</span>
-                    <span>Updated {new Date(dashboard.dailyTarget.lastUpdated).toLocaleTimeString()}</span>
+                    <span>
+                      Updated {dailyTarget ? new Date(dailyTarget.lastUpdated).toLocaleTimeString() : ""}
+                    </span>
                   </div>
                 </div>
                 <div className="space-y-3">
@@ -307,7 +405,7 @@ export default function DashboardPage() {
                       min={1}
                       max={100}
                       step={1}
-                      onValueChange={(value) => setCustomTarget(value[0] ?? dashboard.dailyTarget.targetAyahs)}
+                      onValueChange={(value) => setCustomTarget(value[0] ?? dailyTarget?.targetAyahs ?? customTarget)}
                       className="flex-1"
                     />
                     <Input
@@ -327,7 +425,7 @@ export default function DashboardPage() {
                     <Button
                       variant="outline"
                       onClick={handleSaveTarget}
-                      disabled={customTarget === dashboard.dailyTarget.targetAyahs}
+                      disabled={dailyTarget ? customTarget === dailyTarget.targetAyahs : false}
                     >
                       Save Target
                     </Button>
@@ -341,11 +439,13 @@ export default function DashboardPage() {
                   >
                     Next Ayah
                   </Button>
-                  <Button variant="outline" onClick={resetDailyTargetProgress} disabled={dashboard.dailyTarget.completedAyahs === 0}>
+                  <Button variant="outline" onClick={resetDailyTargetProgress} disabled={dailyTargetCompleted === 0}>
                     Reset Progress
                   </Button>
                   <Badge variant="secondary" className={`text-xs ${dailyGoalMet ? "bg-green-100 text-green-700" : ""}`}>
-                    {dailyGoalMet ? "Goal complete" : `Remaining ${Math.max(dashboard.dailyTarget.targetAyahs - dashboard.dailyTarget.completedAyahs, 0)}`}
+                    {dailyGoalMet
+                      ? "Goal complete"
+                      : `Remaining ${Math.max(dailyTargetGoal - dailyTargetCompleted, 0)}`}
                   </Badge>
                 </div>
               </CardContent>
@@ -370,23 +470,80 @@ export default function DashboardPage() {
                     <p className="text-lg font-semibold text-maroon-700">{stats.xpToNext} XP</p>
                   </div>
                 </div>
-                <Progress value={xpProgress} className="h-2" />
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Weekly XP</p>
-                    <p className="text-lg font-semibold text-maroon-900">{weeklyXpTotal} XP</p>
+                <div className="grid gap-6 md:grid-cols-[minmax(0,220px)_1fr] items-center">
+                  <div className="flex flex-col items-center gap-3 rounded-xl border border-maroon-100 bg-maroon-50/60 p-4 text-center">
+                    <span className="text-sm font-semibold text-maroon-900">Habit Completion</span>
+                    <div className="relative flex items-center justify-center">
+                      <svg viewBox="0 0 120 120" className="h-32 w-32">
+                        <circle
+                          cx="60"
+                          cy="60"
+                          r={habitRingRadius}
+                          stroke="currentColor"
+                          strokeWidth="10"
+                          className="text-maroon-100"
+                          fill="transparent"
+                        />
+                        <circle
+                          cx="60"
+                          cy="60"
+                          r={habitRingRadius}
+                          stroke="currentColor"
+                          strokeWidth="10"
+                          strokeLinecap="round"
+                          className="text-maroon-600"
+                          fill="transparent"
+                          strokeDasharray={habitRingCircumference}
+                          strokeDashoffset={habitRingOffset}
+                          style={{ transform: "rotate(-90deg)", transformOrigin: "50% 50%" }}
+                        />
+                        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central" className="fill-maroon-900 text-lg font-semibold">
+                          {habitCompletionPercent}%
+                        </text>
+                      </svg>
+                    </div>
+                    <p className="text-xs text-maroon-700">
+                      {habitCompletionCompleted} of {habitCompletionTarget} quests completed
+                    </p>
+                    <Badge
+                      variant="secondary"
+                      className={`text-xs ${
+                        habitWeeklyChange >= 0
+                          ? "bg-green-100 text-green-700"
+                          : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {habitWeeklyChange === 0
+                        ? "No change vs last week"
+                        : `${habitWeeklyChange > 0 ? "+" : ""}${habitWeeklyChange}% vs last week`}
+                    </Badge>
                   </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Habits Completed</p>
-                    <p className="text-lg font-semibold text-maroon-900">{stats.completedHabits}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Hasanat Earned</p>
-                    <p className="text-lg font-semibold text-maroon-900">{stats.hasanat.toLocaleString()}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-500">Daily Power-Up</p>
-                    <p className="text-lg font-semibold text-maroon-900">+{dashboard.premiumBoost.xpBonus} XP</p>
+                  <div className="space-y-4">
+                    <div>
+                      <Progress value={xpProgress} className="h-2" />
+                      <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                        <span>{xpProgress}% of level complete</span>
+                        <span>Total XP: {stats.xp.toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Weekly XP</p>
+                        <p className="text-lg font-semibold text-maroon-900">{weeklyXpTotal} XP</p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Habits Completed</p>
+                        <p className="text-lg font-semibold text-maroon-900">{stats.completedHabits}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Hasanat Earned</p>
+                        <p className="text-lg font-semibold text-maroon-900">{stats.hasanat.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Daily Power-Up</p>
+                        <p className="text-lg font-semibold text-maroon-900">+{dashboard.premiumBoost.xpBonus} XP</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-maroon-100 bg-maroon-50 p-4">
@@ -422,47 +579,75 @@ export default function DashboardPage() {
                           : "Jump back in to resume reading"}
                       </p>
                     </div>
-                    <Badge className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0">
-                      Level {featuredHabit?.level ?? 1}
-                    </Badge>
+                    {hasHabits ? (
+                      <Badge className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0">
+                        Level {featuredHabit?.level ?? 1}
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-xs bg-white text-maroon-700">
+                        Set up your first habit
+                      </Badge>
+                    )}
                   </div>
-                  <div className="mb-4">
-                    <Label htmlFor="featured-habit" className="text-xs uppercase tracking-wide text-maroon-700">
-                      Featured habit quest
-                    </Label>
-                    <Select
-                      value={featuredHabit?.id ?? ""}
-                      onValueChange={(value) => {
-                        if (value) setFeaturedHabit(value)
-                      }}
-                    >
-                      <SelectTrigger id="featured-habit" className="mt-2 bg-white">
-                        <SelectValue placeholder="Choose habit" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {habits.map((habit) => (
-                          <SelectItem key={habit.id} value={habit.id}>
-                            {habit.title}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Progress value={featuredHabit?.progress ?? 0} className="mb-4" />
-                  <div className="flex space-x-3">
-                    <Link href="/reader" className="flex-1">
-                      <Button className="w-full bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0">
-                        <Play className="w-4 h-4 mr-2" />
-                        Continue Reading
+                  {hasHabits ? (
+                    <>
+                      <div className="mb-4">
+                        <Label htmlFor="featured-habit" className="text-xs uppercase tracking-wide text-maroon-700">
+                          Featured habit quest
+                        </Label>
+                        <Select
+                          value={featuredHabit?.id ?? ""}
+                          onValueChange={(value) => {
+                            if (value) setFeaturedHabit(value)
+                          }}
+                        >
+                          <SelectTrigger id="featured-habit" className="mt-2 bg-white">
+                            <SelectValue placeholder="Choose habit" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {habits.map((habit) => (
+                              <SelectItem key={habit.id} value={habit.id}>
+                                {habit.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Progress value={featuredHabit?.progress ?? 0} className="mb-4" />
+                      <div className="flex space-x-3">
+                        <Link href="/reader" className="flex-1">
+                          <Button className="w-full bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0">
+                            <Play className="w-4 h-4 mr-2" />
+                            Continue Reading
+                          </Button>
+                        </Link>
+                        <Button
+                          variant="outline"
+                          className="bg-white"
+                          asChild
+                          disabled={!featuredHabit?.id}
+                        >
+                          <Link href={featuredHabit?.id ? `/habits?focus=${featuredHabit.id}` : "/habits"}>
+                            <Target className="w-4 h-4 mr-2" />
+                            View Habit
+                          </Link>
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-maroon-200 bg-white/70 p-4 text-center">
+                      <p className="text-sm font-medium text-maroon-800">No Habit Quests yet</p>
+                      <p className="text-xs text-gray-600">
+                        Create a custom routine to unlock guided next steps and streak tracking here.
+                      </p>
+                      <Button
+                        className="mt-4 bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
+                        asChild
+                      >
+                        <Link href="/habits">Browse Habit Library</Link>
                       </Button>
-                    </Link>
-                    <Button variant="outline" className="bg-white" asChild>
-                      <Link href={`/habits?focus=${featuredHabit?.id ?? ""}`}>
-                        <Target className="w-4 h-4 mr-2" />
-                        View Habit
-                      </Link>
-                    </Button>
-                  </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid md:grid-cols-2 gap-4">
@@ -532,13 +717,34 @@ export default function DashboardPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="rounded-xl border border-dashed border-maroon-200 bg-maroon-50/60 p-4 flex flex-col justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-maroon-900">Today's premium boost</p>
+                  <div className="rounded-xl border border-dashed border-maroon-200 bg-maroon-50/60 p-4 flex flex-col justify-between gap-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-maroon-900">Today’s premium boost</p>
+                        <Badge
+                          variant="secondary"
+                          className={`text-xs ${
+                            dashboard.premiumBoost.isActive
+                              ? "bg-green-100 text-green-700"
+                              : "bg-amber-100 text-amber-700"
+                          }`}
+                        >
+                          {dashboard.premiumBoost.isActive ? "Active" : "Pending upgrade"}
+                        </Badge>
+                      </div>
                       <p className="text-xs text-maroon-600">{dashboard.premiumBoost.description}</p>
+                      <div className="flex items-center justify-between text-xs text-maroon-700">
+                        <span>Available sessions today: {dashboard.premiumBoost.availableSessions}</span>
+                        <span>Bonus: +{dashboard.premiumBoost.xpBonus} XP</span>
+                      </div>
                     </div>
-                    <Button className="mt-4 w-full bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0" asChild>
-                      <Link href="/practice/tajweed">Start Premium Session</Link>
+                    <Button
+                      className="w-full bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
+                      asChild
+                    >
+                      <Link href={dashboard.premiumBoost.isActive ? "/practice/tajweed" : "/billing"}>
+                        {dashboard.premiumBoost.isActive ? "Start Premium Session" : "Upgrade for Premium Boost"}
+                      </Link>
                     </Button>
                   </div>
                 </CardContent>
@@ -600,7 +806,7 @@ export default function DashboardPage() {
                 <CardTitle className="text-lg">Current Goals</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {upcomingGoals.map((goal, index) => (
+                {upcomingGoals.map((goal) => (
                   <div key={goal.id} className="space-y-3 rounded-lg border border-maroon-100 p-3">
                     <div className="flex justify-between items-start gap-2">
                       <div className="flex items-start gap-2">
@@ -686,6 +892,39 @@ export default function DashboardPage() {
 
             <Card>
               <CardHeader>
+                <CardTitle className="text-lg">Quick Links</CardTitle>
+                <CardDescription>Access your personalized tools</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                <Button variant="outline" className="w-full justify-between" asChild>
+                  <Link href="/habits">
+                    <span className="flex items-center gap-2">
+                      <Target className="h-4 w-4" /> Goals & Habits
+                    </span>
+                    <ArrowUpRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button variant="outline" className="w-full justify-between" asChild>
+                  <Link href="/achievements">
+                    <span className="flex items-center gap-2">
+                      <Award className="h-4 w-4" /> Badge Collection
+                    </span>
+                    <ArrowUpRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button variant="outline" className="w-full justify-between" asChild>
+                  <Link href="/practice">
+                    <span className="flex items-center gap-2">
+                      <NotebookPen className="h-4 w-4" /> Journal & Audio Lab
+                    </span>
+                    <ArrowUpRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
                 <CardTitle className="text-lg">Teacher Feedback Center</CardTitle>
                 <CardDescription>Latest notes and audio cues from your instructors</CardDescription>
               </CardHeader>
@@ -755,11 +994,13 @@ export default function DashboardPage() {
                   {leaderboardEntries.map((entry) => (
                     <div
                       key={entry.id}
-                      className={`flex items-center justify-between p-2 rounded ${
-                        entry.name === "You" ? "bg-maroon-50 border border-maroon-200" : ""
-                      }`}
+                      className={`flex items-center justify-between gap-4 rounded border p-3 ${
+                        entry.name === "You"
+                          ? "border-maroon-200 bg-maroon-50"
+                          : "border-gray-100 bg-white"
+                      } shadow-sm`}
                     >
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center gap-3">
                         <span
                           className={`text-sm font-medium ${
                             entry.rank === 1
@@ -773,11 +1014,42 @@ export default function DashboardPage() {
                         >
                           #{entry.rank}
                         </span>
-                        <span className={`text-sm ${entry.name === "You" ? "font-medium" : ""}`}>{entry.name}</span>
+                        <div>
+                          <p className={`text-sm ${entry.name === "You" ? "font-semibold text-maroon-900" : "text-gray-700"}`}>
+                            {entry.name}
+                          </p>
+                          {typeof entry.percentile === "number" && (
+                            <p className="text-xs text-gray-500">Top {entry.percentile}%</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-1">
-                        <Star className="w-3 h-3 text-yellow-500" />
-                        <span className="text-sm">{entry.points.toLocaleString()}</span>
+                      <div className="space-y-1 text-right">
+                        <div
+                          className={`inline-flex items-center gap-1 text-xs ${
+                            entry.trend && entry.trend > 0
+                              ? "text-green-600"
+                              : entry.trend && entry.trend < 0
+                                ? "text-amber-600"
+                                : "text-gray-500"
+                          }`}
+                        >
+                          {entry.trend && entry.trend > 0 ? (
+                            <ArrowUpRight className="h-3.5 w-3.5" />
+                          ) : entry.trend && entry.trend < 0 ? (
+                            <ArrowDownRight className="h-3.5 w-3.5" />
+                          ) : (
+                            <Minus className="h-3.5 w-3.5" />
+                          )}
+                          <span>
+                            {entry.trend && entry.trend !== 0
+                              ? `${entry.trend > 0 ? "+" : ""}${entry.trend}`
+                              : "No change"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-end gap-1 text-sm text-gray-700">
+                          <Star className="w-3.5 h-3.5 text-yellow-500" />
+                          <span>{entry.points.toLocaleString()} XP</span>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -804,10 +1076,10 @@ export default function DashboardPage() {
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
             <CheckCircle2 className="h-7 w-7 text-green-600" />
           </div>
-          <DialogTitle className="text-2xl font-semibold text-maroon-900">Masha'Allah!</DialogTitle>
+          <DialogTitle className="text-2xl font-semibold text-maroon-900">Masha’Allah!</DialogTitle>
           <DialogDescription className="text-sm text-gray-600">
-            You completed today's target of {dashboard.dailyTarget.targetAyahs} ayahs. Keep the momentum going or revisit
-            your habits for bonus XP.
+            You completed today’s target of {dailyTarget?.targetAyahs ?? 0} ayahs. Keep the momentum going or revisit your
+            habits for bonus XP.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="flex flex-col gap-2 sm:flex-row">
@@ -825,7 +1097,7 @@ export default function DashboardPage() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create a new goal</DialogTitle>
-          <DialogDescription>Define a focused objective to align with your teacher's plan.</DialogDescription>
+          <DialogDescription>Define a focused objective to align with your teacher’s plan.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div className="space-y-2">

@@ -46,6 +46,8 @@ export interface LeaderboardEntry {
   points: number
   scope: "class" | "global"
   timeframe: "weekly" | "monthly"
+  trend?: number
+  percentile?: number
 }
 
 export interface TeacherFeedbackNote {
@@ -72,10 +74,16 @@ export interface StudentDashboardRecord {
   achievements: AchievementRecord[]
   leaderboard: LeaderboardEntry[]
   teacherNotes: TeacherFeedbackNote[]
+  habitCompletion: {
+    completed: number
+    target: number
+    weeklyChange: number
+  }
   premiumBoost: {
     xpBonus: number
     description: string
     isActive: boolean
+    availableSessions: number
   }
 }
 
@@ -192,6 +200,8 @@ database.dashboards["user_001"] = {
       points: 2847,
       scope: "class",
       timeframe: "weekly",
+      trend: 0,
+      percentile: 2,
     },
     {
       id: "leader_class_002",
@@ -200,6 +210,8 @@ database.dashboards["user_001"] = {
       points: 2156,
       scope: "class",
       timeframe: "weekly",
+      trend: -1,
+      percentile: 5,
     },
     {
       id: "leader_class_user",
@@ -208,6 +220,8 @@ database.dashboards["user_001"] = {
       points: 1247,
       scope: "class",
       timeframe: "weekly",
+      trend: 3,
+      percentile: 28,
     },
     {
       id: "leader_global_001",
@@ -216,6 +230,8 @@ database.dashboards["user_001"] = {
       points: 15890,
       scope: "global",
       timeframe: "monthly",
+      trend: 4,
+      percentile: 12,
     },
     {
       id: "leader_global_user",
@@ -224,6 +240,8 @@ database.dashboards["user_001"] = {
       points: 1247,
       scope: "global",
       timeframe: "monthly",
+      trend: 12,
+      percentile: 36,
     },
   ],
   teacherNotes: [
@@ -242,10 +260,16 @@ database.dashboards["user_001"] = {
       category: "memorization",
     },
   ],
+  habitCompletion: {
+    completed: 18,
+    target: 24,
+    weeklyChange: 8,
+  },
   premiumBoost: {
     xpBonus: 120,
     description: "Earn +120 bonus XP for completing a tajweed mastery session.",
     isActive: true,
+    availableSessions: 2,
   },
 }
 
@@ -353,5 +377,22 @@ export function addGoal(
 export function getTeacherNotes(studentId: string): TeacherFeedbackNote[] {
   const record = database.dashboards[studentId]
   return record ? [...record.teacherNotes] : []
+}
+
+export function incrementHabitCompletion(
+  studentId: string,
+  increment = 1,
+): StudentDashboardRecord | undefined {
+  const record = database.dashboards[studentId]
+  if (!record) return undefined
+  const normalizedIncrement = Number.isFinite(increment) ? Math.max(0, Math.floor(increment)) : 0
+  if (normalizedIncrement === 0) {
+    return getStudentDashboardRecord(studentId)
+  }
+  record.habitCompletion.completed = Math.min(
+    record.habitCompletion.completed + normalizedIncrement,
+    record.habitCompletion.target,
+  )
+  return getStudentDashboardRecord(studentId)
 }
 
