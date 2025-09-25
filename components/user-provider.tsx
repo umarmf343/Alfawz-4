@@ -4,69 +4,31 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import {
   getTeacherProfiles,
-  getStudentDashboardRecord,
-  recordAyahProgress,
-  resetDailyProgress,
-  setPreferredHabit,
-  GoalRecord,
-  TeacherProfile,
-  StudentDashboardRecord,
-  updateDailyTarget as updateDailyTargetRecord,
-  upsertGoalProgress,
-  addGoal as addGoalRecord,
-  incrementHabitCompletion,
+  getLearnerState,
+  updateDailyTarget as persistDailyTarget,
+  recordAyahProgress as persistAyahProgress,
+  resetDailyProgress as persistResetDailyProgress,
+  setPreferredHabit as persistPreferredHabit,
+  upsertGoalProgress as persistGoalProgress,
+  addGoal as persistAddGoal,
+  completeHabitQuest as persistCompleteHabitQuest,
+  setSubscriptionPlan as persistSubscriptionPlan,
+  type GoalRecord,
+  type TeacherProfile,
+  type StudentDashboardRecord,
+  type LearnerProfile,
+  type LearnerStats,
+  type HabitQuestRecord,
+  type LearnerState,
+  type CompleteHabitResult as PersistHabitResult,
+  type SubscriptionPlan,
 } from "@/lib/data/teacher-database"
+import { getActiveSession } from "@/lib/data/auth"
 
-type UserRole = "student" | "teacher" | "parent" | "admin"
-type SubscriptionPlan = "free" | "premium"
-type HabitDifficulty = "easy" | "medium" | "hard"
-
-export interface UserProfile {
-  id: string
-  name: string
-  email: string
-  role: UserRole
-  locale: string
-  avatarUrl?: string
-  plan: SubscriptionPlan
-  joinedAt: string
-}
-
-export interface UserStats {
-  hasanat: number
-  streak: number
-  ayahsRead: number
-  studyMinutes: number
-  rank: number
-  level: number
-  xp: number
-  xpToNext: number
-  completedHabits: number
-  weeklyXP: number[]
-}
-
-export interface HabitQuest {
-  id: string
-  title: string
-  description: string
-  difficulty: HabitDifficulty
-  streak: number
-  bestStreak: number
-  level: number
-  xp: number
-  progress: number
-  xpReward: number
-  hasanatReward: number
-  dailyTarget: string
-  icon: string
-  lastCompletedAt?: string
-  weeklyProgress: number[]
-}
-
-export interface CompleteHabitResult {
-  success: boolean
-  message: string
-}
+export type UserProfile = LearnerProfile
+export type UserStats = LearnerStats
+export type HabitQuest = HabitQuestRecord
+export type CompleteHabitResult = PersistHabitResult
 
 interface UserContextValue {
   profile: UserProfile
@@ -91,9 +53,6 @@ interface UserContextValue {
   downgradeToFree: () => void
 }
 
-const LEVEL_XP_STEP = 500
-const HABIT_LEVEL_STEP = 120
-
 const perksByPlan: Record<SubscriptionPlan, string[]> = {
   free: [
     "Daily habit quests",
@@ -113,144 +72,105 @@ const perksByPlan: Record<SubscriptionPlan, string[]> = {
   ],
 }
 
-const initialProfile: UserProfile = {
-  id: "user_001",
-  name: "Ahmad Al-Hafiz",
-  email: "ahmad@example.com",
-  role: "student",
-  locale: "en-US",
-  plan: "free",
-  joinedAt: "2024-02-14T10:00:00Z",
-}
-
-const initialStats: UserStats = {
-  hasanat: 1247,
-  streak: 7,
-  ayahsRead: 342,
-  studyMinutes: 135,
-  rank: 12,
-  level: 8,
-  xp: 3400,
-  xpToNext: 500,
-  completedHabits: 18,
-  weeklyXP: [120, 90, 160, 140, 110, 60, 0],
-}
-
-const yesterdayKey = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-
-const initialHabits: HabitQuest[] = [
-  {
-    id: "daily-recitation",
-    title: "Daily Recitation Quest",
-    description: "Recite at least 5 ayahs aloud focusing on Tajweed.",
-    difficulty: "medium",
-    streak: 6,
-    bestStreak: 14,
-    level: 3,
-    xp: 240,
-    progress: 40,
-    xpReward: 60,
-    hasanatReward: 45,
-    dailyTarget: "5 ayahs",
-    icon: "BookOpen",
-    lastCompletedAt: yesterdayKey,
-    weeklyProgress: [100, 80, 65, 100, 40, 0, 0],
-  },
-  {
-    id: "memorization-review",
-    title: "Memorization Review",
-    description: "Review your latest memorized passage with the SM-2 queue.",
-    difficulty: "hard",
-    streak: 4,
-    bestStreak: 9,
-    level: 2,
-    xp: 190,
-    progress: 60,
-    xpReward: 75,
-    hasanatReward: 60,
-    dailyTarget: "1 session",
-    icon: "Brain",
-    lastCompletedAt: yesterdayKey,
-    weeklyProgress: [90, 70, 40, 80, 30, 0, 0],
-  },
-  {
-    id: "reflection-journal",
-    title: "Reflection Journal",
-    description: "Write a reflection about today's recitation in your journal.",
-    difficulty: "easy",
-    streak: 3,
-    bestStreak: 8,
-    level: 2,
-    xp: 130,
-    progress: 10,
-    xpReward: 40,
-    hasanatReward: 30,
-    dailyTarget: "1 entry",
-    icon: "Pen",
-    lastCompletedAt: yesterdayKey,
-    weeklyProgress: [70, 40, 20, 60, 10, 0, 0],
-  },
-]
-
 const UserContext = createContext<UserContextValue | undefined>(undefined)
 
-function getDayDifference(from: string, to: string) {
-  const fromDate = new Date(from)
-  const toDate = new Date(to)
-  const diff = toDate.setHours(0, 0, 0, 0) - fromDate.setHours(0, 0, 0, 0)
-  return Math.round(diff / (24 * 60 * 60 * 1000))
+function createEmptyStats(): UserStats {
+  return {
+    hasanat: 0,
+    streak: 0,
+    ayahsRead: 0,
+    studyMinutes: 0,
+    rank: 0,
+    level: 1,
+    xp: 0,
+    xpToNext: 500,
+    completedHabits: 0,
+    weeklyXP: Array.from({ length: 7 }, () => 0),
+  }
 }
 
-function createFallbackDashboardRecord(): StudentDashboardRecord {
+function createFallbackDashboardRecord(studentId: string): StudentDashboardRecord {
   return {
-    studentId: initialProfile.id,
-    dailyTarget: { targetAyahs: 10, completedAyahs: 0, lastUpdated: new Date().toISOString() },
+    studentId,
+    dailyTarget: {
+      targetAyahs: 10,
+      completedAyahs: 0,
+      lastUpdated: new Date().toISOString(),
+    },
     recitationPercentage: 0,
     memorizationPercentage: 0,
     lastRead: { surah: "", ayah: 0, totalAyahs: 0 },
-    preferredHabitId: initialHabits[0]?.id,
+    preferredHabitId: undefined,
     activities: [],
     goals: [],
     achievements: [],
     leaderboard: [],
     teacherNotes: [],
-    habitCompletion: { completed: 0, target: Math.max(initialHabits.length * 4, 1), weeklyChange: 0 },
+    habitCompletion: { completed: 0, target: 0, weeklyChange: 0 },
     premiumBoost: { xpBonus: 0, description: "", isActive: false, availableSessions: 0 },
   }
 }
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
-  const [profile, setProfile] = useState<UserProfile>(initialProfile)
-  const [stats, setStats] = useState<UserStats>(initialStats)
-  const [habits, setHabits] = useState<HabitQuest[]>(initialHabits)
-  const [lastActivityDate, setLastActivityDate] = useState<string | null>(yesterdayKey)
+  const session = getActiveSession()
+  const defaultLearnerId = session?.userId ?? "user_001"
+  const initialState = getLearnerState(defaultLearnerId)
+  const fallbackProfile: UserProfile = initialState?.profile ?? {
+    id: defaultLearnerId,
+    name: session?.email ?? "Alfawz Learner",
+    email: session?.email ?? "learner@example.com",
+    role: session?.role ?? "student",
+    locale: "en-US",
+    plan: "free",
+    joinedAt: new Date().toISOString(),
+  }
+
+  const [studentId] = useState(defaultLearnerId)
+  const [profile, setProfile] = useState<UserProfile>(fallbackProfile)
+  const [stats, setStats] = useState<UserStats>(initialState?.stats ?? createEmptyStats())
+  const [habits, setHabits] = useState<HabitQuest[]>(initialState?.habits ?? [])
   const [teachers, setTeachers] = useState<TeacherProfile[]>([])
-  const [dashboard, setDashboard] = useState<StudentDashboardRecord | null>(null)
+  const [dashboard, setDashboard] = useState<StudentDashboardRecord | null>(
+    initialState?.dashboard ?? createFallbackDashboardRecord(defaultLearnerId),
+  )
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const applyLearnerState = useCallback((state: LearnerState) => {
+    setProfile(state.profile)
+    setStats(state.stats)
+    setHabits(state.habits)
+    setDashboard(state.dashboard)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
+
     async function initialize() {
       setIsLoading(true)
       try {
-        const [teacherProfiles, dashboardRecord] = await Promise.all([
+        const [teacherProfiles, learnerState] = await Promise.all([
           Promise.resolve(getTeacherProfiles()),
-          Promise.resolve(getStudentDashboardRecord(initialProfile.id)),
+          Promise.resolve(getLearnerState(studentId)),
         ])
         if (cancelled) {
           return
         }
         setTeachers(teacherProfiles)
-        setDashboard(dashboardRecord ?? createFallbackDashboardRecord())
-        setError(null)
+        if (learnerState) {
+          applyLearnerState(learnerState)
+          setError(null)
+        } else {
+          setDashboard(createFallbackDashboardRecord(studentId))
+          setError("Learner record not found")
+        }
       } catch (caught) {
         if (cancelled) {
           return
         }
         const message = caught instanceof Error ? caught.message : "Failed to load dashboard data"
         setError(message)
-        setDashboard(createFallbackDashboardRecord())
+        setDashboard((current) => current ?? createFallbackDashboardRecord(studentId))
       } finally {
         if (!cancelled) {
           setIsLoading(false)
@@ -263,7 +183,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [applyLearnerState, studentId])
 
   const isPremium = profile.plan === "premium"
 
@@ -275,229 +195,109 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   const completeHabit = useCallback(
     (habitId: string): CompleteHabitResult => {
-      const today = new Date()
-      const todayKey = today.toISOString().slice(0, 10)
-      const todayIndex = today.getDay()
-
-      let result: CompleteHabitResult = { success: false, message: "Habit not found." }
-      let xpGain = 0
-      let hasanatGain = 0
-
-      setHabits((previousHabits) =>
-        previousHabits.map((habit) => {
-          if (habit.id !== habitId) {
-            return habit
-          }
-
-          if (habit.lastCompletedAt === todayKey) {
-            result = { success: false, message: "You've already completed this habit today." }
-            return habit
-          }
-
-          const previousCompletion = habit.lastCompletedAt
-          let updatedStreak = habit.streak
-          if (previousCompletion) {
-            const diff = getDayDifference(previousCompletion, todayKey)
-            if (diff === 1) {
-              updatedStreak = habit.streak + 1
-            } else if (diff > 1) {
-              updatedStreak = 1
-            }
-          } else {
-            updatedStreak = 1
-          }
-
-          xpGain = habit.xpReward
-          hasanatGain = habit.hasanatReward
-          const newTotalXp = habit.xp + habit.xpReward
-          const nextLevel = Math.floor(newTotalXp / HABIT_LEVEL_STEP) + 1
-          const progressTowardsLevel = ((newTotalXp % HABIT_LEVEL_STEP) / HABIT_LEVEL_STEP) * 100
-
-          const updatedWeeklyProgress = [...habit.weeklyProgress]
-          updatedWeeklyProgress[todayIndex] = 100
-
-          result = { success: true, message: "Great job! Habit completed for today." }
-
-          return {
-            ...habit,
-            xp: newTotalXp,
-            level: nextLevel,
-            progress: Math.min(100, progressTowardsLevel),
-            streak: updatedStreak,
-            bestStreak: Math.max(habit.bestStreak, updatedStreak),
-            lastCompletedAt: todayKey,
-            weeklyProgress: updatedWeeklyProgress,
-          }
-        }),
-      )
-
-      if (!result.success) {
-        return result
+      const response = persistCompleteHabitQuest(studentId, habitId)
+      if (response.state) {
+        applyLearnerState(response.state)
       }
-
-      setDashboard((current) => {
-        const incremented = incrementHabitCompletion(profile.id)
-        const baseRecord = incremented ?? current
-        if (!baseRecord) {
-          return current
-        }
-        if (habitId === baseRecord.preferredHabitId) {
-          const updated = recordAyahProgress(profile.id, 0)
-          return updated ?? baseRecord
-        }
-        return baseRecord
-      })
-
-      const diffFromLast = lastActivityDate ? getDayDifference(lastActivityDate, todayKey) : null
-      const updatedTodayIndex = new Date(todayKey).getDay()
-
-      setStats((previousStats) => {
-        let streak = previousStats.streak
-        if (diffFromLast === null) {
-          streak = Math.max(previousStats.streak, 1)
-        } else if (diffFromLast === 0) {
-          streak = previousStats.streak
-        } else if (diffFromLast === 1) {
-          streak = previousStats.streak + 1
-        } else if (diffFromLast > 1) {
-          streak = 1
-        }
-
-        let xpToNext = previousStats.xpToNext - xpGain
-        let level = previousStats.level
-        while (xpToNext <= 0) {
-          level += 1
-          xpToNext += LEVEL_XP_STEP
-        }
-
-        const weeklyXP = [...previousStats.weeklyXP]
-        weeklyXP[updatedTodayIndex] = Math.min(weeklyXP[updatedTodayIndex] + xpGain, LEVEL_XP_STEP)
-
-        return {
-          ...previousStats,
-          streak,
-          xp: previousStats.xp + xpGain,
-          xpToNext,
-          level,
-          hasanat: previousStats.hasanat + hasanatGain,
-          completedHabits: previousStats.completedHabits + 1,
-          weeklyXP,
-        }
-      })
-
-      setLastActivityDate(todayKey)
-
-      return result
+      return response.result
     },
-    [lastActivityDate, profile.id],
+    [applyLearnerState, studentId],
   )
 
   const updateDailyTarget = useCallback(
     (target: number) => {
-      setDashboard((current) => {
-        if (!current) return current
-        const updated = updateDailyTargetRecord(profile.id, target)
-        return updated ?? current
-      })
+      const state = persistDailyTarget(studentId, target)
+      if (state) {
+        applyLearnerState(state)
+      }
     },
-    [profile.id],
+    [applyLearnerState, studentId],
   )
 
   const incrementDailyTarget = useCallback(
     (increment = 1) => {
-      setDashboard((current) => {
-        if (!current) return current
-        const updated = recordAyahProgress(profile.id, increment)
-        if (updated && current) {
-          const delta = updated.dailyTarget.completedAyahs - current.dailyTarget.completedAyahs
-          if (delta > 0) {
-            setStats((previous) => ({
-              ...previous,
-              ayahsRead: previous.ayahsRead + delta,
-            }))
-          }
-        }
-        if (updated) {
-          return updated
-        }
-        return updated ?? current
-      })
+      const state = persistAyahProgress(studentId, increment)
+      if (state) {
+        applyLearnerState(state)
+      }
     },
-    [profile.id],
+    [applyLearnerState, studentId],
   )
 
   const resetDailyTargetProgress = useCallback(() => {
-    setDashboard((current) => {
-      if (!current) return current
-      const updated = resetDailyProgress(profile.id)
-      return updated ?? current
-    })
-  }, [profile.id])
+    const state = persistResetDailyProgress(studentId)
+    if (state) {
+      applyLearnerState(state)
+    }
+  }, [applyLearnerState, studentId])
 
   const setFeaturedHabit = useCallback(
     (habitId: string) => {
-      setDashboard((current) => {
-        if (!current) return current
-        const updated = setPreferredHabit(profile.id, habitId)
-        return updated ?? current
-      })
+      const state = persistPreferredHabit(studentId, habitId)
+      if (state) {
+        applyLearnerState(state)
+      }
     },
-    [profile.id],
+    [applyLearnerState, studentId],
   )
 
   const updateGoalProgress = useCallback(
     (goalId: string, progress: number) => {
-      setDashboard((current) => {
-        if (!current) return current
-        const updated = upsertGoalProgress(profile.id, goalId, progress)
-        return updated ?? current
-      })
+      const state = persistGoalProgress(studentId, goalId, progress)
+      if (state) {
+        applyLearnerState(state)
+      }
     },
-    [profile.id],
+    [applyLearnerState, studentId],
   )
 
   const toggleGoalCompletion = useCallback(
     (goalId: string, completed: boolean) => {
-      setDashboard((current) => {
-        if (!current) return current
-        const existing = current.goals.find((goal) => goal.id === goalId)
-        const updated = upsertGoalProgress(
-          profile.id,
-          goalId,
-          completed ? 100 : (existing?.progress ?? 0),
-          completed ? "completed" : (existing?.status ?? "active"),
-        )
-        return updated ?? current
-      })
+      const existing = dashboard?.goals.find((goal) => goal.id === goalId)
+      const nextProgress = completed ? 100 : existing?.progress ?? 0
+      const nextStatus = completed ? "completed" : existing?.status ?? "active"
+      const state = persistGoalProgress(studentId, goalId, nextProgress, nextStatus)
+      if (state) {
+        applyLearnerState(state)
+      }
     },
-    [profile.id],
+    [applyLearnerState, dashboard?.goals, studentId],
   )
 
   const addGoal = useCallback(
     (goal: { title: string; deadline: string }) => {
-      setDashboard((current) => {
-        if (!current) return current
-        const newGoal: GoalRecord = {
-          id: `goal_${Date.now()}`,
-          title: goal.title,
-          deadline: goal.deadline,
-          progress: 0,
-          status: "active",
-        }
-        const updated = addGoalRecord(profile.id, newGoal)
-        return updated ?? current
-      })
+      const newGoal: GoalRecord = {
+        id: `goal_${Date.now()}`,
+        title: goal.title,
+        deadline: goal.deadline,
+        progress: 0,
+        status: "active",
+      }
+      const state = persistAddGoal(studentId, newGoal)
+      if (state) {
+        applyLearnerState(state)
+      }
     },
-    [profile.id],
+    [applyLearnerState, studentId],
   )
 
   const upgradeToPremium = useCallback(() => {
-    setProfile((previous) => ({ ...previous, plan: "premium" }))
-  }, [])
+    const state = persistSubscriptionPlan(studentId, "premium")
+    if (state) {
+      applyLearnerState(state)
+    } else {
+      setProfile((previous) => ({ ...previous, plan: "premium" }))
+    }
+  }, [applyLearnerState, studentId])
 
   const downgradeToFree = useCallback(() => {
-    setProfile((previous) => ({ ...previous, plan: "free" }))
-  }, [])
+    const state = persistSubscriptionPlan(studentId, "free")
+    if (state) {
+      applyLearnerState(state)
+    } else {
+      setProfile((previous) => ({ ...previous, plan: "free" }))
+    }
+  }, [applyLearnerState, studentId])
 
   const value = useMemo(
     () => ({
