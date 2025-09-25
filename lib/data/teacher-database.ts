@@ -139,6 +139,14 @@ export interface RecitationSubmissionInput {
   expectedText: string
 }
 
+export interface RecitationReviewInput {
+  taskId: string
+  teacherId: string
+  accuracy: number
+  tajweedScore: number
+  notes?: string
+}
+
 export type MemorizationTaskStatus = "new" | "due" | "learning" | "mastered"
 
 export interface MemorizationPassageRecord {
@@ -307,6 +315,7 @@ const HABIT_LEVEL_STEP = 120
 const MAX_ACTIVITY_ENTRIES = 50
 const MAX_RECITATION_SESSIONS = 50
 const MAX_MEMORIZATION_HEATMAP = 30
+const MAX_TEACHER_NOTES = 20
 
 const database: TeacherDatabaseSchema = {
   teachers: [
@@ -1508,5 +1517,69 @@ export function setSubscriptionPlan(studentId: string, plan: SubscriptionPlan): 
   const record = getLearnerRecord(studentId)
   if (!record) return undefined
   record.profile.plan = plan
+  return cloneLearnerState(record)
+}
+
+export function reviewRecitationTask(
+  studentId: string,
+  review: RecitationReviewInput,
+): LearnerState | undefined {
+  const record = getLearnerRecord(studentId)
+  if (!record) return undefined
+
+  const task = record.dashboard.recitationTasks.find((entry) => entry.id === review.taskId)
+  if (!task) {
+    return cloneLearnerState(record)
+  }
+
+  const nowDate = new Date()
+  const normalizedAccuracy = Math.max(0, Math.min(100, Math.round(review.accuracy)))
+  const normalizedTajweed = Math.max(0, Math.min(100, Math.round(review.tajweedScore)))
+
+  task.status = "reviewed"
+  task.lastScore = normalizedAccuracy
+  task.reviewNotes = review.notes ?? task.reviewNotes ?? "Reviewed by instructor."
+  task.reviewedAt = iso(nowDate)
+  if (!task.submittedAt) {
+    task.submittedAt = iso(nowDate)
+  }
+  task.teacherId = review.teacherId
+
+  const relatedSession = record.dashboard.recitationSessions.find((session) => session.taskId === task.id)
+  if (relatedSession) {
+    relatedSession.accuracy = normalizedAccuracy
+    relatedSession.tajweedScore = normalizedTajweed
+    relatedSession.fluencyScore = Math.max(
+      0,
+      Math.min(100, Math.round((relatedSession.fluencyScore + normalizedTajweed) / 2)),
+    )
+  }
+
+  record.dashboard.activities.unshift({
+    id: `activity_${nowDate.getTime()}_review`,
+    type: "recitation",
+    surah: task.surah,
+    ayahs: parseAyahCount(task.ayahRange) || undefined,
+    score: normalizedAccuracy,
+    timestamp: iso(nowDate),
+  })
+  if (record.dashboard.activities.length > MAX_ACTIVITY_ENTRIES) {
+    record.dashboard.activities = record.dashboard.activities.slice(0, MAX_ACTIVITY_ENTRIES)
+  }
+
+  const teacherNote: TeacherFeedbackNote = {
+    id: `note_${nowDate.getTime()}`,
+    teacherId: review.teacherId,
+    note:
+      review.notes ??
+      `Reviewed ${task.surah} • Ayah ${task.ayahRange}. Accuracy ${normalizedAccuracy}% and tajweed ${normalizedTajweed}%.`,
+    createdAt: iso(nowDate),
+    category: "tajweed",
+  }
+  record.dashboard.teacherNotes.unshift(teacherNote)
+  record.dashboard.teacherNotes = record.dashboard.teacherNotes.slice(0, MAX_TEACHER_NOTES)
+
+  recalculateRecitationAccuracy(record)
+
   return cloneLearnerState(record)
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -58,6 +58,7 @@ export default function DashboardPage() {
     toggleGoalCompletion,
     addGoal,
     reviewMemorizationTask,
+    completeRecitationAssignment,
   } = useUser()
 
   const firstName = useMemo(() => profile.name.split(" ")[0] ?? profile.name, [profile.name])
@@ -121,6 +122,7 @@ export default function DashboardPage() {
   const [newGoalTitle, setNewGoalTitle] = useState("")
   const [newGoalDeadline, setNewGoalDeadline] = useState("")
   const [hasShownCelebration, setHasShownCelebration] = useState(false)
+  const [completingRecitationId, setCompletingRecitationId] = useState<string | null>(null)
 
   useEffect(() => {
     if (dailyTarget) {
@@ -323,6 +325,18 @@ export default function DashboardPage() {
     setNewGoalTitle("")
     setNewGoalDeadline("")
   }
+
+  const handleCompleteRecitation = useCallback(
+    (taskId: string) => {
+      setCompletingRecitationId(taskId)
+      try {
+        completeRecitationAssignment(taskId)
+      } finally {
+        setCompletingRecitationId(null)
+      }
+    },
+    [completeRecitationAssignment],
+  )
 
   useEffect(() => {
     if (!dailyTarget) {
@@ -762,19 +776,29 @@ export default function DashboardPage() {
                           <span>Teacher: {teacherMap.get(task.teacherId) ?? "Instructor"}</span>
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <Badge variant="secondary" className={`text-xs ${recitationStatusStyles[task.status] ?? ""}`}>
-                          {recitationStatusLabels[task.status] ?? task.status}
-                        </Badge>
-                        {typeof task.lastScore === "number" && (
-                          <div className="flex items-center gap-1 text-xs text-gray-600">
-                            <UserCheck className="h-3.5 w-3.5 text-green-600" />
-                            <span>{task.lastScore}%</span>
-                          </div>
-                        )}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Badge variant="secondary" className={`text-xs ${recitationStatusStyles[task.status] ?? ""}`}>
+                      {recitationStatusLabels[task.status] ?? task.status}
+                    </Badge>
+                    {typeof task.lastScore === "number" && (
+                      <div className="flex items-center gap-1 text-xs text-gray-600">
+                        <UserCheck className="h-3.5 w-3.5 text-green-600" />
+                        <span>{task.lastScore}%</span>
                       </div>
-                    </div>
-                  ))}
+                    )}
+                    {task.status !== "reviewed" && (
+                      <Button
+                        size="sm"
+                        className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
+                        onClick={() => handleCompleteRecitation(task.id)}
+                        disabled={completingRecitationId === task.id}
+                      >
+                        {completingRecitationId === task.id ? "Completing…" : "Mark Complete"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
                 {recitationTasks.length === 0 && (
                   <div className="rounded-lg border border-dashed border-maroon-200 bg-maroon-50/60 p-4 text-sm text-maroon-700">
                     Your teacher hasn&apos;t assigned any recitation tasks yet. Visit the Practice Lab for a guided warm-up.
