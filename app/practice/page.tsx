@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { RecordingInterface } from "@/components/recording-interface"
+import { QuranFlipBook } from "@/components/quran-flipbook"
 import { useUser } from "@/hooks/use-user"
 import {
   Award,
@@ -135,6 +136,14 @@ export default function PracticePage() {
     : 0
   const totalHasanat = recitationSessions.reduce((sum, session) => sum + session.hasanatEarned, 0)
   const latestSession = recitationSessions[0]
+
+  const assignmentStartAyah = useMemo(() => {
+    const range = activeTask.ayahRange
+    if (!range) return 1
+    const [start] = range.split("-")
+    const parsed = Number.parseInt(start ?? "1", 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
+  }, [activeTask.ayahRange])
 
   const handleTranscriptionComplete = useCallback(
     (result: PracticeTranscriptionResult) => {
@@ -311,6 +320,11 @@ export default function PracticePage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Flipbook Quran Reader */}
+        <div className="mb-8">
+          <QuranFlipBook initialSurahName={activeTask.surah} initialAyah={assignmentStartAyah} />
+        </div>
 
         {/* Recording Interface */}
         <div className="mb-8">
