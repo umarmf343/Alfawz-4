@@ -36,6 +36,7 @@ import {
   AlertCircle,
   Minus,
   NotebookPen,
+  UserCheck,
 } from "lucide-react"
 
 export default function DashboardPage() {
@@ -69,6 +70,8 @@ export default function DashboardPage() {
   const activities = useMemo(() => dashboard?.activities ?? [], [dashboard?.activities])
   const goals = useMemo(() => dashboard?.goals ?? [], [dashboard?.goals])
   const leaderboardData = useMemo(() => dashboard?.leaderboard ?? [], [dashboard?.leaderboard])
+  const recitationTasks = useMemo(() => dashboard?.recitationTasks ?? [], [dashboard?.recitationTasks])
+  const recitationSessions = useMemo(() => dashboard?.recitationSessions ?? [], [dashboard?.recitationSessions])
   const dailyTargetCompleted = dailyTarget?.completedAyahs ?? 0
   const dailyTargetGoal = dailyTarget?.targetAyahs ?? 0
   const habitCompletionTarget = dashboard?.habitCompletion.target ?? Math.max(habits.length * 4, 1)
@@ -176,6 +179,39 @@ export default function DashboardPage() {
       (entry) => entry.scope === leaderboardScope && entry.timeframe === leaderboardTimeframe,
     )
   }, [leaderboardData, leaderboardScope, leaderboardTimeframe])
+
+  const pendingRecitations = useMemo(
+    () => recitationTasks.filter((task) => task.status !== "reviewed"),
+    [recitationTasks],
+  )
+  const reviewedRecitations = useMemo(
+    () => recitationTasks.filter((task) => task.status === "reviewed").length,
+    [recitationTasks],
+  )
+  const submittedRecitations = useMemo(
+    () => recitationTasks.filter((task) => task.status === "submitted").length,
+    [recitationTasks],
+  )
+  const recitationCompletionPercent = recitationTasks.length
+    ? Math.round(((reviewedRecitations + submittedRecitations) / recitationTasks.length) * 100)
+    : 0
+  const nextRecitationTask = pendingRecitations[0] ?? recitationTasks[0]
+  const lastRecitationSession = recitationSessions[0]
+  const averageRecitationScore = recitationSessions.length
+    ? Math.round(recitationSessions.reduce((total, session) => total + session.accuracy, 0) / recitationSessions.length)
+    : 0
+
+  const recitationStatusStyles: Record<string, string> = {
+    assigned: "bg-amber-100 text-amber-700",
+    submitted: "bg-blue-100 text-blue-700",
+    reviewed: "bg-green-100 text-green-700",
+  }
+
+  const recitationStatusLabels: Record<string, string> = {
+    assigned: "Assigned",
+    submitted: "Submitted",
+    reviewed: "Reviewed",
+  }
 
   const teacherMap = useMemo(() => new Map(teachers.map((teacher) => [teacher.id, teacher.name])), [teachers])
 
@@ -556,6 +592,113 @@ export default function DashboardPage() {
                   <Link href="/habits">
                     <Button className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0">Open Habit Quest</Button>
                   </Link>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="shadow-lg">
+              <CardHeader>
+                <CardTitle className="text-xl flex items-center gap-2">
+                  <Mic className="w-5 h-5 text-maroon-600" />
+                  Recitation Panel
+                </CardTitle>
+                <CardDescription>Track assignments, submissions, and teacher reviews.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="rounded-lg border border-maroon-100 bg-maroon-50/70 p-4">
+                    <p className="text-xs uppercase tracking-wide text-maroon-600">Pending tasks</p>
+                    <p className="text-3xl font-bold text-maroon-900">{pendingRecitations.length}</p>
+                    <p className="text-xs text-maroon-600">
+                      {recitationTasks.length > 0
+                        ? `${recitationCompletionPercent}% of assignments submitted`
+                        : "Waiting for your teacher to assign tasks"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-blue-600">Average accuracy</p>
+                    <p className="text-3xl font-bold text-blue-700">{averageRecitationScore}%</p>
+                    <p className="text-xs text-blue-600">
+                      {recitationSessions.length > 0
+                        ? `Based on ${recitationSessions.length} recent submission${recitationSessions.length === 1 ? "" : "s"}`
+                        : "Complete a session to unlock analytics"}
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-green-100 bg-green-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-green-600">Latest feedback</p>
+                    {lastRecitationSession ? (
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-green-700">
+                          {lastRecitationSession.accuracy}% accuracy
+                        </p>
+                        <p className="text-xs text-green-700">
+                          Awarded {lastRecitationSession.hasanatEarned} hasanat
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {new Date(lastRecitationSession.submittedAt).toLocaleString()}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-green-700">Record a recitation to see detailed feedback.</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {recitationTasks.slice(0, 4).map((task) => (
+                    <div
+                      key={task.id}
+                      className="rounded-lg border border-maroon-100 bg-white p-4 shadow-sm flex flex-col gap-3 md:flex-row md:items-center md:justify-between"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-maroon-900">
+                          {task.surah} • Ayah {task.ayahRange}
+                        </p>
+                        <div className="text-xs text-gray-600 flex flex-wrap items-center gap-3">
+                          <span>Due {new Date(task.dueDate).toLocaleDateString()}</span>
+                          <span>Target: {task.targetAccuracy}% accuracy</span>
+                          <span>Teacher: {teacherMap.get(task.teacherId) ?? "Instructor"}</span>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Badge variant="secondary" className={`text-xs ${recitationStatusStyles[task.status] ?? ""}`}>
+                          {recitationStatusLabels[task.status] ?? task.status}
+                        </Badge>
+                        {typeof task.lastScore === "number" && (
+                          <div className="flex items-center gap-1 text-xs text-gray-600">
+                            <UserCheck className="h-3.5 w-3.5 text-green-600" />
+                            <span>{task.lastScore}%</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {recitationTasks.length === 0 && (
+                    <div className="rounded-lg border border-dashed border-maroon-200 bg-maroon-50/60 p-4 text-sm text-maroon-700">
+                      Your teacher hasn&apos;t assigned any recitation tasks yet. Visit the Practice Lab for a guided warm-up.
+                    </div>
+                  )}
+                </div>
+
+                {nextRecitationTask && (
+                  <div className="rounded-lg border border-maroon-100 bg-cream-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-maroon-600">Next focus</p>
+                    <p className="text-sm font-medium text-maroon-900">
+                      {nextRecitationTask.surah} • Ayah {nextRecitationTask.ayahRange}
+                    </p>
+                    <p className="text-xs text-maroon-600">
+                      {nextRecitationTask.notes}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap justify-end gap-3">
+                  <Button variant="outline" asChild>
+                    <Link href="/teacher/assignments">View assignments</Link>
+                  </Button>
+                  <Button className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0" asChild>
+                    <Link href="/practice">Open Practice Lab</Link>
+                  </Button>
                 </div>
               </CardContent>
             </Card>

@@ -12,6 +12,7 @@ import {
   upsertGoalProgress as persistGoalProgress,
   addGoal as persistAddGoal,
   completeHabitQuest as persistCompleteHabitQuest,
+  logRecitationSession as persistRecitationSession,
   setSubscriptionPlan as persistSubscriptionPlan,
   type GoalRecord,
   type TeacherProfile,
@@ -22,6 +23,7 @@ import {
   type LearnerState,
   type CompleteHabitResult as PersistHabitResult,
   type SubscriptionPlan,
+  type RecitationSubmissionInput,
 } from "@/lib/data/teacher-database"
 import { getActiveSession } from "@/lib/data/auth"
 
@@ -51,6 +53,7 @@ interface UserContextValue {
   addGoal: (goal: { title: string; deadline: string }) => void
   upgradeToPremium: () => void
   downgradeToFree: () => void
+  submitRecitationResult: (submission: RecitationSubmissionInput) => void
 }
 
 const perksByPlan: Record<SubscriptionPlan, string[]> = {
@@ -108,6 +111,8 @@ function createFallbackDashboardRecord(studentId: string): StudentDashboardRecor
     teacherNotes: [],
     habitCompletion: { completed: 0, target: 0, weeklyChange: 0 },
     premiumBoost: { xpBonus: 0, description: "", isActive: false, availableSessions: 0 },
+    recitationTasks: [],
+    recitationSessions: [],
   }
 }
 
@@ -281,6 +286,16 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     [applyLearnerState, studentId],
   )
 
+  const submitRecitationResult = useCallback(
+    (submission: RecitationSubmissionInput) => {
+      const state = persistRecitationSession(studentId, submission)
+      if (state) {
+        applyLearnerState(state)
+      }
+    },
+    [applyLearnerState, studentId],
+  )
+
   const upgradeToPremium = useCallback(() => {
     const state = persistSubscriptionPlan(studentId, "premium")
     if (state) {
@@ -319,6 +334,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       updateGoalProgress,
       toggleGoalCompletion,
       addGoal,
+      submitRecitationResult,
       upgradeToPremium,
       downgradeToFree,
     }),
@@ -341,6 +357,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       updateGoalProgress,
       toggleGoalCompletion,
       addGoal,
+      submitRecitationResult,
       upgradeToPremium,
       downgradeToFree,
     ],

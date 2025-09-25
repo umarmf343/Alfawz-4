@@ -85,6 +85,59 @@ export interface AchievementRecord {
   unlockedAt: string
 }
 
+export type RecitationTaskStatus = "assigned" | "submitted" | "reviewed"
+
+export interface RecitationVerseRecord {
+  ayah: number
+  arabic: string
+  translation: string
+}
+
+export interface RecitationTaskRecord {
+  id: string
+  surah: string
+  ayahRange: string
+  dueDate: string
+  status: RecitationTaskStatus
+  targetAccuracy: number
+  teacherId: string
+  notes: string
+  assignedAt: string
+  verses: RecitationVerseRecord[]
+  lastScore?: number
+  submittedAt?: string
+  reviewedAt?: string
+  reviewNotes?: string
+}
+
+export interface RecitationSessionRecord {
+  id: string
+  taskId?: string
+  surah: string
+  ayahRange: string
+  accuracy: number
+  tajweedScore: number
+  fluencyScore: number
+  hasanatEarned: number
+  durationSeconds: number
+  transcript: string
+  expectedText: string
+  submittedAt: string
+}
+
+export interface RecitationSubmissionInput {
+  taskId?: string
+  surah: string
+  ayahRange: string
+  accuracy: number
+  tajweedScore: number
+  fluencyScore: number
+  hasanatEarned: number
+  durationSeconds: number
+  transcript: string
+  expectedText: string
+}
+
 export interface LeaderboardEntry {
   id: string
   name: string
@@ -131,6 +184,8 @@ export interface StudentDashboardRecord {
     isActive: boolean
     availableSessions: number
   }
+  recitationTasks: RecitationTaskRecord[]
+  recitationSessions: RecitationSessionRecord[]
 }
 
 interface LearnerMeta {
@@ -174,6 +229,7 @@ const yesterdayKey = yesterday.toISOString().slice(0, 10)
 const LEVEL_XP_STEP = 500
 const HABIT_LEVEL_STEP = 120
 const MAX_ACTIVITY_ENTRIES = 50
+const MAX_RECITATION_SESSIONS = 50
 
 const database: TeacherDatabaseSchema = {
   teachers: [
@@ -277,7 +333,7 @@ database.learners["user_001"] = {
       completedAyahs: 4,
       lastUpdated: iso(now),
     },
-    recitationPercentage: 72,
+    recitationPercentage: 91,
     memorizationPercentage: 58,
     lastRead: {
       surah: "Al-Baqarah",
@@ -424,6 +480,183 @@ database.learners["user_001"] = {
       isActive: true,
       availableSessions: 2,
     },
+    recitationTasks: [
+      {
+        id: "recite_task_001",
+        surah: "Al-Mulk",
+        ayahRange: "1-5",
+        dueDate: iso(new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000)),
+        status: "assigned",
+        targetAccuracy: 90,
+        teacherId: "teacher_001",
+        notes: "Focus on elongation rules (madd) and keep a steady pace.",
+        assignedAt: iso(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+        verses: [
+          {
+            ayah: 1,
+            arabic: "تَبَارَكَ الَّذِي بِيَدِهِ الْمُلْكُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ",
+            translation: "Blessed is He in whose hand is dominion, and He is over all things competent.",
+          },
+          {
+            ayah: 2,
+            arabic: "الَّذِي خَلَقَ الْمَوْتَ وَالْحَيَاةَ لِيَبْلُوَكُمْ أَيُّكُمْ أَحْسَنُ عَمَلًا وَهُوَ الْعَزِيزُ الْغَفُورُ",
+            translation:
+              "He who created death and life to test you [as to] which of you is best in deed - and He is the Exalted in Might, the Forgiving.",
+          },
+          {
+            ayah: 3,
+            arabic: "الَّذِي خَلَقَ سَبْعَ سَمَاوَاتٍ طِبَاقًا مَا تَرَى فِي خَلْقِ الرَّحْمَٰنِ مِن تَفَاوُتٍ فَارْجِعِ الْبَصَرَ هَلْ تَرَى مِن فُطُورٍ",
+            translation:
+              "[And] who created seven heavens in layers. You do not see in the creation of the Most Merciful any inconsistency. So return your vision to the sky, do you see any breaks?",
+          },
+          {
+            ayah: 4,
+            arabic: "ثُمَّ ارْجِعِ الْبَصَرَ كَرَّتَيْنِ يَنقَلِبْ إِلَيْكَ الْبَصَرُ خَاسِئًا وَهُوَ حَسِيرٌ",
+            translation:
+              "Then return your vision twice again. Your vision will return to you humbled while it is fatigued.",
+          },
+          {
+            ayah: 5,
+            arabic: "وَلَقَدْ زَيَّنَّا السَّمَاءَ الدُّنْيَا بِمَصَابِيحَ وَجَعَلْنَاهَا رُجُومًا لِلشَّيَاطِينِ وَأَعْتَدْنَا لَهُمْ عَذَابَ السَّعِيرِ",
+            translation:
+              "And We have certainly beautified the nearest heaven with stars and have made [from] them what is thrown at the devils and have prepared for them the punishment of the Blaze.",
+          },
+        ],
+      },
+      {
+        id: "recite_task_002",
+        surah: "Al-Mulk",
+        ayahRange: "6-11",
+        dueDate: iso(new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000)),
+        status: "submitted",
+        targetAccuracy: 88,
+        teacherId: "teacher_002",
+        notes: "Revise the qalqalah letters and maintain consistent breathing.",
+        assignedAt: iso(new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)),
+        verses: [
+          {
+            ayah: 6,
+            arabic: "وَلِلَّذِينَ كَفَرُوا بِرَبِّهِمْ عَذَابُ جَهَنَّمَ ۖ وَبِئْسَ الْمَصِيرُ",
+            translation: "And for those who disbelieved in their Lord is the punishment of Hell, and wretched is the destination.",
+          },
+          {
+            ayah: 7,
+            arabic: "إِذَا أُلْقُوا فِيهَا سَمِعُوا لَهَا شَهِيقًا وَهِيَ تَفُورُ",
+            translation: "When they are thrown into it, they hear from it a [dreadful] inhaling while it boils up.",
+          },
+          {
+            ayah: 8,
+            arabic: "تَكَادُ تَمَيَّزُ مِنَ الْغَيْظِ ۖ كُلَّمَا أُلْقِيَ فِيهَا فَوْجٌ سَأَلَهُمْ خَزَنَتُهَا أَلَمْ يَأْتِكُمْ نَذِيرٌ",
+            translation:
+              "It almost bursts with rage. Every time a company is thrown into it, its keepers ask them, 'Did there not come to you a warner?'",
+          },
+          {
+            ayah: 9,
+            arabic: "قَالُوا بَلَىٰ قَدْ جَاءَنَا نَذِيرٌ فَكَذَّبْنَا وَقُلْنَا مَا نَزَّلَ اللَّهُ مِن شَيْءٍ إِنْ أَنتُمْ إِلَّا فِي ضَلَالٍ كَبِيرٍ",
+            translation:
+              "They will say, 'Yes, a warner had come to us, but we denied and said, 'Allah has not sent down anything. You are not but in great error.''",
+          },
+          {
+            ayah: 10,
+            arabic: "وَقَالُوا لَوْ كُنَّا نَسْمَعُ أَوْ نَعْقِلُ مَا كُنَّا فِي أَصْحَابِ السَّعِيرِ",
+            translation:
+              "And they will say, 'If only we had been listening or reasoning, we would not be among the companions of the Blaze.'",
+          },
+          {
+            ayah: 11,
+            arabic: "فَاعْتَرَفُوا بِذَنبِهِمْ فَسُحْقًا لِأَصْحَابِ السَّعِيرِ",
+            translation: "And they will admit their sin, so [it is] alienation for the companions of the Blaze.",
+          },
+        ],
+        lastScore: 86,
+        submittedAt: iso(new Date(now.getTime() - 12 * 60 * 60 * 1000)),
+      },
+      {
+        id: "recite_task_003",
+        surah: "Al-Fatiha",
+        ayahRange: "1-7",
+        dueDate: iso(new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000)),
+        status: "reviewed",
+        targetAccuracy: 95,
+        teacherId: "teacher_001",
+        notes: "Excellent progress. Maintain articulation of the heavy letters.",
+        assignedAt: iso(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)),
+        verses: [
+          {
+            ayah: 1,
+            arabic: "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+            translation: "In the name of Allah, the Entirely Merciful, the Especially Merciful.",
+          },
+          {
+            ayah: 2,
+            arabic: "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ",
+            translation: "[All] praise is [due] to Allah, Lord of the worlds -",
+          },
+          {
+            ayah: 3,
+            arabic: "الرَّحْمَٰنِ الرَّحِيمِ",
+            translation: "The Entirely Merciful, the Especially Merciful,",
+          },
+          {
+            ayah: 4,
+            arabic: "مَالِكِ يَوْمِ الدِّينِ",
+            translation: "Sovereign of the Day of Recompense.",
+          },
+          {
+            ayah: 5,
+            arabic: "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ",
+            translation: "It is You we worship and You we ask for help.",
+          },
+          {
+            ayah: 6,
+            arabic: "اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ",
+            translation: "Guide us to the straight path",
+          },
+          {
+            ayah: 7,
+            arabic:
+              "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ",
+            translation:
+              "The path of those upon whom You have bestowed favor, not of those who have evoked [Your] anger or of those who are astray.",
+          },
+        ],
+        lastScore: 94,
+        submittedAt: iso(new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)),
+        reviewedAt: iso(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+        reviewNotes: "Reviewed live during class. Accuracy goal achieved.",
+      },
+    ],
+    recitationSessions: [
+      {
+        id: "recitation_session_001",
+        taskId: "recite_task_003",
+        surah: "Al-Fatiha",
+        ayahRange: "1-7",
+        accuracy: 94,
+        tajweedScore: 92,
+        fluencyScore: 90,
+        hasanatEarned: 245,
+        durationSeconds: 95,
+        transcript: "الحمد لله رب العالمين الرحمن الرحيم مالك يوم الدين إياك نعبد وإياك نستعين",
+        expectedText:
+          "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ الرَّحْمَٰنِ الرَّحِيمِ مَالِكِ يَوْمِ الدِّينِ إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ",
+        submittedAt: iso(new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)),
+      },
+      {
+        id: "recitation_session_002",
+        surah: "Al-Ikhlas",
+        ayahRange: "1-4",
+        accuracy: 88,
+        tajweedScore: 85,
+        fluencyScore: 82,
+        hasanatEarned: 160,
+        durationSeconds: 60,
+        transcript: "قل هو الله أحد الله الصمد لم يلد ولم يولد ولم يكن له كفوا أحد",
+        expectedText:
+          "قُلْ هُوَ اللَّهُ أَحَدٌ اللَّهُ الصَّمَدُ لَمْ يَلِدْ وَلَمْ يُولَدْ وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ",
+        submittedAt: iso(new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000)),
+      },
+    ],
   },
   meta: {
     lastHabitActivityDate: yesterdayKey,
@@ -463,6 +696,34 @@ function applyLevelProgression(stats: LearnerStats, xpGain: number) {
 function clampHabitCompletion(record: LearnerRecord) {
   const completion = record.dashboard.habitCompletion
   completion.completed = Math.min(completion.completed, completion.target)
+}
+
+function parseAyahCount(range: string) {
+  const normalized = range.replace(/\s/g, "")
+  if (!normalized) return 0
+  const [startPart, endPart] = normalized.split("-")
+  const start = Number.parseInt(startPart, 10)
+  if (!Number.isFinite(start)) {
+    return 0
+  }
+  if (!endPart) {
+    return 1
+  }
+  const end = Number.parseInt(endPart, 10)
+  if (!Number.isFinite(end)) {
+    return 1
+  }
+  return Math.max(1, end - start + 1)
+}
+
+function recalculateRecitationAccuracy(record: LearnerRecord) {
+  const sessions = record.dashboard.recitationSessions.slice(0, 10)
+  if (sessions.length === 0) {
+    record.dashboard.recitationPercentage = 0
+    return
+  }
+  const total = sessions.reduce((sum, session) => sum + session.accuracy, 0)
+  record.dashboard.recitationPercentage = Math.round(total / sessions.length)
 }
 
 export function getTeacherProfiles(): TeacherProfile[] {
@@ -704,6 +965,87 @@ export function completeHabitQuest(studentId: string, habitId: string): HabitCom
     result: { success: true, message: "Great job! Habit completed for today." },
     state: cloneLearnerState(record),
   }
+}
+
+export function logRecitationSession(
+  studentId: string,
+  submission: RecitationSubmissionInput,
+): LearnerState | undefined {
+  const record = getLearnerRecord(studentId)
+  if (!record) return undefined
+
+  const timestamp = new Date()
+  const session: RecitationSessionRecord = {
+    id: `recitation_${timestamp.getTime()}`,
+    taskId: submission.taskId,
+    surah: submission.surah,
+    ayahRange: submission.ayahRange,
+    accuracy: Math.round(Math.max(0, Math.min(100, submission.accuracy))),
+    tajweedScore: Math.round(Math.max(0, Math.min(100, submission.tajweedScore))),
+    fluencyScore: Math.round(Math.max(0, Math.min(100, submission.fluencyScore))),
+    hasanatEarned: Math.max(0, Math.round(submission.hasanatEarned)),
+    durationSeconds: Math.max(0, Math.round(submission.durationSeconds)),
+    transcript: submission.transcript,
+    expectedText: submission.expectedText,
+    submittedAt: iso(timestamp),
+  }
+
+  record.dashboard.recitationSessions.unshift(session)
+  if (record.dashboard.recitationSessions.length > MAX_RECITATION_SESSIONS) {
+    record.dashboard.recitationSessions = record.dashboard.recitationSessions.slice(0, MAX_RECITATION_SESSIONS)
+  }
+
+  const task = submission.taskId
+    ? record.dashboard.recitationTasks.find((entry) => entry.id === submission.taskId)
+    : undefined
+  if (task) {
+    task.lastScore = session.accuracy
+    task.submittedAt = session.submittedAt
+    if (task.status !== "reviewed") {
+      task.status = "submitted"
+    }
+    task.reviewNotes = `Awaiting instructor review. Auto-score ${session.accuracy}% accuracy.`
+  }
+
+  const ayahCount = parseAyahCount(submission.ayahRange)
+  if (ayahCount > 0) {
+    record.stats.ayahsRead += ayahCount
+  }
+
+  record.stats.hasanat += session.hasanatEarned
+  const xpGain = Math.max(10, Math.round((session.accuracy / 100) * 60))
+  applyLevelProgression(record.stats, xpGain)
+  const weeklyXP = [...record.stats.weeklyXP]
+  weeklyXP[timestamp.getDay()] = Math.min(LEVEL_XP_STEP, weeklyXP[timestamp.getDay()] + xpGain)
+  record.stats.weeklyXP = weeklyXP
+  record.stats.studyMinutes += Math.max(1, Math.round(session.durationSeconds / 60))
+
+  const lastAyahPart = submission.ayahRange.replace(/\s/g, "").split("-").pop()
+  const parsedLastAyah = lastAyahPart ? Number.parseInt(lastAyahPart, 10) : undefined
+  const taskTotalAyah = task?.verses[task.verses.length - 1]?.ayah
+  record.dashboard.lastRead = {
+    surah: submission.surah,
+    ayah: Number.isFinite(parsedLastAyah) ? Number(parsedLastAyah) : record.dashboard.lastRead.ayah,
+    totalAyahs: Number.isFinite(taskTotalAyah)
+      ? Number(taskTotalAyah)
+      : record.dashboard.lastRead.totalAyahs,
+  }
+
+  record.dashboard.activities.unshift({
+    id: `activity_${timestamp.getTime()}`,
+    type: "recitation",
+    surah: submission.surah,
+    ayahs: ayahCount || undefined,
+    score: session.accuracy,
+    timestamp: session.submittedAt,
+  })
+  if (record.dashboard.activities.length > MAX_ACTIVITY_ENTRIES) {
+    record.dashboard.activities = record.dashboard.activities.slice(0, MAX_ACTIVITY_ENTRIES)
+  }
+
+  recalculateRecitationAccuracy(record)
+
+  return cloneLearnerState(record)
 }
 
 export function setSubscriptionPlan(studentId: string, plan: SubscriptionPlan): LearnerState | undefined {

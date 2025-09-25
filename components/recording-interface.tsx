@@ -22,7 +22,6 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [transcriptionResult, setTranscriptionResult] = useState<any>(null)
   const [recordingTime, setRecordingTime] = useState(0)
-  const [waveformData, setWaveformData] = useState<number[]>([])
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -144,7 +143,6 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     setAudioUrl(null)
     setTranscriptionResult(null)
     setRecordingTime(0)
-    setWaveformData([])
     if (audioRef.current) {
       audioRef.current.pause()
       audioRef.current.currentTime = 0
