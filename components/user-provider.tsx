@@ -128,6 +128,7 @@ function createFallbackDashboardRecord(studentId: string): StudentDashboardRecor
       lastReviewedOn: null,
       reviewHeatmap: [],
     },
+    tajweedFocus: [],
   }
 }
 
