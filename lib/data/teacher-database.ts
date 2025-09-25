@@ -138,6 +138,62 @@ export interface RecitationSubmissionInput {
   expectedText: string
 }
 
+export type MemorizationTaskStatus = "new" | "due" | "learning" | "mastered"
+
+export interface MemorizationPassageRecord {
+  ayah: number
+  arabic: string
+  translation: string
+}
+
+export interface MemorizationTaskRecord {
+  id: string
+  surah: string
+  ayahRange: string
+  status: MemorizationTaskStatus
+  teacherId: string
+  interval: number
+  repetitions: number
+  easeFactor: number
+  memorizationConfidence: number
+  lastReviewed?: string
+  dueDate: string
+  nextReview: string
+  notes?: string
+  playlistId?: string
+  tags?: string[]
+  passages: MemorizationPassageRecord[]
+}
+
+export interface MemorizationPlaylistRecord {
+  id: string
+  title: string
+  description: string
+  ayahCount: number
+  progress: number
+  dueCount: number
+  lastReviewed: string
+  focus: string
+}
+
+export interface MemorizationSummaryRecord {
+  dueToday: number
+  newCount: number
+  totalMastered: number
+  streak: number
+  recommendedDuration: number
+  focusArea: string
+  lastReviewedOn: string | null
+  reviewHeatmap: { date: string; completed: number }[]
+}
+
+export interface MemorizationReviewInput {
+  taskId: string
+  quality: number
+  accuracy: number
+  durationSeconds: number
+}
+
 export interface LeaderboardEntry {
   id: string
   name: string
@@ -186,6 +242,9 @@ export interface StudentDashboardRecord {
   }
   recitationTasks: RecitationTaskRecord[]
   recitationSessions: RecitationSessionRecord[]
+  memorizationQueue: MemorizationTaskRecord[]
+  memorizationPlaylists: MemorizationPlaylistRecord[]
+  memorizationSummary: MemorizationSummaryRecord
 }
 
 interface LearnerMeta {
@@ -230,6 +289,7 @@ const LEVEL_XP_STEP = 500
 const HABIT_LEVEL_STEP = 120
 const MAX_ACTIVITY_ENTRIES = 50
 const MAX_RECITATION_SESSIONS = 50
+const MAX_MEMORIZATION_HEATMAP = 30
 
 const database: TeacherDatabaseSchema = {
   teachers: [
@@ -657,6 +717,143 @@ database.learners["user_001"] = {
         submittedAt: iso(new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000)),
       },
     ],
+    memorizationQueue: [
+      {
+        id: "mem_task_001",
+        surah: "Al-Mulk",
+        ayahRange: "1-5",
+        status: "due",
+        teacherId: "teacher_002",
+        interval: 3,
+        repetitions: 4,
+        easeFactor: 2.4,
+        memorizationConfidence: 0.78,
+        lastReviewed: iso(new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)),
+        dueDate: iso(new Date(now.getTime() - 12 * 60 * 60 * 1000)),
+        nextReview: iso(new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000)),
+        notes: "Focus on the transition between ayah 3 and 4.",
+        playlistId: "playlist_mulk",
+        tags: ["madd", "qalqalah"],
+        passages: [
+          {
+            ayah: 1,
+            arabic: "تَبَارَكَ الَّذِي بِيَدِهِ الْمُلْكُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ",
+            translation: "Blessed is He in whose hand is dominion, and He is over all things competent.",
+          },
+          {
+            ayah: 2,
+            arabic:
+              "الَّذِي خَلَقَ الْمَوْتَ وَالْحَيَاةَ لِيَبْلُوَكُمْ أَيُّكُمْ أَحْسَنُ عَمَلًا وَهُوَ الْعَزِيزُ الْغَفُورُ",
+            translation:
+              "He who created death and life to test you [as to] which of you is best in deed - and He is the Exalted in Might, the Forgiving.",
+          },
+        ],
+      },
+      {
+        id: "mem_task_002",
+        surah: "Al-Mulk",
+        ayahRange: "6-11",
+        status: "learning",
+        teacherId: "teacher_002",
+        interval: 2,
+        repetitions: 2,
+        easeFactor: 2.2,
+        memorizationConfidence: 0.64,
+        lastReviewed: iso(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+        dueDate: iso(new Date(now.getTime() + 6 * 60 * 60 * 1000)),
+        nextReview: iso(new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000)),
+        notes: "Revisit tajweed of the qalqalah letters.",
+        playlistId: "playlist_mulk",
+        passages: [
+          {
+            ayah: 6,
+            arabic: "وَلِلَّذِينَ كَفَرُوا بِرَبِّهِمْ عَذَابُ جَهَنَّمَ ۖ وَبِئْسَ الْمَصِيرُ",
+            translation: "And for those who disbelieved in their Lord is the punishment of Hell, and wretched is the destination.",
+          },
+          {
+            ayah: 7,
+            arabic: "إِذَا أُلْقُوا فِيهَا سَمِعُوا لَهَا شَهِيقًا وَهِيَ تَفُورُ",
+            translation: "When they are thrown into it, they hear from it a [dreadful] inhaling while it boils up.",
+          },
+        ],
+      },
+      {
+        id: "mem_task_003",
+        surah: "Al-Ikhlas",
+        ayahRange: "1-4",
+        status: "mastered",
+        teacherId: "teacher_001",
+        interval: 14,
+        repetitions: 6,
+        easeFactor: 2.6,
+        memorizationConfidence: 0.94,
+        lastReviewed: iso(new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)),
+        dueDate: iso(new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)),
+        nextReview: iso(new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000)),
+        notes: "Maintain current retention. Excellent flow.",
+        tags: ["review"],
+        passages: [
+          {
+            ayah: 1,
+            arabic: "قُلْ هُوَ اللَّهُ أَحَدٌ",
+            translation: "Say, He is Allah, [who is] One,",
+          },
+          {
+            ayah: 2,
+            arabic: "اللَّهُ الصَّمَدُ",
+            translation: "Allah, the Eternal Refuge.",
+          },
+          {
+            ayah: 3,
+            arabic: "لَمْ يَلِدْ وَلَمْ يُولَدْ",
+            translation: "He neither begets nor is born,",
+          },
+          {
+            ayah: 4,
+            arabic: "وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ",
+            translation: "Nor is there to Him any equivalent.",
+          },
+        ],
+      },
+    ],
+    memorizationPlaylists: [
+      {
+        id: "playlist_mulk",
+        title: "Surah Al-Mulk Mastery",
+        description: "Daily review loop for Surah Al-Mulk with focus on tajweed precision.",
+        ayahCount: 30,
+        progress: 48,
+        dueCount: 2,
+        lastReviewed: iso(new Date(now.getTime() - 12 * 60 * 60 * 1000)),
+        focus: "Long vowels and qalqalah",
+      },
+      {
+        id: "playlist_juz30",
+        title: "Juz Amma Refresh",
+        description: "Weekly consolidation set covering the final Juz.",
+        ayahCount: 564,
+        progress: 72,
+        dueCount: 5,
+        lastReviewed: iso(new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000)),
+        focus: "Consistency and flow",
+      },
+    ],
+    memorizationSummary: {
+      dueToday: 3,
+      newCount: 1,
+      totalMastered: 18,
+      streak: 5,
+      recommendedDuration: 20,
+      focusArea: "Prioritise Surah Al-Mulk verses 1-11",
+      lastReviewedOn: iso(new Date(now.getTime() - 12 * 60 * 60 * 1000)),
+      reviewHeatmap: Array.from({ length: 7 }).map((_, index) => {
+        const date = new Date(now.getTime() - index * 24 * 60 * 60 * 1000)
+        return {
+          date: iso(date).slice(0, 10),
+          completed: Math.max(0, 3 - index),
+        }
+      }),
+    },
   },
   meta: {
     lastHabitActivityDate: yesterdayKey,
@@ -724,6 +921,45 @@ function recalculateRecitationAccuracy(record: LearnerRecord) {
   }
   const total = sessions.reduce((sum, session) => sum + session.accuracy, 0)
   record.dashboard.recitationPercentage = Math.round(total / sessions.length)
+}
+
+function recalculateMemorizationSummary(record: LearnerRecord) {
+  const queue = record.dashboard.memorizationQueue
+  const summary = record.dashboard.memorizationSummary
+  const today = new Date()
+  const todayKey = today.toISOString().slice(0, 10)
+
+  const dueToday = queue.filter((task) => {
+    const dueDate = new Date(task.dueDate)
+    return dueDate.setHours(0, 0, 0, 0) <= today.setHours(0, 0, 0, 0)
+  }).length
+
+  const newCount = queue.filter((task) => task.status === "new" || task.repetitions === 0).length
+  const totalMastered = queue.filter((task) => task.status === "mastered").length
+
+  summary.dueToday = dueToday
+  summary.newCount = newCount
+  summary.totalMastered = totalMastered
+  summary.recommendedDuration = queue.length === 0 ? 0 : Math.min(45, Math.max(10, dueToday * 5))
+
+  if (!summary.focusArea) {
+    const focusTask = queue.find((task) => task.status === "due") ?? queue[0]
+    summary.focusArea = focusTask ? `${focusTask.surah} • Ayah ${focusTask.ayahRange}` : ""
+  }
+
+  const existing = summary.reviewHeatmap.find((entry) => entry.date === todayKey)
+  if (!existing) {
+    summary.reviewHeatmap.unshift({ date: todayKey, completed: 0 })
+  }
+  summary.reviewHeatmap = summary.reviewHeatmap
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .slice(0, MAX_MEMORIZATION_HEATMAP)
+
+  const averageConfidence =
+    queue.length === 0
+      ? 0
+      : queue.reduce((total, task) => total + task.memorizationConfidence, 0) / queue.length
+  record.dashboard.memorizationPercentage = Math.round(Math.max(0, Math.min(1, averageConfidence)) * 100)
 }
 
 export function getTeacherProfiles(): TeacherProfile[] {
@@ -1044,6 +1280,101 @@ export function logRecitationSession(
   }
 
   recalculateRecitationAccuracy(record)
+
+  return cloneLearnerState(record)
+}
+
+export function reviewMemorizationTask(
+  studentId: string,
+  review: MemorizationReviewInput,
+): LearnerState | undefined {
+  const record = getLearnerRecord(studentId)
+  if (!record) return undefined
+
+  const task = record.dashboard.memorizationQueue.find((entry) => entry.id === review.taskId)
+  if (!task) {
+    return cloneLearnerState(record)
+  }
+
+  const nowDate = new Date()
+  const todayKey = nowDate.toISOString().slice(0, 10)
+  const summary = record.dashboard.memorizationSummary
+
+  const quality = Math.max(0, Math.min(5, Math.round(review.quality)))
+  const accuracy = Math.max(0, Math.min(100, Math.round(review.accuracy)))
+  const durationSeconds = Math.max(30, Math.round(review.durationSeconds))
+
+  if (quality >= 3) {
+    task.repetitions += 1
+    task.interval = Math.max(
+      1,
+      quality >= 4 ? Math.round(task.interval * task.easeFactor) : Math.round(task.interval * 1.2),
+    )
+    task.easeFactor = Math.max(1.3, Math.min(2.7, task.easeFactor + (quality - 3) * 0.05))
+  } else {
+    task.interval = 1
+    task.easeFactor = Math.max(1.3, task.easeFactor - 0.15)
+  }
+
+  const confidenceTarget = accuracy / 100
+  task.memorizationConfidence = Math.max(
+    0,
+    Math.min(1, task.memorizationConfidence + (confidenceTarget - task.memorizationConfidence) * 0.4),
+  )
+
+  task.status = quality >= 4 && accuracy >= 90 ? "mastered" : quality >= 3 ? "learning" : "due"
+  if (task.status === "mastered") {
+    task.memorizationConfidence = Math.max(task.memorizationConfidence, 0.9)
+  }
+
+  task.lastReviewed = iso(nowDate)
+  const nextReviewDate = new Date(nowDate.getTime() + task.interval * 24 * 60 * 60 * 1000)
+  task.dueDate = iso(nextReviewDate)
+  task.nextReview = task.dueDate
+
+  const heatmapEntry = summary.reviewHeatmap.find((entry) => entry.date === todayKey)
+  if (heatmapEntry) {
+    heatmapEntry.completed += 1
+  } else {
+    summary.reviewHeatmap.unshift({ date: todayKey, completed: 1 })
+  }
+  summary.reviewHeatmap = summary.reviewHeatmap.slice(0, MAX_MEMORIZATION_HEATMAP)
+
+  if (summary.lastReviewedOn) {
+    const previous = new Date(summary.lastReviewedOn)
+    const diff = getDayDifference(previous.toISOString(), todayKey)
+    if (diff === 1) {
+      summary.streak += 1
+    } else if (diff > 1) {
+      summary.streak = 1
+    }
+  } else {
+    summary.streak = Math.max(summary.streak, 1)
+  }
+  summary.lastReviewedOn = iso(nowDate)
+
+  const hasanatGain = Math.max(10, Math.round((accuracy / 100) * 35))
+  const xpGain = Math.max(15, Math.round((accuracy / 100) * 45))
+  record.stats.hasanat += hasanatGain
+  applyLevelProgression(record.stats, xpGain)
+  record.stats.weeklyXP[nowDate.getDay()] = Math.min(
+    LEVEL_XP_STEP,
+    record.stats.weeklyXP[nowDate.getDay()] + xpGain,
+  )
+  record.stats.studyMinutes += Math.max(1, Math.round(durationSeconds / 60))
+
+  record.dashboard.activities.unshift({
+    id: `activity_${nowDate.getTime()}`,
+    type: "memorization",
+    surah: task.surah,
+    progress: accuracy,
+    timestamp: iso(nowDate),
+  })
+  if (record.dashboard.activities.length > MAX_ACTIVITY_ENTRIES) {
+    record.dashboard.activities = record.dashboard.activities.slice(0, MAX_ACTIVITY_ENTRIES)
+  }
+
+  recalculateMemorizationSummary(record)
 
   return cloneLearnerState(record)
 }
