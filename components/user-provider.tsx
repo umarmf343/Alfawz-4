@@ -131,6 +131,20 @@ function createFallbackDashboardRecord(studentId: string): StudentDashboardRecor
       reviewHeatmap: [],
     },
     tajweedFocus: [],
+    gamePanel: {
+      season: {
+        name: "Season 1",
+        level: 1,
+        xp: 0,
+        xpToNext: 200,
+        endsOn: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+      energy: { current: 5, max: 5, refreshedAt: new Date().toISOString() },
+      streak: { current: 0, best: 0 },
+      tasks: [],
+      boosts: [],
+      leaderboard: { rank: 0, nextReward: 0, classRank: 0 },
+    },
   }
 }
 
