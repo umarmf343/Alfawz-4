@@ -103,6 +103,7 @@ export interface RecitationTaskRecord {
   teacherId: string
   notes: string
   assignedAt: string
+  focusAreas?: string[]
   verses: RecitationVerseRecord[]
   lastScore?: number
   submittedAt?: string
@@ -245,6 +246,22 @@ export interface StudentDashboardRecord {
   memorizationQueue: MemorizationTaskRecord[]
   memorizationPlaylists: MemorizationPlaylistRecord[]
   memorizationSummary: MemorizationSummaryRecord
+  tajweedFocus: TajweedFocusRecord[]
+}
+
+export type TajweedFocusStatus = "needs_support" | "improving" | "mastered"
+
+export interface TajweedFocusRecord {
+  id: string
+  rule: string
+  focusArea: string
+  status: TajweedFocusStatus
+  teacherId: string
+  lastReviewed: string | null
+  targetScore: number
+  currentScore: number
+  notes: string
+  recommendedExercises: string[]
 }
 
 interface LearnerMeta {
@@ -551,6 +568,7 @@ database.learners["user_001"] = {
         teacherId: "teacher_001",
         notes: "Focus on elongation rules (madd) and keep a steady pace.",
         assignedAt: iso(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+        focusAreas: ["Madd Tābi'ī", "Breath control"],
         verses: [
           {
             ayah: 1,
@@ -593,6 +611,7 @@ database.learners["user_001"] = {
         teacherId: "teacher_002",
         notes: "Revise the qalqalah letters and maintain consistent breathing.",
         assignedAt: iso(new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)),
+        focusAreas: ["Qalqalah Sughra", "Breath control"],
         verses: [
           {
             ayah: 6,
@@ -641,6 +660,7 @@ database.learners["user_001"] = {
         teacherId: "teacher_001",
         notes: "Excellent progress. Maintain articulation of the heavy letters.",
         assignedAt: iso(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)),
+        focusAreas: ["Tafkhīm of Ra", "Makharij clarity"],
         verses: [
           {
             ayah: 1,
@@ -854,6 +874,53 @@ database.learners["user_001"] = {
         }
       }),
     },
+    tajweedFocus: [
+      {
+        id: "focus_madd",
+        rule: "Madd Tābi'ī",
+        focusArea: "Lengthening vowels in Surah Al-Mulk 1-5",
+        status: "needs_support",
+        teacherId: "teacher_001",
+        lastReviewed: iso(new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)),
+        targetScore: 92,
+        currentScore: 78,
+        notes: "Sustain the elongation for two counts on every madd letter.",
+        recommendedExercises: [
+          "Chant ayah 1-3 slowly with a metronome to lock timing",
+          "Listen to Shaykh Husary's recitation focusing on madd",
+        ],
+      },
+      {
+        id: "focus_qalqalah",
+        rule: "Qalqalah Sughra",
+        focusArea: "Bounce on qalqalah letters in Surah Al-Mulk 6-11",
+        status: "improving",
+        teacherId: "teacher_002",
+        lastReviewed: iso(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+        targetScore: 90,
+        currentScore: 84,
+        notes: "Great progress. Keep the echo crisp without over-extending the vowel.",
+        recommendedExercises: [
+          "Record ayah 8 and compare waveform to teacher sample",
+          "Practice tongue release drills for qalqalah letters",
+        ],
+      },
+      {
+        id: "focus_tafkheem",
+        rule: "Tafkhīm of Ra",
+        focusArea: "Heavy articulation on ra' in Surah Al-Fatiha",
+        status: "mastered",
+        teacherId: "teacher_001",
+        lastReviewed: iso(new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000)),
+        targetScore: 95,
+        currentScore: 96,
+        notes: "Consistent tafkhīm. Maintain confidence and share with peers.",
+        recommendedExercises: [
+          "Lead a peer recitation circle focusing on tafkhīm",
+          "Review teacher's annotated audio once per week",
+        ],
+      },
+    ],
   },
   meta: {
     lastHabitActivityDate: yesterdayKey,
@@ -1277,6 +1344,64 @@ export function logRecitationSession(
   })
   if (record.dashboard.activities.length > MAX_ACTIVITY_ENTRIES) {
     record.dashboard.activities = record.dashboard.activities.slice(0, MAX_ACTIVITY_ENTRIES)
+  }
+
+  if (task?.focusAreas?.length) {
+    const focusAreas = task.focusAreas.map((area) => area.toLowerCase())
+    const scoreToStatus = (score: number, target: number): TajweedFocusStatus => {
+      if (score >= target) {
+        return "mastered"
+      }
+      if (score >= Math.max(0, target - 10)) {
+        return "improving"
+      }
+      return "needs_support"
+    }
+
+    const createExercises = (area: string): string[] => [
+      `Review instructor notes on ${area}.`,
+      `Record a focused drill emphasising ${area.toLowerCase()}.`,
+    ]
+
+    record.dashboard.tajweedFocus = record.dashboard.tajweedFocus.map((focus) => {
+      const matchesRule = focusAreas.includes(focus.rule.toLowerCase())
+      const matchesArea = focusAreas.includes(focus.focusArea.toLowerCase())
+      if (!matchesRule && !matchesArea) {
+        return focus
+      }
+      const nextScore = Math.round((focus.currentScore + session.tajweedScore) / 2)
+      const nextStatus = scoreToStatus(nextScore, focus.targetScore)
+      return {
+        ...focus,
+        currentScore: nextScore,
+        status: nextStatus,
+        lastReviewed: session.submittedAt,
+        teacherId: task.teacherId,
+        notes: task.notes,
+      }
+    })
+
+    task.focusAreas.forEach((area) => {
+      const key = area.toLowerCase()
+      const alreadyTracked = record.dashboard.tajweedFocus.some(
+        (focus) => focus.rule.toLowerCase() === key || focus.focusArea.toLowerCase() === key,
+      )
+      if (alreadyTracked) {
+        return
+      }
+      record.dashboard.tajweedFocus.push({
+        id: `focus_${timestamp.getTime()}_${key.replace(/[^a-z0-9]+/g, "-")}`,
+        rule: area,
+        focusArea: `${area} practice`,
+        status: scoreToStatus(session.tajweedScore, task.targetAccuracy),
+        teacherId: task.teacherId,
+        lastReviewed: session.submittedAt,
+        targetScore: task.targetAccuracy,
+        currentScore: session.tajweedScore,
+        notes: task.notes,
+        recommendedExercises: createExercises(area),
+      })
+    })
   }
 
   recalculateRecitationAccuracy(record)

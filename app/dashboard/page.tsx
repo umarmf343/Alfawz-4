@@ -81,6 +81,7 @@ export default function DashboardPage() {
     [dashboard?.memorizationPlaylists],
   )
   const memorizationSummary = dashboard?.memorizationSummary
+  const tajweedFocus = useMemo(() => dashboard?.tajweedFocus ?? [], [dashboard?.tajweedFocus])
   const dailyTargetCompleted = dailyTarget?.completedAyahs ?? 0
   const dailyTargetGoal = dailyTarget?.targetAyahs ?? 0
   const habitCompletionTarget = dashboard?.habitCompletion.target ?? Math.max(habits.length * 4, 1)
@@ -209,6 +210,34 @@ export default function DashboardPage() {
   const averageRecitationScore = recitationSessions.length
     ? Math.round(recitationSessions.reduce((total, session) => total + session.accuracy, 0) / recitationSessions.length)
     : 0
+  const averageTajweedScore = recitationSessions.length
+    ? Math.round(recitationSessions.reduce((total, session) => total + session.tajweedScore, 0) / recitationSessions.length)
+    : 0
+  const tajweedMasteredCount = useMemo(
+    () => tajweedFocus.filter((focus) => focus.status === "mastered").length,
+    [tajweedFocus],
+  )
+  const tajweedImprovingCount = useMemo(
+    () => tajweedFocus.filter((focus) => focus.status === "improving").length,
+    [tajweedFocus],
+  )
+  const tajweedNeedsSupportCount = useMemo(
+    () => tajweedFocus.filter((focus) => focus.status === "needs_support").length,
+    [tajweedFocus],
+  )
+  const tajweedReadiness = useMemo(() => {
+    if (tajweedFocus.length === 0) return 0
+    const masteredWeight = tajweedMasteredCount
+    const improvingWeight = tajweedImprovingCount * 0.6
+    return Math.max(
+      0,
+      Math.min(100, Math.round(((masteredWeight + improvingWeight) / tajweedFocus.length) * 100)),
+    )
+  }, [tajweedFocus.length, tajweedMasteredCount, tajweedImprovingCount])
+  const nextTajweedFocus = useMemo(
+    () => tajweedFocus.find((focus) => focus.status !== "mastered") ?? tajweedFocus[0] ?? null,
+    [tajweedFocus],
+  )
 
   const memorizationDueToday = memorizationSummary?.dueToday ?? 0
   const memorizationNewCount = memorizationSummary?.newCount ?? 0
@@ -250,6 +279,18 @@ export default function DashboardPage() {
     assigned: "Assigned",
     submitted: "Submitted",
     reviewed: "Reviewed",
+  }
+
+  const tajweedStatusStyles: Record<string, string> = {
+    needs_support: "bg-amber-100 text-amber-700",
+    improving: "bg-blue-100 text-blue-700",
+    mastered: "bg-emerald-100 text-emerald-700",
+  }
+
+  const tajweedStatusLabels: Record<string, string> = {
+    needs_support: "Needs support",
+    improving: "Improving",
+    mastered: "Mastered",
   }
 
   const memorizationStatusLabels: Record<string, string> = {
@@ -653,7 +694,7 @@ export default function DashboardPage() {
                 <CardDescription>Track assignments, submissions, and teacher reviews.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div className="rounded-lg border border-maroon-100 bg-maroon-50/70 p-4">
                     <p className="text-xs uppercase tracking-wide text-maroon-600">Pending tasks</p>
                     <p className="text-3xl font-bold text-maroon-900">{pendingRecitations.length}</p>
@@ -690,6 +731,19 @@ export default function DashboardPage() {
                       <p className="text-sm text-green-700">Record a recitation to see detailed feedback.</p>
                     )}
                   </div>
+                  <div className="rounded-lg border border-amber-100 bg-amber-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-amber-600">Tajweed readiness</p>
+                    <p className="text-3xl font-bold text-amber-700">{tajweedReadiness}%</p>
+                    <Progress value={tajweedReadiness} className="mt-3 h-2 bg-amber-200/60" />
+                    <p className="mt-2 text-xs text-amber-600">
+                      {tajweedFocus.length > 0
+                        ? `${tajweedMasteredCount} mastered • ${tajweedImprovingCount} improving • ${tajweedNeedsSupportCount} need support`
+                        : "Complete an assignment to unlock insights"}
+                    </p>
+                    <p className="mt-1 text-xs text-amber-600/80">
+                      Avg tajweed score {averageTajweedScore}%
+                    </p>
+                  </div>
                 </div>
 
                 <div className="space-y-3">
@@ -721,26 +775,93 @@ export default function DashboardPage() {
                       </div>
                     </div>
                   ))}
-                  {recitationTasks.length === 0 && (
-                    <div className="rounded-lg border border-dashed border-maroon-200 bg-maroon-50/60 p-4 text-sm text-maroon-700">
-                      Your teacher hasn&apos;t assigned any recitation tasks yet. Visit the Practice Lab for a guided warm-up.
-                    </div>
-                  )}
-                </div>
-
-                {nextRecitationTask && (
-                  <div className="rounded-lg border border-maroon-100 bg-cream-50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-maroon-600">Next focus</p>
-                    <p className="text-sm font-medium text-maroon-900">
-                      {nextRecitationTask.surah} • Ayah {nextRecitationTask.ayahRange}
-                    </p>
-                    <p className="text-xs text-maroon-600">
-                      {nextRecitationTask.notes}
-                    </p>
+                {recitationTasks.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-maroon-200 bg-maroon-50/60 p-4 text-sm text-maroon-700">
+                    Your teacher hasn&apos;t assigned any recitation tasks yet. Visit the Practice Lab for a guided warm-up.
                   </div>
                 )}
+              </div>
 
-                <div className="flex flex-wrap justify-end gap-3">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-maroon-900">Tajweed focus areas</h4>
+                  <Badge variant="secondary" className="text-xs">
+                    {tajweedFocus.length} active
+                  </Badge>
+                </div>
+                {tajweedFocus.map((focus) => {
+                  const progressPercent = focus.targetScore
+                    ? Math.max(0, Math.min(100, Math.round((focus.currentScore / focus.targetScore) * 100)))
+                    : 0
+                  return (
+                    <div
+                      key={focus.id}
+                      className="rounded-lg border border-maroon-100 bg-white p-4 shadow-sm space-y-3"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-maroon-900">{focus.rule}</p>
+                          <p className="text-xs text-gray-600">{focus.focusArea}</p>
+                          <p className="text-xs text-gray-500">
+                            Assigned by {teacherMap.get(focus.teacherId) ?? "Instructor"}
+                          </p>
+                        </div>
+                        <Badge
+                          variant="secondary"
+                          className={`text-xs ${tajweedStatusStyles[focus.status] ?? ""}`}
+                        >
+                          {tajweedStatusLabels[focus.status] ?? focus.status}
+                        </Badge>
+                      </div>
+                      <div>
+                        <Progress value={progressPercent} className="h-2" />
+                        <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+                          <span>Current {focus.currentScore}%</span>
+                          <span>Target {focus.targetScore}%</span>
+                        </div>
+                      </div>
+                      <div className="space-y-1 text-xs text-maroon-700">
+                        <p>{focus.notes}</p>
+                        <p className="text-gray-500">
+                          Last reviewed {focus.lastReviewed ? new Date(focus.lastReviewed).toLocaleString() : "Not yet"}
+                        </p>
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        <p className="font-semibold text-maroon-800">Recommended drills</p>
+                        <ul className="mt-1 list-disc list-inside space-y-1">
+                          {focus.recommendedExercises.map((exercise) => (
+                            <li key={exercise}>{exercise}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )
+                })}
+                {tajweedFocus.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-700">
+                    Complete a recitation submission to unlock personalised tajweed insights.
+                  </div>
+                )}
+              </div>
+
+              {nextRecitationTask && (
+                <div className="rounded-lg border border-maroon-100 bg-cream-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-maroon-600">Next focus</p>
+                  <p className="text-sm font-medium text-maroon-900">
+                    {nextRecitationTask.surah} • Ayah {nextRecitationTask.ayahRange}
+                  </p>
+                  <p className="text-xs text-maroon-600">
+                    {nextRecitationTask.notes}
+                  </p>
+                  {nextTajweedFocus && (
+                    <p className="mt-2 text-xs text-amber-700">
+                      Tajweed spotlight: {nextTajweedFocus.rule} — target {nextTajweedFocus.targetScore}%
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-3">
                   <Button variant="outline" asChild>
                     <Link href="/teacher/assignments">View assignments</Link>
                   </Button>
