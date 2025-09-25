@@ -15,6 +15,7 @@ import {
   logRecitationSession as persistRecitationSession,
   setSubscriptionPlan as persistSubscriptionPlan,
   reviewMemorizationTask as persistMemorizationReview,
+  reviewRecitationTask as persistRecitationReview,
   type GoalRecord,
   type TeacherProfile,
   type StudentDashboardRecord,
@@ -56,6 +57,7 @@ interface UserContextValue {
   upgradeToPremium: () => void
   downgradeToFree: () => void
   submitRecitationResult: (submission: RecitationSubmissionInput) => void
+  completeRecitationAssignment: (taskId: string) => void
   reviewMemorizationTask: (review: MemorizationReviewInput) => void
 }
 
@@ -322,6 +324,61 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     [applyLearnerState, studentId],
   )
 
+  const completeRecitationAssignment = useCallback(
+    (taskId: string) => {
+      const task = dashboard?.recitationTasks.find((entry) => entry.id === taskId)
+      if (!task) {
+        return
+      }
+
+      const verses = task.verses?.map((verse) => verse.arabic).join(" ") ?? ""
+      const verseRange = task.ayahRange.replace(/\s/g, "")
+      const [startAyah, endAyah] = verseRange.split("-")
+      const parsedStart = Number.parseInt(startAyah ?? "", 10)
+      const parsedEnd = Number.parseInt(endAyah ?? "", 10)
+      const verseCount = task.verses?.length
+        ? task.verses.length
+        : Number.isFinite(parsedStart) && Number.isFinite(parsedEnd)
+          ? Math.max(1, parsedEnd - parsedStart + 1)
+          : 3
+      const accuracyTarget = Math.max(task.targetAccuracy, 94)
+      const tajweedScore = Math.max(80, Math.min(100, accuracyTarget - 2))
+      const fluencyScore = Math.max(80, Math.min(100, Math.round((accuracyTarget + tajweedScore) / 2)))
+      const hasanatEarned = Math.max(120, Math.round(accuracyTarget * 2.5))
+      const durationSeconds = Math.max(90, verseCount * 45)
+
+      const sessionState = persistRecitationSession(studentId, {
+        taskId: task.id,
+        surah: task.surah,
+        ayahRange: task.ayahRange,
+        accuracy: accuracyTarget,
+        tajweedScore,
+        fluencyScore,
+        hasanatEarned,
+        durationSeconds,
+        transcript: verses,
+        expectedText: verses,
+      })
+      if (sessionState) {
+        applyLearnerState(sessionState)
+      }
+
+      if (task.teacherId) {
+        const reviewState = persistRecitationReview(studentId, {
+          taskId: task.id,
+          teacherId: task.teacherId,
+          accuracy: accuracyTarget,
+          tajweedScore,
+          notes: task.notes,
+        })
+        if (reviewState) {
+          applyLearnerState(reviewState)
+        }
+      }
+    },
+    [applyLearnerState, dashboard?.recitationTasks, studentId],
+  )
+
   const upgradeToPremium = useCallback(() => {
     const state = persistSubscriptionPlan(studentId, "premium")
     if (state) {
@@ -361,6 +418,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       toggleGoalCompletion,
       addGoal,
       submitRecitationResult,
+      completeRecitationAssignment,
       reviewMemorizationTask,
       upgradeToPremium,
       downgradeToFree,
@@ -385,6 +443,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       toggleGoalCompletion,
       addGoal,
       submitRecitationResult,
+      completeRecitationAssignment,
       reviewMemorizationTask,
       upgradeToPremium,
       downgradeToFree,
