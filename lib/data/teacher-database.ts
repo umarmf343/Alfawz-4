@@ -203,6 +203,64 @@ export interface MemorizationReviewInput {
   durationSeconds: number
 }
 
+export type GamificationTaskType = "habit" | "recitation" | "memorization" | "daily_target"
+export type GamificationTaskStatus = "locked" | "in_progress" | "completed"
+
+export interface GamificationTaskRecord {
+  id: string
+  title: string
+  description: string
+  type: GamificationTaskType
+  status: GamificationTaskStatus
+  progress: number
+  target: number
+  xpReward: number
+  hasanatReward: number
+  habitId?: string
+  recitationTaskId?: string
+  memorizationTaskId?: string
+  teacherId?: string
+  dueDate?: string
+  lastUpdated: string
+}
+
+export interface GamificationSeasonRecord {
+  name: string
+  level: number
+  xp: number
+  xpToNext: number
+  endsOn: string
+}
+
+export interface GamificationEnergyRecord {
+  current: number
+  max: number
+  refreshedAt: string
+}
+
+export interface GamificationBoostRecord {
+  id: string
+  name: string
+  description: string
+  active: boolean
+  expiresAt?: string
+}
+
+export interface GamificationLeaderboardSummary {
+  rank: number
+  nextReward: number
+  classRank: number
+}
+
+export interface GamificationPanelRecord {
+  season: GamificationSeasonRecord
+  energy: GamificationEnergyRecord
+  streak: { current: number; best: number }
+  tasks: GamificationTaskRecord[]
+  boosts: GamificationBoostRecord[]
+  leaderboard: GamificationLeaderboardSummary
+}
+
 export interface LeaderboardEntry {
   id: string
   name: string
@@ -255,6 +313,7 @@ export interface StudentDashboardRecord {
   memorizationPlaylists: MemorizationPlaylistRecord[]
   memorizationSummary: MemorizationSummaryRecord
   tajweedFocus: TajweedFocusRecord[]
+  gamePanel: GamificationPanelRecord
 }
 
 export type TajweedFocusStatus = "needs_support" | "improving" | "mastered"
@@ -272,8 +331,18 @@ export interface TajweedFocusRecord {
   recommendedExercises: string[]
 }
 
+export interface CompletedGameTaskLog {
+  id: string
+  taskId: string
+  completedAt: string
+  xpAwarded: number
+  hasanatAwarded: number
+  teacherId?: string
+}
+
 interface LearnerMeta {
   lastHabitActivityDate: string | null
+  completedGameTasks: CompletedGameTaskLog[]
 }
 
 interface LearnerRecord {
@@ -316,6 +385,9 @@ const MAX_ACTIVITY_ENTRIES = 50
 const MAX_RECITATION_SESSIONS = 50
 const MAX_MEMORIZATION_HEATMAP = 30
 const MAX_TEACHER_NOTES = 20
+const GAME_BASE_LEVEL_STEP = 320
+const GAME_LEVEL_MULTIPLIER = 1.15
+const MAX_GAMIFICATION_LOG = 100
 
 const database: TeacherDatabaseSchema = {
   teachers: [
@@ -930,9 +1002,112 @@ database.learners["user_001"] = {
         ],
       },
     ],
+    gamePanel: {
+      season: {
+        name: "Season 3: Tajweed Trials",
+        level: 5,
+        xp: 180,
+        xpToNext: 320,
+        endsOn: iso(new Date(now.getTime() + 10 * 24 * 60 * 60 * 1000)),
+      },
+      energy: {
+        current: 4,
+        max: 5,
+        refreshedAt: iso(new Date(now.getTime() - 60 * 60 * 1000)),
+      },
+      streak: { current: 6, best: 14 },
+      boosts: [
+        {
+          id: "boost_xp",
+          name: "XP Surge",
+          description: "Earn double XP on habit quests for the next 2 hours.",
+          active: true,
+          expiresAt: iso(new Date(now.getTime() + 2 * 60 * 60 * 1000)),
+        },
+        {
+          id: "boost_focus",
+          name: "Focus Shield",
+          description: "Daily target forgiven if you miss up to 2 ayahs today.",
+          active: false,
+          expiresAt: iso(new Date(now.getTime() + 24 * 60 * 60 * 1000)),
+        },
+      ],
+      leaderboard: { rank: 12, nextReward: 350, classRank: 12 },
+      tasks: [
+        {
+          id: "game_task_daily_habit",
+          title: "Daily Quest: Tajweed Drill",
+          description: "Complete the Daily Recitation Quest to earn bonus XP.",
+          type: "habit",
+          status: "in_progress",
+          progress: 0,
+          target: 1,
+          xpReward: 120,
+          hasanatReward: 75,
+          habitId: "daily-recitation",
+          teacherId: "teacher_001",
+          dueDate: iso(new Date(now.getTime() + 12 * 60 * 60 * 1000)),
+          lastUpdated: iso(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+        },
+        {
+          id: "game_task_recitation_boss",
+          title: "Boss Battle: Submit Recitation",
+          description: "Submit the Al-Mulk assignment with at least 90% accuracy.",
+          type: "recitation",
+          status: "in_progress",
+          progress: 0,
+          target: 1,
+          xpReward: 150,
+          hasanatReward: 90,
+          recitationTaskId: "recite_task_002",
+          teacherId: "teacher_002",
+          dueDate: iso(new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000)),
+          lastUpdated: iso(now),
+        },
+        {
+          id: "game_task_memorization_sprint",
+          title: "Memory Sprint",
+          description: "Review two SM-2 cards from your memorization queue.",
+          type: "memorization",
+          status: "in_progress",
+          progress: 1,
+          target: 2,
+          xpReward: 180,
+          hasanatReward: 110,
+          memorizationTaskId: "mem_task_001",
+          teacherId: "teacher_002",
+          dueDate: iso(new Date(now.getTime() + 24 * 60 * 60 * 1000)),
+          lastUpdated: iso(new Date(now.getTime() - 12 * 60 * 60 * 1000)),
+        },
+        {
+          id: "game_task_daily_target",
+          title: "Streak Shield",
+          description: "Reach today’s ayah target to protect your streak shield.",
+          type: "daily_target",
+          status: "in_progress",
+          progress: 4,
+          target: 10,
+          xpReward: 80,
+          hasanatReward: 50,
+          teacherId: "teacher_001",
+          dueDate: iso(new Date(now.getTime() + 12 * 60 * 60 * 1000)),
+          lastUpdated: iso(now),
+        },
+      ],
+    },
   },
   meta: {
     lastHabitActivityDate: yesterdayKey,
+    completedGameTasks: [
+      {
+        id: "game_log_001",
+        taskId: "game_task_archive_001",
+        completedAt: iso(new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)),
+        xpAwarded: 150,
+        hasanatAwarded: 90,
+        teacherId: "teacher_002",
+      },
+    ],
   },
 }
 
@@ -969,6 +1144,161 @@ function applyLevelProgression(stats: LearnerStats, xpGain: number) {
 function clampHabitCompletion(record: LearnerRecord) {
   const completion = record.dashboard.habitCompletion
   completion.completed = Math.min(completion.completed, completion.target)
+}
+
+type GamificationEvent =
+  | { type: "habit"; habitId: string }
+  | { type: "recitation"; recitationTaskId?: string; accuracy?: number }
+  | { type: "memorization"; memorizationTaskId: string; accuracy?: number }
+  | { type: "daily_target"; completedAyahs: number; targetAyahs: number }
+
+function matchesGamificationTask(task: GamificationTaskRecord, event: GamificationEvent) {
+  if (task.status === "locked" || task.type !== event.type) {
+    return false
+  }
+
+  switch (event.type) {
+    case "habit":
+      return !task.habitId || task.habitId === event.habitId
+    case "recitation":
+      if (task.recitationTaskId && task.recitationTaskId !== event.recitationTaskId) {
+        return false
+      }
+      return typeof event.accuracy !== "number" || event.accuracy >= 85
+    case "memorization":
+      if (task.memorizationTaskId && task.memorizationTaskId !== event.memorizationTaskId) {
+        return false
+      }
+      return typeof event.accuracy !== "number" || event.accuracy >= 75
+    case "daily_target":
+      return true
+    default:
+      return false
+  }
+}
+
+function awardGamificationRewards(
+  record: LearnerRecord,
+  xpAwarded: number,
+  hasanatAwarded: number,
+  streakIncrement: number,
+  nowDate: Date,
+) {
+  if (!record.dashboard.gamePanel) {
+    return
+  }
+
+  const panel = record.dashboard.gamePanel
+
+  if (hasanatAwarded > 0) {
+    record.stats.hasanat += hasanatAwarded
+  }
+
+  if (xpAwarded > 0) {
+    applyLevelProgression(record.stats, xpAwarded)
+    record.stats.weeklyXP[nowDate.getDay()] = Math.min(
+      LEVEL_XP_STEP,
+      record.stats.weeklyXP[nowDate.getDay()] + xpAwarded,
+    )
+
+    panel.season.xp += xpAwarded
+    let nextThreshold = panel.season.xpToNext || GAME_BASE_LEVEL_STEP
+    while (panel.season.xp >= nextThreshold) {
+      panel.season.xp -= nextThreshold
+      panel.season.level += 1
+      nextThreshold = Math.max(GAME_BASE_LEVEL_STEP, Math.round(nextThreshold * GAME_LEVEL_MULTIPLIER))
+    }
+    panel.season.xpToNext = Math.max(GAME_BASE_LEVEL_STEP, nextThreshold)
+
+    panel.leaderboard.nextReward = Math.max(0, panel.leaderboard.nextReward - xpAwarded)
+
+    if (panel.energy.current > 0) {
+      panel.energy.current = Math.max(0, panel.energy.current - 1)
+      panel.energy.refreshedAt = iso(nowDate)
+    }
+  }
+
+  if (streakIncrement > 0) {
+    panel.streak.current += streakIncrement
+    panel.streak.best = Math.max(panel.streak.best, panel.streak.current)
+  }
+}
+
+function applyGamificationEvent(record: LearnerRecord, event: GamificationEvent) {
+  const panel = record.dashboard.gamePanel
+  if (!panel) {
+    return
+  }
+
+  const nowDate = new Date()
+  let totalXp = 0
+  let totalHasanat = 0
+  let streakGain = 0
+
+  for (const task of panel.tasks) {
+    if (task.status === "completed") {
+      continue
+    }
+
+    if (task.type === "daily_target" && event.type === "daily_target") {
+      const previousProgress = task.progress
+      const newProgress = Math.min(task.target, event.completedAyahs)
+      if (newProgress !== previousProgress) {
+        task.progress = newProgress
+        task.lastUpdated = iso(nowDate)
+      }
+      if (newProgress >= task.target && task.status !== "completed") {
+        task.status = "completed"
+        totalXp += task.xpReward
+        totalHasanat += task.hasanatReward
+        streakGain += 1
+        record.meta.completedGameTasks.unshift({
+          id: `game_log_${nowDate.getTime()}_${task.id}`,
+          taskId: task.id,
+          completedAt: iso(nowDate),
+          xpAwarded: task.xpReward,
+          hasanatAwarded: task.hasanatReward,
+          teacherId: task.teacherId,
+        })
+      } else if (task.status !== "completed" && newProgress > previousProgress) {
+        task.status = "in_progress"
+      }
+      continue
+    }
+
+    if (!matchesGamificationTask(task, event)) {
+      continue
+    }
+
+    const previousProgress = task.progress
+    task.progress = Math.min(task.target, task.progress + 1)
+    task.lastUpdated = iso(nowDate)
+
+    if (task.progress >= task.target) {
+      task.status = "completed"
+      totalXp += task.xpReward
+      totalHasanat += task.hasanatReward
+      streakGain += 1
+      record.meta.completedGameTasks.unshift({
+        id: `game_log_${nowDate.getTime()}_${task.id}`,
+        taskId: task.id,
+        completedAt: iso(nowDate),
+        xpAwarded: task.xpReward,
+        hasanatAwarded: task.hasanatReward,
+        teacherId: task.teacherId,
+      })
+    } else if (task.progress > previousProgress) {
+      task.status = "in_progress"
+    }
+  }
+
+  if (record.meta.completedGameTasks.length > MAX_GAMIFICATION_LOG) {
+    record.meta.completedGameTasks = record.meta.completedGameTasks.slice(0, MAX_GAMIFICATION_LOG)
+  }
+
+  if (totalXp > 0 || totalHasanat > 0 || streakGain > 0) {
+    awardGamificationRewards(record, totalXp, totalHasanat, streakGain, nowDate)
+  }
 }
 
 function parseAyahCount(range: string) {
@@ -1129,6 +1459,12 @@ export function recordAyahProgress(studentId: string, increment = 1): LearnerSta
     }
   }
 
+  applyGamificationEvent(record, {
+    type: "daily_target",
+    completedAyahs: record.dashboard.dailyTarget.completedAyahs,
+    targetAyahs: record.dashboard.dailyTarget.targetAyahs,
+  })
+
   return cloneLearnerState(record)
 }
 
@@ -1137,6 +1473,18 @@ export function resetDailyProgress(studentId: string): LearnerState | undefined 
   if (!record) return undefined
   record.dashboard.dailyTarget.completedAyahs = 0
   record.dashboard.dailyTarget.lastUpdated = iso(new Date())
+  if (record.dashboard.gamePanel) {
+    const nowDate = new Date()
+    for (const task of record.dashboard.gamePanel.tasks) {
+      if (task.type === "daily_target") {
+        task.progress = 0
+        if (task.status === "completed") {
+          task.status = "in_progress"
+        }
+        task.lastUpdated = iso(nowDate)
+      }
+    }
+  }
   return cloneLearnerState(record)
 }
 
@@ -1273,6 +1621,8 @@ export function completeHabitQuest(studentId: string, habitId: string): HabitCom
     record.dashboard.activities = record.dashboard.activities.slice(0, MAX_ACTIVITY_ENTRIES)
   }
 
+  applyGamificationEvent(record, { type: "habit", habitId })
+
   return {
     result: { success: true, message: "Great job! Habit completed for today." },
     state: cloneLearnerState(record),
@@ -1354,6 +1704,12 @@ export function logRecitationSession(
   if (record.dashboard.activities.length > MAX_ACTIVITY_ENTRIES) {
     record.dashboard.activities = record.dashboard.activities.slice(0, MAX_ACTIVITY_ENTRIES)
   }
+
+  applyGamificationEvent(record, {
+    type: "recitation",
+    recitationTaskId: submission.taskId,
+    accuracy: session.accuracy,
+  })
 
   if (task?.focusAreas?.length) {
     const focusAreas = task.focusAreas.map((area) => area.toLowerCase())
@@ -1508,6 +1864,12 @@ export function reviewMemorizationTask(
     record.dashboard.activities = record.dashboard.activities.slice(0, MAX_ACTIVITY_ENTRIES)
   }
 
+  applyGamificationEvent(record, {
+    type: "memorization",
+    memorizationTaskId: review.taskId,
+    accuracy,
+  })
+
   recalculateMemorizationSummary(record)
 
   return cloneLearnerState(record)
@@ -1579,7 +1941,361 @@ export function reviewRecitationTask(
   record.dashboard.teacherNotes.unshift(teacherNote)
   record.dashboard.teacherNotes = record.dashboard.teacherNotes.slice(0, MAX_TEACHER_NOTES)
 
+  applyGamificationEvent(record, {
+    type: "recitation",
+    recitationTaskId: review.taskId,
+    accuracy: normalizedAccuracy,
+  })
+
   recalculateRecitationAccuracy(record)
 
   return cloneLearnerState(record)
+}
+
+function formatRelativeTime(timestamp: string | undefined) {
+  if (!timestamp) {
+    return "Inactive"
+  }
+  const date = new Date(timestamp)
+  const diff = Date.now() - date.getTime()
+  if (diff < 60 * 1000) {
+    return "Just now"
+  }
+  const minutes = Math.round(diff / (60 * 1000))
+  if (minutes < 60) {
+    return `${minutes} minute${minutes === 1 ? "" : "s"} ago`
+  }
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) {
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`
+  }
+  const days = Math.round(hours / 24)
+  return `${days} day${days === 1 ? "" : "s"} ago`
+}
+
+export function getCompletedGameTasks(studentId: string): CompletedGameTaskLog[] {
+  const record = getLearnerRecord(studentId)
+  if (!record) {
+    return []
+  }
+  return record.meta.completedGameTasks.map((entry) => ({ ...entry }))
+}
+
+const CLASS_NAME_BY_TEACHER: Record<string, string> = {
+  teacher_001: "Intermediate Class A",
+  teacher_002: "Advanced Class B",
+}
+
+export interface InstructorAssignmentSummary {
+  id: string
+  title: string
+  dueDate: string
+  status: RecitationTaskStatus
+  submitted: number
+  total: number
+  className: string
+}
+
+export interface InstructorStudentProgress {
+  id: string
+  name: string
+  progress: number
+  streak: number
+  lastActive: string
+  recitationAccuracy: number
+}
+
+export interface InstructorGamificationSummary {
+  completedTasks: number
+  pendingTasks: number
+  activeBoosts: number
+  averageSeasonLevel: number
+}
+
+export interface InstructorDashboardSummary {
+  classStats: {
+    totalStudents: number
+    activeStudents: number
+    completedAssignments: number
+    averageProgress: number
+  }
+  recentAssignments: InstructorAssignmentSummary[]
+  studentProgress: InstructorStudentProgress[]
+  gamification: InstructorGamificationSummary
+}
+
+export function getInstructorDashboardSummary(teacherId: string): InstructorDashboardSummary {
+  const learners = Object.values(database.learners)
+  const totalStudents = learners.length
+  const activeStudents = learners.filter((learner) => {
+    const activity = learner.dashboard.activities[0]
+    if (!activity) {
+      return false
+    }
+    return Date.now() - new Date(activity.timestamp).getTime() <= 24 * 60 * 60 * 1000
+  }).length
+
+  const teacherAssignments = learners.flatMap((learner) =>
+    learner.dashboard.recitationTasks.filter((task) => task.teacherId === teacherId),
+  )
+
+  const completedAssignments = teacherAssignments.filter((task) => task.status === "reviewed").length
+
+  const averageProgress =
+    learners.length === 0
+      ? 0
+      : Math.round(
+          learners.reduce((total, learner) => total + learner.dashboard.recitationPercentage, 0) /
+            learners.length,
+        )
+
+  const recentAssignments: InstructorAssignmentSummary[] = teacherAssignments
+    .map((task) => {
+      const total = learners.filter((learner) =>
+        learner.dashboard.recitationTasks.some((entry) => entry.id === task.id),
+      ).length
+      const submitted = learners.filter((learner) => {
+        const entry = learner.dashboard.recitationTasks.find((candidate) => candidate.id === task.id)
+        if (!entry) {
+          return false
+        }
+        return entry.status === "submitted" || entry.status === "reviewed"
+      }).length
+      return {
+        id: task.id,
+        title: `${task.surah} • ${task.ayahRange}`,
+        dueDate: task.dueDate,
+        status: task.status,
+        submitted,
+        total,
+        className: CLASS_NAME_BY_TEACHER[task.teacherId] ?? "Learner Cohort",
+      }
+    })
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+    .slice(0, 3)
+
+  const studentProgress: InstructorStudentProgress[] = learners
+    .map((learner) => ({
+      id: learner.profile.id,
+      name: learner.profile.name,
+      progress: learner.dashboard.memorizationPercentage,
+      streak: learner.stats.streak,
+      lastActive: formatRelativeTime(learner.dashboard.activities[0]?.timestamp),
+      recitationAccuracy: learner.dashboard.recitationPercentage,
+    }))
+    .sort((a, b) => b.progress - a.progress)
+    .slice(0, 5)
+
+  const completedTasks = learners.reduce(
+    (total, learner) => total + learner.dashboard.gamePanel.tasks.filter((task) => task.status === "completed").length,
+    0,
+  )
+  const pendingTasks = learners.reduce(
+    (total, learner) => total + learner.dashboard.gamePanel.tasks.filter((task) => task.status !== "completed").length,
+    0,
+  )
+  const activeBoosts = learners.reduce(
+    (total, learner) => total + learner.dashboard.gamePanel.boosts.filter((boost) => boost.active).length,
+    0,
+  )
+  const averageSeasonLevel =
+    learners.length === 0
+      ? 0
+      : Number(
+          (
+            learners.reduce(
+              (total, learner) => total + (learner.dashboard.gamePanel?.season.level ?? 0),
+              0,
+            ) / learners.length
+          ).toFixed(1),
+        )
+
+  return {
+    classStats: {
+      totalStudents,
+      activeStudents,
+      completedAssignments,
+      averageProgress,
+    },
+    recentAssignments,
+    studentProgress,
+    gamification: {
+      completedTasks,
+      pendingTasks,
+      activeBoosts,
+      averageSeasonLevel,
+    },
+  }
+}
+
+export interface AdminOverviewStats {
+  totalUsers: number
+  activeUsers: number
+  totalRevenue: number
+  monthlyRevenue: number
+  totalSessions: number
+  avgSessionTime: string
+  completionRate: number
+  subscriptionRate: number
+}
+
+export interface AdminActivityEntry {
+  id: string
+  type: "reading" | "memorization" | "recitation"
+  user: string
+  action: string
+  time: string
+  status: "success" | "warning" | "error" | "info"
+}
+
+export interface AdminUserGrowthPoint {
+  month: string
+  users: number
+  revenue: number
+}
+
+export interface AdminGamificationSnapshot {
+  completedTasks: number
+  pendingTasks: number
+  activeBoosts: number
+  averageSeasonLevel: number
+  averageEnergy: number
+}
+
+export interface AdminOverview {
+  stats: AdminOverviewStats
+  recentActivity: AdminActivityEntry[]
+  userGrowth: AdminUserGrowthPoint[]
+  gamification: AdminGamificationSnapshot
+}
+
+export function getAdminOverview(): AdminOverview {
+  const learners = Object.values(database.learners)
+  const totalUsers = learners.length
+  const activeUsers = learners.filter((learner) => {
+    const activity = learner.dashboard.activities[0]
+    if (!activity) {
+      return false
+    }
+    return Date.now() - new Date(activity.timestamp).getTime() <= 24 * 60 * 60 * 1000
+  }).length
+
+  const premiumUsers = learners.filter((learner) => learner.profile.plan === "premium").length
+  const baseRevenue = 450000
+  const monthlyRevenue = premiumUsers * baseRevenue
+  const totalRevenue = monthlyRevenue * 12
+
+  const totalSessions = learners.reduce(
+    (total, learner) => total + learner.dashboard.recitationSessions.length,
+    0,
+  )
+  const totalStudyMinutes = learners.reduce((total, learner) => total + learner.stats.studyMinutes, 0)
+  const avgSessionTime =
+    totalSessions === 0
+      ? "0m"
+      : `${Math.max(1, Math.round(totalStudyMinutes / Math.max(totalSessions, 1)))}m`
+
+  const completionRate =
+    totalUsers === 0
+      ? 0
+      : Math.round(
+          learners.reduce((total, learner) => total + learner.dashboard.memorizationPercentage, 0) /
+            totalUsers,
+        )
+
+  const subscriptionRate = totalUsers === 0 ? 0 : Math.round((premiumUsers / totalUsers) * 100)
+
+  const recentActivity: AdminActivityEntry[] = learners
+    .flatMap((learner) =>
+      learner.dashboard.activities.slice(0, 5).map((activity) => ({
+        id: `${learner.profile.id}_${activity.id}`,
+        type: activity.type,
+        user: learner.profile.name,
+        action:
+          activity.type === "reading"
+            ? `Read ${activity.ayahs ?? "several"} ayahs from ${activity.surah}`
+            : activity.type === "memorization"
+              ? `Reviewed ${activity.surah} at ${activity.progress ?? 0}%`
+              : `Recorded ${activity.surah} with ${activity.score ?? activity.progress ?? 0}% score`,
+        timestamp: activity.timestamp,
+        status: activity.type === "recitation" ? "success" : activity.type === "memorization" ? "info" : "success",
+      })),
+    )
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 5)
+    .map((entry) => ({ ...entry, time: formatRelativeTime(entry.timestamp) }))
+    .map(({ timestamp: _timestamp, ...rest }) => {
+      void _timestamp
+      return rest
+    })
+
+  const months = Array.from({ length: 6 }).map((_, index) => {
+    const date = new Date()
+    date.setMonth(date.getMonth() - (5 - index))
+    const label = date.toLocaleString("en-US", { month: "short" })
+    const baseUsers = totalUsers + Math.max(1, activeUsers) * index
+    const revenueTrend = Math.round(monthlyRevenue * (0.75 + index * 0.05))
+    return {
+      month: label,
+      users: baseUsers,
+      revenue: revenueTrend,
+    }
+  })
+
+  const gamificationCompleted = learners.reduce(
+    (total, learner) => total + learner.meta.completedGameTasks.length,
+    0,
+  )
+  const gamificationPending = learners.reduce(
+    (total, learner) => total + learner.dashboard.gamePanel.tasks.filter((task) => task.status !== "completed").length,
+    0,
+  )
+  const gamificationActiveBoosts = learners.reduce(
+    (total, learner) => total + learner.dashboard.gamePanel.boosts.filter((boost) => boost.active).length,
+    0,
+  )
+  const gamificationAverageLevel =
+    learners.length === 0
+      ? 0
+      : Number(
+          (
+            learners.reduce(
+              (total, learner) => total + (learner.dashboard.gamePanel?.season.level ?? 0),
+              0,
+            ) / learners.length
+          ).toFixed(1),
+        )
+  const gamificationAverageEnergy =
+    learners.length === 0
+      ? 0
+      : Number(
+          (
+            learners.reduce(
+              (total, learner) => total + (learner.dashboard.gamePanel?.energy.current ?? 0),
+              0,
+            ) / learners.length
+          ).toFixed(1),
+        )
+
+  return {
+    stats: {
+      totalUsers,
+      activeUsers,
+      totalRevenue,
+      monthlyRevenue,
+      totalSessions,
+      avgSessionTime,
+      completionRate,
+      subscriptionRate,
+    },
+    recentActivity,
+    userGrowth: months,
+    gamification: {
+      completedTasks: gamificationCompleted,
+      pendingTasks: gamificationPending,
+      activeBoosts: gamificationActiveBoosts,
+      averageSeasonLevel: gamificationAverageLevel,
+      averageEnergy: gamificationAverageEnergy,
+    },
+  }
 }

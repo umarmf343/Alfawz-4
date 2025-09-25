@@ -22,54 +22,12 @@ import {
   Eye,
 } from "lucide-react"
 import Link from "next/link"
+import { getInstructorDashboardSummary } from "@/lib/data/teacher-database"
 
 export default function TeacherDashboardPage() {
   const [activeTab, setActiveTab] = useState("overview")
-
-  const classStats = {
-    totalStudents: 24,
-    activeStudents: 18,
-    completedAssignments: 156,
-    averageProgress: 73,
-  }
-
-  const recentAssignments = [
-    {
-      id: 1,
-      title: "Surah Al-Fatiha Memorization",
-      class: "Beginner Class A",
-      dueDate: "2025-01-15",
-      submitted: 18,
-      total: 24,
-      status: "active",
-    },
-    {
-      id: 2,
-      title: "Tajweed Rules Practice",
-      class: "Intermediate Class B",
-      dueDate: "2025-01-12",
-      submitted: 22,
-      total: 25,
-      status: "active",
-    },
-    {
-      id: 3,
-      title: "Surah Al-Mulk Reading",
-      class: "Advanced Class C",
-      dueDate: "2025-01-10",
-      submitted: 15,
-      total: 15,
-      status: "completed",
-    },
-  ]
-
-  const studentProgress = [
-    { name: "Aisha Rahman", progress: 92, streak: 12, lastActive: "2 hours ago" },
-    { name: "Omar Hassan", progress: 87, streak: 8, lastActive: "5 hours ago" },
-    { name: "Fatima Ali", progress: 95, streak: 15, lastActive: "1 hour ago" },
-    { name: "Ahmed Khan", progress: 78, streak: 5, lastActive: "1 day ago" },
-    { name: "Zainab Malik", progress: 89, streak: 10, lastActive: "3 hours ago" },
-  ]
+  const { classStats, recentAssignments, studentProgress, gamification } =
+    getInstructorDashboardSummary("teacher_001")
 
   return (
     <div className="min-h-screen bg-gradient-cream">
@@ -169,6 +127,36 @@ export default function TeacherDashboardPage() {
           </Card>
         </div>
 
+        <Card className="mb-8 border-border/50 shadow-lg">
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle className="text-xl">Gamification Insights</CardTitle>
+              <CardDescription>Monitor Habit Quest engagement across your cohort</CardDescription>
+            </div>
+            <Badge variant="secondary" className="px-3 py-1">
+              {gamification.completedTasks} quests cleared
+            </Badge>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-4">
+            <div className="rounded-lg border border-border/50 p-4">
+              <p className="text-xs text-muted-foreground uppercase">Completed quests</p>
+              <p className="text-2xl font-bold text-primary">{gamification.completedTasks}</p>
+            </div>
+            <div className="rounded-lg border border-border/50 p-4">
+              <p className="text-xs text-muted-foreground uppercase">Active quests</p>
+              <p className="text-2xl font-bold text-primary">{gamification.pendingTasks}</p>
+            </div>
+            <div className="rounded-lg border border-border/50 p-4">
+              <p className="text-xs text-muted-foreground uppercase">Active boosts</p>
+              <p className="text-2xl font-bold text-primary">{gamification.activeBoosts}</p>
+            </div>
+            <div className="rounded-lg border border-border/50 p-4">
+              <p className="text-xs text-muted-foreground uppercase">Avg season level</p>
+              <p className="text-2xl font-bold text-primary">{gamification.averageSeasonLevel}</p>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Main Content Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:grid-cols-4">
@@ -197,17 +185,23 @@ export default function TeacherDashboardPage() {
                           <div className="flex items-center space-x-3 mb-2">
                             <h4 className="font-medium">{assignment.title}</h4>
                             <Badge
-                              variant={assignment.status === "completed" ? "default" : "secondary"}
+                              variant={assignment.status === "reviewed" ? "default" : "secondary"}
                               className={
-                                assignment.status === "completed"
+                                assignment.status === "reviewed"
                                   ? "gradient-gold text-white border-0"
-                                  : "bg-orange-100 text-orange-800"
+                                  : assignment.status === "submitted"
+                                    ? "bg-blue-100 text-blue-800"
+                                    : "bg-orange-100 text-orange-800"
                               }
                             >
-                              {assignment.status === "completed" ? "Completed" : "Active"}
+                              {assignment.status === "reviewed"
+                                ? "Reviewed"
+                                : assignment.status === "submitted"
+                                  ? "Submitted"
+                                  : "Assigned"}
                             </Badge>
                           </div>
-                          <p className="text-sm text-muted-foreground mb-2">{assignment.class}</p>
+                          <p className="text-sm text-muted-foreground mb-2">{assignment.className}</p>
                           <div className="flex items-center space-x-4 text-sm">
                             <span className="flex items-center text-muted-foreground">
                               <Calendar className="w-4 h-4 mr-1" />
@@ -382,8 +376,8 @@ export default function TeacherDashboardPage() {
             </div>
 
             <div className="grid gap-4">
-              {studentProgress.map((student, index) => (
-                <Card key={index} className="border-border/50 hover:shadow-md transition-shadow">
+              {studentProgress.map((student) => (
+                <Card key={student.id} className="border-border/50 hover:shadow-md transition-shadow">
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-4">
@@ -400,16 +394,22 @@ export default function TeacherDashboardPage() {
                           <Star className="w-4 h-4 text-accent" />
                           <span className="text-sm font-medium">{student.streak} day streak</span>
                         </div>
-                        <Badge className="gradient-gold text-white border-0">{student.progress}% Progress</Badge>
+                        <Badge className="gradient-gold text-white border-0">
+                          {student.progress}% Memorization
+                        </Badge>
                       </div>
                     </div>
 
                     <div className="space-y-2">
                       <div className="flex justify-between text-sm">
-                        <span>Overall Progress</span>
+                        <span>Memorization Progress</span>
                         <span>{student.progress}%</span>
                       </div>
                       <Progress value={student.progress} />
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Recitation accuracy</span>
+                        <span>{student.recitationAccuracy}%</span>
+                      </div>
                     </div>
 
                     <div className="flex space-x-3 mt-4">
@@ -500,7 +500,10 @@ export default function TeacherDashboardPage() {
                     .sort((a, b) => b.progress - a.progress)
                     .slice(0, 5)
                     .map((student, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-muted/30">
+                      <div
+                        key={student.id}
+                        className="flex items-center justify-between p-3 rounded-lg bg-muted/30"
+                      >
                         <div className="flex items-center space-x-3">
                           <div
                             className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${
@@ -523,6 +526,9 @@ export default function TeacherDashboardPage() {
                             <Star className="w-3 h-3 text-accent" />
                             <span className="text-sm">{student.streak}</span>
                           </div>
+                          <span className="text-xs text-muted-foreground">
+                            {student.recitationAccuracy}% accuracy
+                          </span>
                         </div>
                       </div>
                     ))}
