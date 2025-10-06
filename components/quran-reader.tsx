@@ -210,17 +210,17 @@ export function QuranReader({
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Controls Header */}
       {showControls && (
-        <Card className="border-border/50">
+        <Card className="border-maroon-100 bg-white/90 shadow-sm">
           <CardContent className="p-4">
             <div className="flex flex-wrap items-center gap-4">
               {/* Surah Selector */}
               <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium">Surah:</Label>
+                <Label className="text-sm font-medium text-maroon-800">Surah:</Label>
                 <Select
                   value={currentSurah?.number.toString()}
                   onValueChange={(value) => loadSurah(Number.parseInt(value))}
                 >
-                  <SelectTrigger className="w-48">
+                  <SelectTrigger className="w-48 bg-white/80">
                     <SelectValue placeholder="Select Surah" />
                   </SelectTrigger>
                   <SelectContent className="max-h-60">
@@ -235,7 +235,7 @@ export function QuranReader({
 
               {/* Reciter Selector */}
               <div className="flex items-center space-x-2">
-                <Label className="text-sm font-medium">Reciter:</Label>
+                <Label className="text-sm font-medium text-maroon-800">Reciter:</Label>
                 <Select
                   value={selectedReciter}
                   onValueChange={(value) => {
@@ -245,7 +245,7 @@ export function QuranReader({
                     }
                   }}
                 >
-                  <SelectTrigger className="w-40">
+                  <SelectTrigger className="w-40 bg-white/80">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -260,7 +260,7 @@ export function QuranReader({
               {/* Translation Toggle */}
               <div className="flex items-center space-x-2">
                 <Switch id="show-translation" checked={showTranslations} onCheckedChange={setShowTranslations} />
-                <Label htmlFor="show-translation" className="text-sm">
+                <Label htmlFor="show-translation" className="text-sm text-maroon-800">
                   <Languages className="w-4 h-4 inline mr-1" />
                   Translation
                 </Label>
@@ -272,12 +272,12 @@ export function QuranReader({
 
       {/* Surah Header */}
       {currentSurah && (
-        <Card className="border-border/50">
+        <Card className="border-maroon-100 bg-gradient-to-r from-cream-50 to-white/90">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl text-maroon-800">
               {currentSurah.name} - {currentSurah.englishName}
             </CardTitle>
-            <p className="text-gray-600">
+            <p className="text-maroon-700">
               {currentSurah.englishNameTranslation} • {currentSurah.numberOfAyahs} Ayahs • {currentSurah.revelationType}
             </p>
           </CardHeader>
@@ -286,7 +286,7 @@ export function QuranReader({
 
       {/* Audio Controls */}
       {showControls && (
-        <Card className="border-border/50">
+        <Card className="border-maroon-100 bg-white/90 shadow-sm">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
@@ -315,7 +315,7 @@ export function QuranReader({
                   }}
                   variant="outline"
                   size="sm"
-                  className={repeatMode !== "none" ? "bg-maroon-50 text-maroon-700" : ""}
+                  className={repeatMode !== "none" ? "bg-maroon-50 text-maroon-700 border border-maroon-200" : ""}
                 >
                   <Repeat className="w-4 h-4 mr-1" />
                   {repeatMode === "none" ? "No Repeat" : repeatMode === "ayah" ? "Repeat Ayah" : "Repeat Surah"}
@@ -335,12 +335,12 @@ export function QuranReader({
                 </div>
 
                 <div className="flex items-center space-x-2">
-                  <Label className="text-sm">Speed:</Label>
+                  <Label className="text-sm text-maroon-800">Speed:</Label>
                   <Select
                     value={playbackSpeed.toString()}
                     onValueChange={(value) => setPlaybackSpeed(Number.parseFloat(value))}
                   >
-                    <SelectTrigger className="w-20">
+                    <SelectTrigger className="w-20 bg-white/80">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -369,13 +369,13 @@ export function QuranReader({
           return (
             <Card
               key={ayah.number}
-              className={`border-border/50 transition-all duration-200 ${
-                isCurrentAyah ? "ring-2 ring-maroon-200 bg-maroon-50/30" : ""
+              className={`border border-maroon-100 transition-all duration-200 ${
+                isCurrentAyah ? "ring-2 ring-maroon-200 bg-maroon-50/40" : "bg-white/95"
               }`}
             >
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
-                  <Badge variant="outline" className="bg-maroon-50 text-maroon-700 border-maroon-200">
+                  <Badge variant="outline" className="bg-maroon-50 text-maroon-700 border border-maroon-200">
                     Ayah {ayah.numberInSurah}
                   </Badge>
 
@@ -411,9 +411,12 @@ export function QuranReader({
                 {showTranslations && ayahTranslations.length > 0 && (
                   <div className="space-y-3">
                     {ayahTranslations.map((translation, tIndex) => (
-                      <div key={tIndex} className="border-l-4 border-blue-200 pl-4">
-                        <p className="text-gray-700 leading-relaxed">{translation.text}</p>
-                        <p className="text-sm text-gray-500 mt-1">— {translation.translator}</p>
+                      <div
+                        key={tIndex}
+                        className="rounded-md border-l-4 border-maroon-200 bg-cream-50/80 p-4 text-left"
+                      >
+                        <p className="text-maroon-800 leading-relaxed">{translation.text}</p>
+                        <p className="text-sm text-maroon-600 mt-1">— {translation.translator}</p>
                       </div>
                     ))}
                   </div>
@@ -421,13 +424,22 @@ export function QuranReader({
 
                 {/* Ayah Metadata */}
                 <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-100">
-                  <Badge variant="secondary" className="text-xs">
+                  <Badge
+                    variant="secondary"
+                    className="text-xs bg-cream-50 text-maroon-700 border border-maroon-200/60"
+                  >
                     Juz {ayah.juz}
                   </Badge>
-                  <Badge variant="secondary" className="text-xs">
+                  <Badge
+                    variant="secondary"
+                    className="text-xs bg-cream-50 text-maroon-700 border border-maroon-200/60"
+                  >
                     Page {ayah.page}
                   </Badge>
-                  <Badge variant="secondary" className="text-xs">
+                  <Badge
+                    variant="secondary"
+                    className="text-xs bg-cream-50 text-maroon-700 border border-maroon-200/60"
+                  >
                     Manzil {ayah.manzil}
                   </Badge>
                   {ayah.sajda && (

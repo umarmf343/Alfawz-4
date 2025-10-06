@@ -363,9 +363,9 @@ export default function DashboardPage() {
   )
 
   const recitationStatusStyles: Record<string, string> = {
-    assigned: "bg-amber-100 text-amber-700",
-    submitted: "bg-blue-100 text-blue-700",
-    reviewed: "bg-green-100 text-green-700",
+    assigned: "bg-amber-100 text-amber-700 border border-amber-200",
+    submitted: "bg-maroon-100 text-maroon-700 border border-maroon-200",
+    reviewed: "bg-emerald-100 text-emerald-700 border border-emerald-200",
   }
 
   const recitationStatusLabels: Record<string, string> = {
@@ -375,9 +375,9 @@ export default function DashboardPage() {
   }
 
   const tajweedStatusStyles: Record<string, string> = {
-    needs_support: "bg-amber-100 text-amber-700",
-    improving: "bg-blue-100 text-blue-700",
-    mastered: "bg-emerald-100 text-emerald-700",
+    needs_support: "bg-amber-100 text-amber-700 border border-amber-200",
+    improving: "bg-maroon-100 text-maroon-700 border border-maroon-200",
+    mastered: "bg-emerald-100 text-emerald-700 border border-emerald-200",
   }
 
   const tajweedStatusLabels: Record<string, string> = {
@@ -394,7 +394,7 @@ export default function DashboardPage() {
 
   const gameTaskStatusStyles: Record<string, string> = {
     locked: "bg-gray-100 text-gray-600",
-    in_progress: "bg-blue-100 text-blue-700",
+    in_progress: "bg-maroon-100 text-maroon-700 border border-maroon-200",
     completed: "bg-emerald-100 text-emerald-700",
   }
 
@@ -526,14 +526,14 @@ export default function DashboardPage() {
 
         {/* Quick Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
-          <Card className="bg-gradient-to-br from-blue-600 to-blue-700 text-white border-0">
+          <Card className="bg-gradient-to-br from-maroon-600 to-maroon-700 text-white border-0">
             <CardContent className="p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-blue-100 text-sm">Daily Streak</p>
+                  <p className="text-maroon-100 text-sm">Daily Streak</p>
                   <p className="text-2xl font-bold">{stats.streak} days</p>
                 </div>
-                <Calendar className="w-8 h-8 text-blue-200" />
+                <Calendar className="w-8 h-8 text-maroon-200" />
               </div>
             </CardContent>
           </Card>
@@ -852,10 +852,10 @@ export default function DashboardPage() {
                         : "Waiting for your teacher to assign tasks"}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-blue-600">Average accuracy</p>
-                    <p className="text-3xl font-bold text-blue-700">{averageRecitationScore}%</p>
-                    <p className="text-xs text-blue-600">
+                  <div className="rounded-lg border border-maroon-100 bg-cream-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-maroon-600">Average accuracy</p>
+                    <p className="text-3xl font-bold text-maroon-800">{averageRecitationScore}%</p>
+                    <p className="text-xs text-maroon-600">
                       {recitationSessions.length > 0
                         ? `Based on ${recitationSessions.length} recent submission${recitationSessions.length === 1 ? "" : "s"}`
                         : "Complete a session to unlock analytics"}
@@ -1074,14 +1074,14 @@ export default function DashboardPage() {
                     <p className="text-3xl font-bold text-emerald-700">{memorizationMastered}</p>
                     <p className="text-xs text-emerald-600">Confidence-backed mastery</p>
                   </div>
-                  <div className="hidden md:block rounded-lg border border-blue-100 bg-blue-50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-blue-600">Last review</p>
-                    <p className="text-lg font-semibold text-blue-700">
+                  <div className="hidden md:block rounded-lg border border-maroon-100 bg-cream-50 p-4">
+                    <p className="text-xs uppercase tracking-wide text-maroon-600">Last review</p>
+                    <p className="text-lg font-semibold text-maroon-800">
                       {memorizationSummary?.lastReviewedOn
                         ? new Date(memorizationSummary.lastReviewedOn).toLocaleTimeString()
                         : "Not yet"}
                     </p>
-                    <p className="text-xs text-blue-600">Streak {memorizationSummary?.streak ?? 0} days</p>
+                    <p className="text-xs text-maroon-600">Streak {memorizationSummary?.streak ?? 0} days</p>
                   </div>
                 </div>
 
@@ -1419,7 +1419,7 @@ export default function DashboardPage() {
                               ? "bg-gradient-to-r from-maroon-600 to-maroon-700"
                               : activity.type === "memorization"
                                 ? "bg-gradient-to-r from-yellow-500 to-yellow-600"
-                                : "bg-gradient-to-r from-blue-500 to-blue-600"
+                                : "bg-gradient-to-r from-maroon-500 to-maroon-600"
                           }`}
                         >
                           {activity.type === "reading" && <BookOpen className="w-5 h-5 text-white" />}
@@ -1807,7 +1807,7 @@ export default function DashboardPage() {
                     task.type === "habit" ? (
                       <Flame className="w-5 h-5 text-orange-500" />
                     ) : task.type === "recitation" ? (
-                      <Mic className="w-5 h-5 text-blue-500" />
+                      <Mic className="w-5 h-5 text-maroon-500" />
                     ) : task.type === "memorization" ? (
                       <Brain className="w-5 h-5 text-emerald-600" />
                     ) : (
