@@ -533,14 +533,14 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
       ? "bg-emerald-600 animate-pulse"
       : "bg-emerald-600"
     : isFinalizing
-      ? "bg-blue-600 text-white"
+      ? "bg-maroon-600 text-white"
       : "bg-maroon-100 text-maroon-700"
 
   const statusStyles: Record<TokenStatus, string> = {
     correct: "bg-emerald-100 text-emerald-800 border border-emerald-200",
     needs_attention: "bg-amber-100 text-amber-800 border border-amber-200",
     mistake: "bg-rose-100 text-rose-800 border border-rose-200",
-    current: "bg-blue-100 text-blue-800 border border-blue-200",
+    current: "bg-maroon-100 text-maroon-800 border border-maroon-200",
     upcoming: "text-gray-500 border border-dashed border-gray-300",
   }
 
