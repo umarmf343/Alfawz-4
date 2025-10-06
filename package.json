@@ -8,7 +8,7 @@
     "dev": "next dev",
     "lint": "next lint",
     "rundev": "npm run dev",
-    "start": "next start -p 3001",
+    "start": "npm run build && next start -p 3001",
     "start:standalone": "node .next/standalone/server.js"
   },
   "engines": {
