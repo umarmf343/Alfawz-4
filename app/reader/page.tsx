@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useMemo } from "react"
+import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -161,6 +161,73 @@ type TajweedMetric = {
   description: string
 }
 
+type LiveMistake = {
+  index: number
+  word: string
+  correct?: string
+  tajweedError?: string
+}
+
+const sanitizeWords = (text: string) =>
+  text
+    .replace(/[\u064B-\u0652\u0670\u0640]/g, "")
+    .replace(/[.,،!?؛:()\[\]{}«»\-]/g, "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+
+const analyzeMistakes = (transcribedText: string, correctText: string): LiveMistake[] => {
+  if (!transcribedText || !correctText) {
+    return []
+  }
+
+  const transcribedWords = sanitizeWords(transcribedText)
+  const correctWords = sanitizeWords(correctText)
+  const mistakes: LiveMistake[] = []
+  const maxLength = Math.max(transcribedWords.length, correctWords.length)
+
+  for (let index = 0; index < maxLength; index += 1) {
+    const spoken = transcribedWords[index]
+    const expected = correctWords[index]
+
+    if (!spoken && expected) {
+      mistakes.push({ index, word: "", correct: expected })
+    } else if (spoken && !expected) {
+      mistakes.push({ index, word: spoken })
+    } else if (spoken && expected && spoken !== expected) {
+      mistakes.push({ index, word: spoken, correct: expected })
+    }
+  }
+
+  return mistakes
+}
+
+const annotateTajweedMistakes = (mistakes: LiveMistake[]): LiveMistake[] => {
+  const tajweedRules = {
+    qalqalah: ["ق", "ط", "ب", "ج", "د"],
+    ikhfa: ["ن", "ت", "ث", "ج", "د", "ذ", "ز", "س", "ش", "ص", "ض", "ط", "ظ", "ف", "ق", "ك", "ل", "م"],
+  }
+
+  return mistakes.map((mistake) => {
+    const reference = (mistake.word || mistake.correct || "").trim()
+    const firstLetter = reference ? Array.from(reference)[0] : ""
+    const detectedRules: string[] = []
+
+    if (firstLetter && tajweedRules.qalqalah.includes(firstLetter)) {
+      detectedRules.push("Qalqalah emphasis needed")
+    }
+
+    if (firstLetter && tajweedRules.ikhfa.includes(firstLetter)) {
+      detectedRules.push("Ikhfa nasalization adjustment")
+    }
+
+    return {
+      ...mistake,
+      tajweedError: detectedRules.length > 0 ? detectedRules.join(", ") : undefined,
+    }
+  })
+}
+
 export default function QuranReaderPage() {
   const { dashboard, incrementDailyTarget } = useUser()
   const dailyTarget = dashboard?.dailyTarget
@@ -227,6 +294,11 @@ export default function QuranReaderPage() {
   const [analysisMessage, setAnalysisMessage] = useState(
     "Start the live analysis to receive tajweed feedback in real time.",
   )
+  const [isAnalysisStarted, setIsAnalysisStarted] = useState(false)
+  const [liveTranscription, setLiveTranscription] = useState("")
+  const [liveMistakes, setLiveMistakes] = useState<LiveMistake[]>([])
+  const [liveAnalysisError, setLiveAnalysisError] = useState<string | null>(null)
+  const [isProcessingLiveChunk, setIsProcessingLiveChunk] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -254,6 +326,11 @@ export default function QuranReaderPage() {
       isMounted = false
     }
   }, [])
+
+  useEffect(() => {
+    setLiveTranscription("")
+    setLiveMistakes([])
+  }, [currentAyah, selectedSurah])
 
   useEffect(() => {
     let isMounted = true
@@ -395,12 +472,26 @@ export default function QuranReaderPage() {
   }, [tajweedMetrics])
 
   const audioRef = useRef<HTMLAudioElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const chunkQueueRef = useRef<Blob[]>([])
+  const isProcessingChunkRef = useRef(false)
   const activeAyah = surahData.ayahs[currentAyah]
+  const expectedTextRef = useRef(activeAyah?.text ?? "")
+  const ayahIdRef = useRef(
+    `${surahData.metadata.number}:${activeAyah?.numberInSurah ?? activeAyah?.number ?? currentAyah + 1}`,
+  )
   const totalAyahs = surahData.ayahs.length
   const activeAudioSrc = useMemo(() => ayahAudioUrls[currentAyah] ?? "", [ayahAudioUrls, currentAyah])
   const getAyahDisplayNumber = (ayah: ReaderAyah | undefined, index: number) =>
     ayah?.numberInSurah ?? ayah?.number ?? index + 1
   const ayahSelectValue = totalAyahs === 0 ? "" : getAyahDisplayNumber(activeAyah, currentAyah).toString()
+
+  useEffect(() => {
+    expectedTextRef.current = activeAyah?.text ?? ""
+    const ayahNumber = activeAyah?.numberInSurah ?? activeAyah?.number ?? currentAyah + 1
+    ayahIdRef.current = `${surahData.metadata.number}:${ayahNumber}`
+  }, [activeAyah, currentAyah, surahData.metadata.number])
 
   const handlePlayPause = async () => {
     const audioEl = audioRef.current
@@ -460,22 +551,177 @@ export default function QuranReaderPage() {
     setCurrentAyah((index) => (index < totalAyahs - 1 ? index + 1 : index))
   }
 
-  const toggleRecording = () => {
-    setIsRecording((previous) => {
-      const next = !previous
-      if (next) {
-        if (weakestMetric) {
-          setAnalysisMessage(`Focus on ${weakestMetric.label} — ${weakestMetric.description}.`)
-        } else {
-          setAnalysisMessage("Live analysis activated. Keep steady breath and clarity.")
+  const processChunkQueue = useCallback(async () => {
+    if (isProcessingChunkRef.current || chunkQueueRef.current.length === 0) {
+      return
+    }
+
+    isProcessingChunkRef.current = true
+    setIsProcessingLiveChunk(true)
+
+    try {
+      while (chunkQueueRef.current.length > 0) {
+        const nextChunk = chunkQueueRef.current.shift()
+        if (!nextChunk) {
+          continue
         }
-      } else {
-        setAnalysisMessage("Review your tajweed insights and resume when ready.")
+
+        try {
+          const formData = new FormData()
+          formData.append("audio", nextChunk, `live-${Date.now()}.webm`)
+          formData.append("mode", "live")
+          formData.append("ayahId", ayahIdRef.current)
+
+          const response = await fetch("/api/transcribe", {
+            method: "POST",
+            body: formData,
+          })
+
+          if (!response.ok) {
+            throw new Error(`Live analysis request failed: ${response.status}`)
+          }
+
+          const data = await response.json()
+          const snippet = typeof data?.transcription === "string" ? data.transcription.trim() : ""
+
+          if (!snippet) {
+            continue
+          }
+
+          const normalizedSnippet = snippet.replace(/\s+/g, " ")
+          let combinedText = ""
+
+          setLiveTranscription((previous) => {
+            const updated = `${previous} ${normalizedSnippet}`.trim().replace(/\s+/g, " ")
+            combinedText = updated
+            return updated
+          })
+
+          const expectedText = expectedTextRef.current
+
+          if (expectedText) {
+            const annotated = annotateTajweedMistakes(analyzeMistakes(combinedText, expectedText))
+            setLiveMistakes(annotated)
+          } else {
+            setLiveMistakes([])
+          }
+
+          setLiveAnalysisError(null)
+        } catch (error) {
+          console.error("Live analysis processing error", error)
+          setLiveAnalysisError("We couldn't process the latest recitation. Please try again.")
+        }
       }
-      return next
-    })
-    // In real app, this would start/stop audio recording for AI feedback
-  }
+    } finally {
+      isProcessingChunkRef.current = false
+      setIsProcessingLiveChunk(false)
+    }
+  }, [])
+
+  const stopLiveRecording = useCallback(() => {
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop()
+      }
+    } catch (error) {
+      console.error("Failed to stop live recorder", error)
+    }
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+      mediaStreamRef.current = null
+    }
+
+    mediaRecorderRef.current = null
+    chunkQueueRef.current = []
+    isProcessingChunkRef.current = false
+    setIsRecording(false)
+    setIsProcessingLiveChunk(false)
+    setAnalysisMessage("Review your tajweed insights and resume when ready.")
+  }, [])
+
+  const startLiveRecording = useCallback(async () => {
+    if (isRecording) {
+      return
+    }
+
+    if (typeof window === "undefined" || typeof MediaRecorder === "undefined") {
+      setLiveAnalysisError("Live analysis requires a browser that supports audio recording.")
+      return
+    }
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setLiveAnalysisError("Microphone access is not available in this browser.")
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaStreamRef.current = stream
+
+      const recorder = new MediaRecorder(stream)
+      mediaRecorderRef.current = recorder
+      chunkQueueRef.current = []
+      setLiveTranscription("")
+      setLiveMistakes([])
+      setLiveAnalysisError(null)
+
+      recorder.addEventListener("dataavailable", (event) => {
+        if (!event.data || event.data.size === 0) {
+          return
+        }
+
+        chunkQueueRef.current.push(event.data)
+        void processChunkQueue()
+      })
+
+      recorder.addEventListener("stop", () => {
+        chunkQueueRef.current = []
+      })
+
+      recorder.start(2000)
+      setIsRecording(true)
+
+      if (weakestMetric) {
+        setAnalysisMessage(`Focus on ${weakestMetric.label} — ${weakestMetric.description}.`)
+      } else {
+        setAnalysisMessage("Live analysis activated. Keep steady breath and clarity.")
+      }
+    } catch (error) {
+      console.error("Failed to start live recording", error)
+      setLiveAnalysisError("We couldn't access your microphone. Please check permissions and try again.")
+      stopLiveRecording()
+    }
+  }, [isRecording, processChunkQueue, weakestMetric, stopLiveRecording])
+
+  useEffect(() => {
+    if (!isAnalysisStarted && isRecording) {
+      stopLiveRecording()
+    }
+  }, [isAnalysisStarted, isRecording, stopLiveRecording])
+
+  useEffect(() => {
+    if (!isAnalysisStarted && !isRecording) {
+      setAnalysisMessage("Start the live analysis to receive tajweed feedback in real time.")
+      setLiveAnalysisError(null)
+    }
+  }, [isAnalysisStarted, isRecording])
+
+  useEffect(() => {
+    return () => {
+      try {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+          mediaRecorderRef.current.stop()
+        }
+      } catch (error) {
+        console.error("Error stopping recorder on unmount", error)
+      }
+
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const audioEl = audioRef.current
@@ -732,17 +978,21 @@ export default function QuranReaderPage() {
                     </div>
 
                     <Button
-                      variant={isRecording ? "destructive" : "outline"}
+                      variant={isAnalysisStarted ? "default" : "outline"}
                       size="sm"
-                      onClick={toggleRecording}
-                      className={isRecording ? "" : "bg-transparent"}
+                      onClick={() => setIsAnalysisStarted((previous) => !previous)}
+                      className={isAnalysisStarted ? "" : "bg-transparent"}
                     >
-                      {isRecording ? (
+                      {isAnalysisStarted ? (
                         <MicOff className="w-4 h-4 mr-2" />
                       ) : (
                         <Sparkles className="w-4 h-4 mr-2 text-amber-500" />
                       )}
-                      {isRecording ? "Stop Live Analysis" : "Start Live Analysis"}
+                      {isAnalysisStarted
+                        ? isRecording
+                          ? "Stop Live Analysis"
+                          : "Hide Live Analysis"
+                        : "Start Live Analysis"}
                     </Button>
                   </div>
 
@@ -1025,6 +1275,105 @@ export default function QuranReaderPage() {
                     </div>
                   ))}
                 </div>
+
+                {isAnalysisStarted && (
+                  <div className="space-y-4 rounded-lg border border-dashed border-primary/40 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h4 className="text-sm font-semibold text-primary">Live Recitation</h4>
+                        <p className="text-xs text-muted-foreground">
+                          Record your recitation to receive transcription and tajweed alerts instantly.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          onClick={startLiveRecording}
+                          disabled={isRecording || isProcessingLiveChunk}
+                          className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white"
+                        >
+                          Start Recording
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={stopLiveRecording}
+                          disabled={!isRecording}
+                          className="bg-transparent"
+                        >
+                          Stop Recording
+                        </Button>
+                      </div>
+                    </div>
+
+                    {liveAnalysisError && (
+                      <Alert
+                        variant="destructive"
+                        className="border-destructive/30 bg-destructive/10 text-destructive"
+                      >
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="h-4 w-4" />
+                          <AlertDescription className="text-xs leading-relaxed">
+                            {liveAnalysisError}
+                          </AlertDescription>
+                        </div>
+                      </Alert>
+                    )}
+
+                    <div className="space-y-3 text-sm">
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-foreground">Transcribed Text</span>
+                          {isProcessingLiveChunk && (
+                            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className="inline-flex h-2.5 w-2.5 animate-ping rounded-full bg-primary"></span>
+                              Processing…
+                            </span>
+                          )}
+                        </div>
+                        <p
+                          className={`mt-2 rounded-md border bg-background/80 p-3 text-sm leading-relaxed ${
+                            liveTranscription ? "text-foreground" : "text-muted-foreground italic"
+                          }`}
+                        >
+                          {liveTranscription ||
+                            "No recitation captured yet. Start recording to see the live transcription."}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span className="font-semibold text-foreground">Mistakes & Tajweed alerts</span>
+                        {liveMistakes.length > 0 ? (
+                          <ul className="mt-2 space-y-2 text-sm">
+                            {liveMistakes.map((mistake) => (
+                              <li
+                                key={`${mistake.index}-${mistake.word || "missing"}`}
+                                className="rounded-md border border-rose-200 bg-rose-50 p-3 text-rose-700"
+                              >
+                                <div className="font-medium">
+                                  Incorrect: <span className="font-semibold">{mistake.word || "—"}</span>
+                                </div>
+                                {mistake.correct && (
+                                  <div className="text-sm text-rose-600">
+                                    Expected:{" "}
+                                    <span className="font-semibold text-rose-700">{mistake.correct}</span>
+                                  </div>
+                                )}
+                                <div className="text-xs text-rose-500">
+                                  {mistake.tajweedError ?? "Articulation adjustment recommended."}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                            No mistakes detected yet. Keep reciting with confidence.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <Alert
                   className={
