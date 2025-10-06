@@ -8,6 +8,8 @@ import "./globals.css"
 import { UserProvider } from "@/components/user-provider"
 import { Toaster } from "@/components/ui/toaster"
 
+const isAnalyticsEnabled = Boolean(process.env.NEXT_PUBLIC_VERCEL_ANALYTICS_ID)
+
 export const metadata: Metadata = {
   title: "AlFawz Qur'an Institute - Excellence in Qur'anic Education",
   description:
@@ -40,7 +42,7 @@ export default function RootLayout({
           <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
           <Toaster />
         </UserProvider>
-        <Analytics />
+        {isAnalyticsEnabled ? <Analytics /> : null}
       </body>
     </html>
   )
