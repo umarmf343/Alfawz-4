@@ -28,6 +28,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   CheckCircle2,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
 import { quranAPI, type Surah as QuranSurah, type Ayah as QuranAyah } from "@/lib/quran-api"
@@ -170,6 +171,24 @@ type LiveMistake = {
   normalizedCorrect?: string
   tajweedError?: string
   tajweedRules?: string[]
+}
+
+type LiveSessionSummary = {
+  transcription: string
+  expectedText: string
+  feedback: {
+    overallScore: number
+    accuracy: number
+    timingScore: number
+    fluencyScore: number
+    feedback: string
+    errors: { type: string; message: string; expected?: string; transcribed?: string }[]
+  }
+  hasanatPoints: number
+  arabicLetterCount: number
+  words?: { start: number; end: number; word: string }[]
+  duration?: number
+  ayahId?: string
 }
 
 const removeDiacritics = (text: string) => text.replace(/[\u064B-\u0652\u0670\u0640]/g, "")
@@ -352,8 +371,77 @@ const annotateTajweedMistakes = (mistakes: LiveMistake[]): LiveMistake[] => {
   })
 }
 
+const calculateTajweedMetricScores = (mistakes: LiveMistake[], expectedText: string) => {
+  if (!expectedText) {
+    return {
+      makharij: 100,
+      madd: 100,
+      ghunnah: 100,
+      qalqalah: 100,
+    }
+  }
+
+  const totalWords = Math.max(1, tokenizeWords(expectedText).length)
+
+  const issueCounters = {
+    makharij: 0,
+    madd: 0,
+    ghunnah: 0,
+    qalqalah: 0,
+  }
+
+  mistakes.forEach((mistake) => {
+    const rules = mistake.tajweedRules ?? []
+    const counted = {
+      makharij: false,
+      madd: false,
+      ghunnah: false,
+      qalqalah: false,
+    }
+
+    rules.forEach((rule) => {
+      const normalizedRule = rule.toLowerCase()
+      if (!counted.makharij && (normalizedRule.includes("makhraj") || normalizedRule.includes("tafkhim"))) {
+        issueCounters.makharij += 1
+        counted.makharij = true
+      }
+      if (!counted.madd && normalizedRule.includes("madd")) {
+        issueCounters.madd += 1
+        counted.madd = true
+      }
+      if (!counted.ghunnah && normalizedRule.includes("ghunnah")) {
+        issueCounters.ghunnah += 1
+        counted.ghunnah = true
+      }
+      if (!counted.qalqalah && normalizedRule.includes("qalqalah")) {
+        issueCounters.qalqalah += 1
+        counted.qalqalah = true
+      }
+    })
+
+    if (rules.length === 0 && mistake.type === "substitution") {
+      issueCounters.makharij += 0.5
+    }
+    if (mistake.type === "missing") {
+      issueCounters.madd += 0.5
+    }
+  })
+
+  const scoreFromIssues = (issues: number) => {
+    const penalty = (issues / totalWords) * 100
+    return Math.max(45, Math.round(100 - penalty))
+  }
+
+  return {
+    makharij: scoreFromIssues(issueCounters.makharij),
+    madd: scoreFromIssues(issueCounters.madd),
+    ghunnah: scoreFromIssues(issueCounters.ghunnah),
+    qalqalah: scoreFromIssues(issueCounters.qalqalah),
+  }
+}
+
 export default function QuranReaderPage() {
-  const { dashboard, incrementDailyTarget } = useUser()
+  const { dashboard, incrementDailyTarget, submitRecitationResult } = useUser()
   const dailyTarget = dashboard?.dailyTarget
   const dailyTargetGoal = dailyTarget?.targetAyahs ?? 0
   const dailyTargetCompleted = dailyTarget?.completedAyahs ?? 0
@@ -423,6 +511,8 @@ export default function QuranReaderPage() {
   const [liveMistakes, setLiveMistakes] = useState<LiveMistake[]>([])
   const [liveAnalysisError, setLiveAnalysisError] = useState<string | null>(null)
   const [isProcessingLiveChunk, setIsProcessingLiveChunk] = useState(false)
+  const [isFinalizingLiveSession, setIsFinalizingLiveSession] = useState(false)
+  const [liveSessionSummary, setLiveSessionSummary] = useState<LiveSessionSummary | null>(null)
 
   useEffect(() => {
     let isMounted = true
@@ -454,6 +544,7 @@ export default function QuranReaderPage() {
   useEffect(() => {
     setLiveTranscription("")
     setLiveMistakes([])
+    setLiveSessionSummary(null)
   }, [currentAyah, selectedSurah])
 
   useEffect(() => {
@@ -600,6 +691,10 @@ export default function QuranReaderPage() {
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const chunkQueueRef = useRef<Blob[]>([])
   const isProcessingChunkRef = useRef(false)
+  const sessionChunksRef = useRef<Blob[]>([])
+  const shouldFinalizeRef = useRef(false)
+  const recordingStartRef = useRef<number | null>(null)
+  const recorderMimeTypeRef = useRef<string | null>(null)
   const activeAyah = surahData.ayahs[currentAyah]
   const expectedTextRef = useRef(activeAyah?.text ?? "")
   const ayahIdRef = useRef(
@@ -607,8 +702,10 @@ export default function QuranReaderPage() {
   )
   const totalAyahs = surahData.ayahs.length
   const activeAudioSrc = useMemo(() => ayahAudioUrls[currentAyah] ?? "", [ayahAudioUrls, currentAyah])
-  const getAyahDisplayNumber = (ayah: ReaderAyah | undefined, index: number) =>
-    ayah?.numberInSurah ?? ayah?.number ?? index + 1
+  const getAyahDisplayNumber = useCallback(
+    (ayah: ReaderAyah | undefined, index: number) => ayah?.numberInSurah ?? ayah?.number ?? index + 1,
+    [],
+  )
   const ayahSelectValue = totalAyahs === 0 ? "" : getAyahDisplayNumber(activeAyah, currentAyah).toString()
 
   useEffect(() => {
@@ -726,6 +823,16 @@ export default function QuranReaderPage() {
           if (expectedText) {
             const annotated = annotateTajweedMistakes(analyzeMistakes(combinedText, expectedText))
             setLiveMistakes(annotated)
+
+            const scores = calculateTajweedMetricScores(annotated, expectedText)
+            setTajweedMetrics((metrics) =>
+              metrics.map((metric) => {
+                const key = metric.id as keyof typeof scores
+                const nextScore = scores[key] ?? metric.score
+                const trend = Math.round(nextScore - metric.score)
+                return { ...metric, score: nextScore, trend }
+              }),
+            )
           } else {
             setLiveMistakes([])
           }
@@ -742,33 +849,148 @@ export default function QuranReaderPage() {
     }
   }, [])
 
-  const stopLiveRecording = useCallback((options?: { collapse?: boolean }) => {
-    try {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-        mediaRecorderRef.current.stop()
+  const finalizeLiveSession = useCallback(
+    async (audioBlob: Blob) => {
+      if (!audioBlob || audioBlob.size === 0) {
+        setAnalysisMessage("We didn't capture any audio. Start another attempt when ready.")
+        return
       }
-    } catch (error) {
-      console.error("Failed to stop live recorder", error)
-    }
 
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop())
-      mediaStreamRef.current = null
-    }
-
-    mediaRecorderRef.current = null
-    chunkQueueRef.current = []
-    isProcessingChunkRef.current = false
-    setIsRecording(false)
-    setIsProcessingLiveChunk(false)
-    if (options?.collapse !== false) {
-      setIsAnalysisStarted(false)
-      setLiveTranscription("")
-      setLiveMistakes([])
+      const expectedText = expectedTextRef.current
+      setIsFinalizingLiveSession(true)
       setLiveAnalysisError(null)
-      setAnalysisMessage("Review your tajweed insights and resume when ready.")
-    }
-  }, [])
+      setAnalysisMessage("Compiling your recitation summary…")
+
+      try {
+        const fileType = audioBlob.type || recorderMimeTypeRef.current || "audio/webm"
+        const extension = fileType.includes("wav") ? "wav" : "webm"
+        const file = new File([audioBlob], `recitation-${Date.now()}.${extension}`, { type: fileType })
+        const formData = new FormData()
+        formData.append("audio", file)
+        if (expectedText) {
+          formData.append("expectedText", expectedText)
+        }
+        formData.append("ayahId", ayahIdRef.current)
+
+        const response = await fetch("/api/transcribe", {
+          method: "POST",
+          body: formData,
+        })
+
+        if (!response.ok) {
+          throw new Error(`Final transcription failed: ${response.status}`)
+        }
+
+        const result = (await response.json()) as LiveSessionSummary
+        setLiveSessionSummary(result)
+
+        const transcriptText = result.transcription?.trim().replace(/\s+/g, " ") ?? ""
+        if (transcriptText) {
+          setLiveTranscription(transcriptText)
+        }
+
+        if (expectedText && transcriptText) {
+          const annotated = annotateTajweedMistakes(analyzeMistakes(transcriptText, expectedText))
+          setLiveMistakes(annotated)
+
+          const scores = calculateTajweedMetricScores(annotated, expectedText)
+          setTajweedMetrics((metrics) =>
+            metrics.map((metric) => {
+              const key = metric.id as keyof typeof scores
+              const nextScore = scores[key] ?? metric.score
+              const trend = Math.round(nextScore - metric.score)
+              return { ...metric, score: nextScore, trend }
+            }),
+          )
+        }
+
+        const durationSeconds = result.duration
+          ? Math.round(result.duration)
+          : recordingStartRef.current
+            ? Math.max(0, Math.round((Date.now() - recordingStartRef.current) / 1000))
+            : 0
+
+        recordingStartRef.current = null
+
+        setAnalysisMessage(
+          `Session analysed — accuracy ${result.feedback.accuracy}% and tajweed precision ${result.feedback.overallScore}%.`,
+        )
+
+        if (expectedText) {
+          const surahName = surahData.metadata.englishName || surahData.metadata.name || `Surah ${surahData.metadata.number}`
+          const ayahNumber = getAyahDisplayNumber(activeAyah, currentAyah)
+
+          submitRecitationResult({
+            surah: surahName,
+            ayahRange: `Ayah ${ayahNumber}`,
+            accuracy: result.feedback.accuracy,
+            tajweedScore: result.feedback.overallScore,
+            fluencyScore: result.feedback.fluencyScore,
+            hasanatEarned: result.hasanatPoints,
+            durationSeconds,
+            transcript: transcriptText,
+            expectedText,
+          })
+        }
+      } catch (error) {
+        console.error("Failed to finalise live session", error)
+        setLiveAnalysisError("We couldn't generate the live session summary. Please try again.")
+        setAnalysisMessage("Live analysis stopped due to an error. Try another recording.")
+      } finally {
+        setIsFinalizingLiveSession(false)
+        sessionChunksRef.current = []
+        shouldFinalizeRef.current = false
+        recorderMimeTypeRef.current = null
+        recordingStartRef.current = null
+      }
+    },
+    [
+      activeAyah,
+      currentAyah,
+      getAyahDisplayNumber,
+      submitRecitationResult,
+      surahData.metadata.englishName,
+      surahData.metadata.name,
+      surahData.metadata.number,
+    ],
+  )
+
+  const stopLiveRecording = useCallback(
+    (options?: { collapse?: boolean; skipFinalize?: boolean }) => {
+      shouldFinalizeRef.current = options?.skipFinalize ? false : true
+
+      try {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+          mediaRecorderRef.current.stop()
+        }
+      } catch (error) {
+        console.error("Failed to stop live recorder", error)
+      }
+
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop())
+        mediaStreamRef.current = null
+      }
+
+      mediaRecorderRef.current = null
+      chunkQueueRef.current = []
+      isProcessingChunkRef.current = false
+      setIsRecording(false)
+      setIsProcessingLiveChunk(false)
+
+      if (options?.collapse !== false) {
+        setIsAnalysisStarted(false)
+        setLiveTranscription("")
+        setLiveMistakes([])
+        setLiveSessionSummary(null)
+        setLiveAnalysisError(null)
+        setAnalysisMessage("Review your tajweed insights and resume when ready.")
+      } else if (!options?.skipFinalize) {
+        setAnalysisMessage("Compiling your recitation summary…")
+      }
+    },
+    [],
+  )
 
   const startLiveRecording = useCallback(async () => {
     if (isRecording) {
@@ -792,9 +1014,14 @@ export default function QuranReaderPage() {
       const recorder = new MediaRecorder(stream)
       mediaRecorderRef.current = recorder
       chunkQueueRef.current = []
+      sessionChunksRef.current = []
+      shouldFinalizeRef.current = false
+      recorderMimeTypeRef.current = recorder.mimeType || "audio/webm"
       setLiveTranscription("")
       setLiveMistakes([])
       setLiveAnalysisError(null)
+      setLiveSessionSummary(null)
+      recordingStartRef.current = Date.now()
 
       recorder.addEventListener("dataavailable", (event) => {
         if (!event.data || event.data.size === 0) {
@@ -802,11 +1029,29 @@ export default function QuranReaderPage() {
         }
 
         chunkQueueRef.current.push(event.data)
+        sessionChunksRef.current.push(event.data)
         void processChunkQueue()
       })
 
       recorder.addEventListener("stop", () => {
+        const shouldFinalize = shouldFinalizeRef.current
         chunkQueueRef.current = []
+        isProcessingChunkRef.current = false
+
+        if (shouldFinalize) {
+          const mimeType = recorderMimeTypeRef.current || recorder.mimeType || "audio/webm"
+          if (sessionChunksRef.current.length > 0) {
+            const finalBlob = new Blob(sessionChunksRef.current, { type: mimeType })
+            void finalizeLiveSession(finalBlob)
+          } else {
+            setAnalysisMessage("We didn't capture any audio. Start another attempt when ready.")
+            shouldFinalizeRef.current = false
+            recorderMimeTypeRef.current = null
+          }
+        } else {
+          sessionChunksRef.current = []
+          recorderMimeTypeRef.current = null
+        }
       })
 
       recorder.start(2000)
@@ -820,26 +1065,31 @@ export default function QuranReaderPage() {
     } catch (error) {
       console.error("Failed to start live recording", error)
       setLiveAnalysisError("We couldn't access your microphone. Please check permissions and try again.")
-      stopLiveRecording({ collapse: false })
+      stopLiveRecording({ collapse: false, skipFinalize: true })
     }
-  }, [isRecording, processChunkQueue, weakestMetric, stopLiveRecording])
+  }, [finalizeLiveSession, isRecording, processChunkQueue, weakestMetric, stopLiveRecording])
 
   const handleLiveAnalysisToggle = useCallback(() => {
     if (!isAnalysisStarted && !isRecording) {
       setIsAnalysisStarted(true)
+      void startLiveRecording()
       return
     }
 
-    if (isRecording || isAnalysisStarted) {
-      stopLiveRecording()
+    if (isRecording) {
+      stopLiveRecording({ collapse: false })
+      return
     }
-  }, [isAnalysisStarted, isRecording, stopLiveRecording])
 
-  useEffect(() => {
     if (isAnalysisStarted && !isRecording) {
-      void startLiveRecording()
+      setIsAnalysisStarted(false)
+      setLiveTranscription("")
+      setLiveMistakes([])
+      setLiveSessionSummary(null)
+      setLiveAnalysisError(null)
+      setAnalysisMessage("Start the live analysis to receive tajweed feedback in real time.")
     }
-  }, [isAnalysisStarted, isRecording, startLiveRecording])
+  }, [isAnalysisStarted, isRecording, startLiveRecording, stopLiveRecording])
 
   useEffect(() => {
     if (!isAnalysisStarted && !isRecording) {
@@ -891,25 +1141,13 @@ export default function QuranReaderPage() {
   }, [volume, playbackSpeed])
 
   useEffect(() => {
-    if (!isRecording) {
-      setTajweedMetrics((metrics) => metrics.map((metric) => ({ ...metric, trend: 0 })))
+    if (isRecording) {
       return
     }
 
-    let timeoutId: ReturnType<typeof setTimeout>
-
-    const updateMetrics = () => {
-      setTajweedMetrics((metrics) =>
-        metrics.map((metric) => {
-          const delta = Math.floor(Math.random() * 5) - 2
-          const nextScore = Math.max(60, Math.min(100, metric.score + delta))
-          return { ...metric, score: nextScore, trend: delta }
-        }),
-      )
-      timeoutId = setTimeout(updateMetrics, 2200)
-    }
-
-    updateMetrics()
+    const timeoutId = setTimeout(() => {
+      setTajweedMetrics((metrics) => metrics.map((metric) => ({ ...metric, trend: 0 })))
+    }, 1500)
 
     return () => {
       clearTimeout(timeoutId)
@@ -1318,6 +1556,43 @@ export default function QuranReaderPage() {
                         )}
                       </div>
                     </div>
+
+                    {isFinalizingLiveSession && (
+                      <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+                        <Loader2 className="h-4 w-4 animate-spin" /> Generating your full tajweed summary…
+                      </div>
+                    )}
+
+                    {liveSessionSummary && !isFinalizingLiveSession && (
+                      <div className="space-y-3 rounded-lg border border-primary/30 bg-background/80 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-primary">Session summary</p>
+                            <p className="text-xs text-muted-foreground">
+                              Overall {liveSessionSummary.feedback.overallScore}% • Accuracy {liveSessionSummary.feedback.accuracy}% • Fluency {liveSessionSummary.feedback.fluencyScore}%
+                            </p>
+                          </div>
+                          <Badge variant="secondary" className="text-xs">
+                            +{liveSessionSummary.hasanatPoints} hasanat
+                          </Badge>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="rounded-md border border-muted/50 bg-background/90 p-3 text-xs leading-relaxed">
+                            <p className="font-semibold text-foreground">Expected passage</p>
+                            <p className="mt-1 font-arabic text-base">{liveSessionSummary.expectedText}</p>
+                          </div>
+                          <div className="rounded-md border border-muted/50 bg-background/90 p-3 text-xs leading-relaxed">
+                            <p className="font-semibold text-foreground">Your recitation</p>
+                            <p className="mt-1 font-arabic text-base">{liveSessionSummary.transcription}</p>
+                          </div>
+                        </div>
+                        {liveSessionSummary.feedback.feedback && (
+                          <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-900">
+                            {liveSessionSummary.feedback.feedback}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <Alert
                       className={
