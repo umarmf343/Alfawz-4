@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import AppLayout from "@/components/app-layout"
 import { PremiumGate } from "@/components/premium-gate"
 import { QuranFlipBook } from "@/components/quran-flipbook"
+import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
 import { useUser } from "@/hooks/use-user"
 import {
   BookOpen,
@@ -46,6 +47,28 @@ import {
   Zap,
   Shield,
 } from "lucide-react"
+
+const FALLBACK_TAJWEED_SESSION = {
+  surah: "Al-Fatiha",
+  ayahRange: "1-3",
+  verses: [
+    {
+      ayah: 1,
+      arabic: "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+      translation: "In the name of Allah, the Entirely Merciful, the Especially Merciful.",
+    },
+    {
+      ayah: 2,
+      arabic: "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ",
+      translation: "All praise is due to Allah, Lord of the worlds.",
+    },
+    {
+      ayah: 3,
+      arabic: "الرَّحْمَٰنِ الرَّحِيمِ",
+      translation: "The Entirely Merciful, the Especially Merciful.",
+    },
+  ],
+} as const
 
 export default function DashboardPage() {
   const {
@@ -268,6 +291,12 @@ export default function DashboardPage() {
     const parsed = Number.parseInt(start ?? "", 10)
     return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
   }, [nextRecitationTask?.ayahRange, lastRecitationSession?.ayahRange])
+  const liveAnalysisSourceTask = nextRecitationTask ?? recitationTasks[0] ?? null
+  const liveAnalysisSurah = liveAnalysisSourceTask?.surah ?? FALLBACK_TAJWEED_SESSION.surah
+  const liveAnalysisAyahRange = liveAnalysisSourceTask?.ayahRange ?? FALLBACK_TAJWEED_SESSION.ayahRange
+  const liveAnalysisVerses = liveAnalysisSourceTask?.verses?.length
+    ? liveAnalysisSourceTask.verses
+    : FALLBACK_TAJWEED_SESSION.verses
   const averageRecitationScore = recitationSessions.length
     ? Math.round(recitationSessions.reduce((total, session) => total + session.accuracy, 0) / recitationSessions.length)
     : 0
@@ -1002,6 +1031,12 @@ export default function DashboardPage() {
                   />
                 </div>
               )}
+
+              <LiveTajweedAnalyzer
+                surah={liveAnalysisSurah}
+                ayahRange={liveAnalysisAyahRange ?? undefined}
+                verses={liveAnalysisVerses}
+              />
 
               <div className="flex flex-wrap justify-end gap-3">
                   <Button variant="outline" asChild>
