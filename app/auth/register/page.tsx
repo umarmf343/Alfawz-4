@@ -11,6 +11,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { BookOpen, Eye, EyeOff, ArrowLeft, Check } from "lucide-react"
 import Link from "next/link"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { getDefaultRedirect, registerUserAccount } from "@/lib/data/auth"
+import type { UserRole } from "@/lib/data/teacher-database"
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
@@ -25,18 +28,53 @@ export default function RegisterPage() {
     role: "",
     agreeToTerms: false,
   })
+  const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setError(null)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    const fullName = `${formData.firstName} ${formData.lastName}`.replace(/\s+/g, " ").trim()
+    if (!fullName) {
+      setError("Please provide your name.")
+      setIsLoading(false)
+      return
+    }
 
-    // Redirect to onboarding or dashboard
-    window.location.href = "/onboarding"
+    if (formData.password !== formData.confirmPassword) {
+      setError("Passwords do not match.")
+      setIsLoading(false)
+      return
+    }
 
-    setIsLoading(false)
+    if (formData.password.length < 8) {
+      setError("Password must be at least 8 characters long.")
+      setIsLoading(false)
+      return
+    }
+
+    if (!formData.role) {
+      setError("Please select a role for your account.")
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      const session = registerUserAccount({
+        name: fullName,
+        email: formData.email,
+        password: formData.password,
+        role: formData.role as UserRole,
+      })
+      const redirect = getDefaultRedirect(session.role)
+      window.location.href = redirect
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Unable to create your account"
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -196,6 +234,12 @@ export default function RegisterPage() {
                 {isLoading ? "Creating Account..." : "Create Account"}
               </Button>
             </form>
+
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
             <div className="relative">
               <Separator />
