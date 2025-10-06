@@ -163,26 +163,34 @@ type TajweedMetric = {
 
 type LiveMistake = {
   index: number
-  word: string
+  type: "missing" | "extra" | "substitution"
+  word?: string
   correct?: string
+  normalizedWord?: string
+  normalizedCorrect?: string
   tajweedError?: string
+  tajweedRules?: string[]
 }
 
-const sanitizeWords = (text: string) =>
-  text
-    .replace(/[\u064B-\u0652\u0670\u0640]/g, "")
+const removeDiacritics = (text: string) => text.replace(/[\u064B-\u0652\u0670\u0640]/g, "")
+
+const sanitizeWord = (word: string) =>
+  removeDiacritics(word)
     .replace(/[.,،!?؛:()\[\]{}«»\-]/g, "")
     .trim()
-    .split(/\s+/)
-    .filter(Boolean)
+
+const tokenizeWords = (text: string) =>
+  (text.match(/\S+/g) ?? [])
+    .map((raw) => ({ raw, sanitized: sanitizeWord(raw) }))
+    .filter((token) => token.sanitized.length > 0)
 
 const analyzeMistakes = (transcribedText: string, correctText: string): LiveMistake[] => {
   if (!transcribedText || !correctText) {
     return []
   }
 
-  const transcribedWords = sanitizeWords(transcribedText)
-  const correctWords = sanitizeWords(correctText)
+  const transcribedWords = tokenizeWords(transcribedText)
+  const correctWords = tokenizeWords(correctText)
   const mistakes: LiveMistake[] = []
   const maxLength = Math.max(transcribedWords.length, correctWords.length)
 
@@ -191,39 +199,155 @@ const analyzeMistakes = (transcribedText: string, correctText: string): LiveMist
     const expected = correctWords[index]
 
     if (!spoken && expected) {
-      mistakes.push({ index, word: "", correct: expected })
+      mistakes.push({
+        index,
+        type: "missing",
+        correct: expected.raw,
+        normalizedCorrect: expected.sanitized,
+      })
     } else if (spoken && !expected) {
-      mistakes.push({ index, word: spoken })
-    } else if (spoken && expected && spoken !== expected) {
-      mistakes.push({ index, word: spoken, correct: expected })
+      mistakes.push({
+        index,
+        type: "extra",
+        word: spoken.raw,
+        normalizedWord: spoken.sanitized,
+      })
+    } else if (
+      spoken &&
+      expected &&
+      spoken.sanitized &&
+      expected.sanitized &&
+      spoken.sanitized !== expected.sanitized
+    ) {
+      mistakes.push({
+        index,
+        type: "substitution",
+        word: spoken.raw,
+        correct: expected.raw,
+        normalizedWord: spoken.sanitized,
+        normalizedCorrect: expected.sanitized,
+      })
     }
   }
 
   return mistakes
 }
 
-const annotateTajweedMistakes = (mistakes: LiveMistake[]): LiveMistake[] => {
-  const tajweedRules = {
-    qalqalah: ["ق", "ط", "ب", "ج", "د"],
-    ikhfa: ["ن", "ت", "ث", "ج", "د", "ذ", "ز", "س", "ش", "ص", "ض", "ط", "ظ", "ف", "ق", "ك", "ل", "م"],
-  }
+const MAKHRAJ_GROUPS: Record<string, string[]> = {
+  throat: ["ء", "ه", "ع", "ح", "غ", "خ"],
+  tongueTip: ["ت", "د", "ط", "ث", "ذ", "ظ", "ص", "ز", "س", "ن", "ر", "ل"],
+  tongueMiddle: ["ج", "ش", "ي"],
+  tongueBack: ["ق", "ك"],
+  lips: ["ب", "م", "ف", "و"],
+  nasal: ["ن", "م"],
+}
 
-  return mistakes.map((mistake) => {
-    const reference = (mistake.word || mistake.correct || "").trim()
-    const firstLetter = reference ? Array.from(reference)[0] : ""
-    const detectedRules: string[] = []
+const HEAVY_LETTERS = new Set(["ص", "ض", "ط", "ظ", "ق", "غ", "خ"])
+const QALQALAH_LETTERS = new Set(["ق", "ط", "ب", "ج", "د"])
+const MADD_LETTERS = new Set(["ا", "و", "ي", "ى", "آ"])
 
-    if (firstLetter && tajweedRules.qalqalah.includes(firstLetter)) {
-      detectedRules.push("Qalqalah emphasis needed")
+const getMakhrajGroup = (letter: string) =>
+  Object.entries(MAKHRAJ_GROUPS).find(([, letters]) => letters.includes(letter))?.[0] ?? null
+
+const findFirstLetterDifference = (spoken: string, correct: string) => {
+  const spokenLetters = Array.from(spoken)
+  const correctLetters = Array.from(correct)
+
+  for (let i = 0; i < Math.max(spokenLetters.length, correctLetters.length); i += 1) {
+    const spokenLetter = spokenLetters[i]
+    const correctLetter = correctLetters[i]
+    if (!spokenLetter || !correctLetter) {
+      if (!spokenLetter && correctLetter) {
+        return { spokenLetter: "", correctLetter }
+      }
+      if (spokenLetter && !correctLetter) {
+        return { spokenLetter, correctLetter: "" }
+      }
+      continue
     }
 
-    if (firstLetter && tajweedRules.ikhfa.includes(firstLetter)) {
-      detectedRules.push("Ikhfa nasalization adjustment")
+    if (spokenLetter !== correctLetter) {
+      return { spokenLetter, correctLetter }
+    }
+  }
+
+  return null
+}
+
+const needsMadd = (word: string) => {
+  const normalized = removeDiacritics(word)
+  if (!normalized) {
+    return false
+  }
+
+  return Array.from(normalized).some((letter, index, array) => {
+    if (!MADD_LETTERS.has(letter)) {
+      return false
+    }
+
+    const previous = array[index - 1]
+    return Boolean(previous)
+  })
+}
+
+const detectGhunnahRequirement = (word: string) => /\u0646\u0651|\u0645\u0651/.test(word)
+
+const annotateTajweedMistakes = (mistakes: LiveMistake[]): LiveMistake[] => {
+  return mistakes.map((mistake) => {
+    const detectedRules: string[] = []
+    const spoken = mistake.word ?? ""
+    const correct = mistake.correct ?? ""
+    const normalizedSpoken = mistake.normalizedWord ?? (spoken ? sanitizeWord(spoken) : "")
+    const normalizedCorrect = mistake.normalizedCorrect ?? (correct ? sanitizeWord(correct) : "")
+
+    if (mistake.type === "missing" && correct) {
+      if (needsMadd(correct)) {
+        detectedRules.push("Madd: Maintain elongation on the long vowel that was skipped.")
+      }
+      if (detectGhunnahRequirement(correct)) {
+        detectedRules.push("Ghunnah: Sustain nasalization on مّ or نّ in the omitted word.")
+      }
+    }
+
+    if (mistake.type === "substitution" && normalizedCorrect) {
+      const difference = findFirstLetterDifference(normalizedSpoken, normalizedCorrect)
+      if (difference?.correctLetter) {
+        const correctGroup = getMakhrajGroup(difference.correctLetter)
+        const spokenGroup = difference.spokenLetter ? getMakhrajGroup(difference.spokenLetter) : null
+
+        if (correctGroup && correctGroup !== spokenGroup) {
+          detectedRules.push(`Makhraj: Articulate the letter from the ${correctGroup.replace(/([A-Z])/g, " $1").toLowerCase()} area.`)
+        }
+
+        if (HEAVY_LETTERS.has(difference.correctLetter)) {
+          detectedRules.push(`Tafkhim: Keep the letter "${difference.correctLetter}" heavy during pronunciation.`)
+        }
+
+        if (QALQALAH_LETTERS.has(difference.correctLetter)) {
+          detectedRules.push(`Qalqalah: Add the echo/bounce when pronouncing "${difference.correctLetter}".`)
+        }
+      }
+
+      if (needsMadd(correct) && normalizedSpoken.length < normalizedCorrect.length) {
+        detectedRules.push("Madd: Preserve the required elongation for long vowels.")
+      }
+
+      if (detectGhunnahRequirement(correct) && !detectGhunnahRequirement(spoken)) {
+        detectedRules.push("Ghunnah: Maintain the nasal sound on doubled م or ن.")
+      }
+    }
+
+    if (mistake.type === "extra" && normalizedSpoken) {
+      const firstExtraLetter = Array.from(normalizedSpoken)[0]
+      if (firstExtraLetter && HEAVY_LETTERS.has(firstExtraLetter)) {
+        detectedRules.push("Tafkhim: Ensure added letters do not introduce unnecessary heavy sounds.")
+      }
     }
 
     return {
       ...mistake,
-      tajweedError: detectedRules.length > 0 ? detectedRules.join(", ") : undefined,
+      tajweedRules: detectedRules,
+      tajweedError: detectedRules.length > 0 ? detectedRules.join(" ") : undefined,
     }
   })
 }
@@ -813,6 +937,31 @@ export default function QuranReaderPage() {
   }, [dailyTargetCompleted, dailyTargetGoal, sessionRecited, hasCelebrated])
 
   const isLiveAnalysisActive = isRecording || isAnalysisStarted
+  const highlightedTranscription = useMemo(() => {
+    const trimmed = liveTranscription.trim()
+    if (!trimmed) {
+      return [] as { key: string; text: string; className: string }[]
+    }
+
+    const tokens = trimmed.split(/\s+/)
+    return tokens.map((text, index) => {
+      const matchingMistake = liveMistakes.find(
+        (mistake) => mistake.index === index && typeof mistake.word === "string" && mistake.word.length > 0,
+      )
+      const hasTajweed = Boolean(matchingMistake?.tajweedRules && matchingMistake.tajweedRules.length > 0)
+      const className = matchingMistake
+        ? hasTajweed
+          ? "bg-amber-100 text-amber-900 ring-1 ring-amber-200"
+          : "bg-rose-100 text-rose-900 ring-1 ring-rose-200"
+        : ""
+
+      return {
+        key: `word-${index}-${text}`,
+        text,
+        className,
+      }
+    })
+  }, [liveTranscription, liveMistakes])
 
   return (
     <div className="min-h-screen bg-gradient-cream">
@@ -1093,14 +1242,24 @@ export default function QuranReaderPage() {
                             </span>
                           )}
                         </div>
-                        <p
-                          className={`rounded-md border bg-background/80 p-3 text-sm leading-relaxed ${
-                            liveTranscription ? "text-foreground" : "text-muted-foreground italic"
-                          }`}
-                        >
-                          {liveTranscription ||
-                            "No recitation captured yet. Start recording to see the live transcription."}
-                        </p>
+                        {highlightedTranscription && highlightedTranscription.length > 0 ? (
+                          <div className="rounded-md border bg-background/80 p-3 text-sm leading-relaxed text-foreground">
+                            {highlightedTranscription.map((token, index) => (
+                              <span
+                                key={token.key}
+                                className={`inline-block rounded px-1 py-0.5 transition-colors ${token.className} ${
+                                  index < highlightedTranscription.length - 1 ? "mr-1" : ""
+                                }`}
+                              >
+                                {token.text}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="rounded-md border bg-background/80 p-3 text-sm leading-relaxed text-muted-foreground italic">
+                            No recitation captured yet. Start recording to see the live transcription.
+                          </p>
+                        )}
                       </div>
 
                       <div className="space-y-2">
@@ -1110,19 +1269,45 @@ export default function QuranReaderPage() {
                             {liveMistakes.map((mistake) => (
                               <li
                                 key={`${mistake.index}-${mistake.word || "missing"}`}
-                                className="rounded-md border border-rose-200 bg-rose-50 p-3 text-rose-700"
+                                className={`rounded-md border p-3 ${
+                                  mistake.tajweedRules && mistake.tajweedRules.length > 0
+                                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                                    : "border-rose-200 bg-rose-50 text-rose-700"
+                                }`}
                               >
-                                <div className="font-medium">
-                                  Incorrect: <span className="font-semibold">{mistake.word || "—"}</span>
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wide">
+                                  <span>
+                                    {mistake.tajweedRules && mistake.tajweedRules.length > 0
+                                      ? "Tajweed alert"
+                                      : "Transcription issue"}
+                                  </span>
+                                  <span className="rounded-full bg-background/70 px-2 py-0.5 text-[0.65rem] font-medium text-foreground/80">
+                                    {mistake.type === "missing"
+                                      ? "Missing word"
+                                      : mistake.type === "extra"
+                                        ? "Extra word"
+                                        : "Substitution"}
+                                  </span>
+                                </div>
+                                <div className="mt-2 text-sm font-medium">
+                                  Spoken: <span className="font-semibold">{mistake.word || "—"}</span>
                                 </div>
                                 {mistake.correct && (
-                                  <div className="text-sm text-rose-600">
-                                    Expected: <span className="font-semibold text-rose-700">{mistake.correct}</span>
+                                  <div className="text-sm text-foreground/80">
+                                    Expected: <span className="font-semibold text-foreground">{mistake.correct}</span>
                                   </div>
                                 )}
-                                <div className="text-xs text-rose-500">
-                                  {mistake.tajweedError ?? "Articulation adjustment recommended."}
-                                </div>
+                                {mistake.tajweedRules && mistake.tajweedRules.length > 0 ? (
+                                  <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-foreground/80">
+                                    {mistake.tajweedRules.map((rule) => (
+                                      <li key={rule}>{rule}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <div className="mt-2 text-xs text-foreground/70">
+                                    Articulation adjustment recommended.
+                                  </div>
+                                )}
                               </li>
                             ))}
                           </ul>
