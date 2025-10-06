@@ -4,9 +4,12 @@ import { GeistSans } from "geist/font/sans"
 import { GeistMono } from "geist/font/mono"
 import { Analytics } from "@vercel/analytics/next"
 import { Suspense } from "react"
+import { Tajawal } from "next/font/google"
 import "./globals.css"
 import { UserProvider } from "@/components/user-provider"
 import { Toaster } from "@/components/ui/toaster"
+
+const tajawal = Tajawal({ subsets: ["arabic"], weight: ["400", "700"], variable: "--font-tajawal" })
 
 const isAnalyticsEnabled = Boolean(process.env.NEXT_PUBLIC_VERCEL_ANALYTICS_ID)
 
@@ -37,7 +40,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable} antialiased`}>
+      <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable} ${tajawal.variable} antialiased`}>
         <UserProvider>
           <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
           <Toaster />

@@ -1,0 +1,337 @@
+"use client"
+
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight, Volume2 } from "lucide-react"
+
+import pages from "@/data/mushaf-pages.json"
+import { getSurahInfo, getVerseText, parseVerseKey, type VerseKey } from "@/lib/quran-data"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
+import { useQuranReader, type VerseSelection } from "@/hooks/use-quran-reader"
+
+const TOTAL_PAGES = 604
+const MAX_ODD_PAGE = TOTAL_PAGES % 2 === 0 ? TOTAL_PAGES - 1 : TOTAL_PAGES
+const PAGE_DATA = pages as Record<string, VerseKey[]>
+
+type PageSide = "left" | "right"
+
+type VerseDisplay = {
+  verseKey: VerseKey
+  pageNumber: number
+  surahNumber: number
+  ayahNumber: number
+  text: string
+  surahName: string
+  englishName?: string
+  isSurahStart: boolean
+}
+
+function clampOddPage(pageNumber: number): number {
+  const oddPage = pageNumber % 2 === 0 ? pageNumber - 1 : pageNumber
+  if (oddPage < 1) return 1
+  if (oddPage > MAX_ODD_PAGE) return MAX_ODD_PAGE
+  return oddPage
+}
+
+function createSelection(verse: VerseDisplay): VerseSelection {
+  return {
+    verseKey: verse.verseKey,
+    ayahNumber: verse.ayahNumber,
+    surahNumber: verse.surahNumber,
+    pageNumber: verse.pageNumber,
+    text: verse.text,
+    surahName: verse.surahName,
+    englishName: verse.englishName,
+  }
+}
+
+export function QuranBookViewer() {
+  const { currentVerse, setCurrentVerse } = useQuranReader()
+  const [currentOddPage, setCurrentOddPage] = useState<number>(1)
+  const [pageInput, setPageInput] = useState<string>("1")
+  const [isAnimating, setIsAnimating] = useState(false)
+  const [flipDirection, setFlipDirection] = useState<"forward" | "backward" | null>(null)
+
+  const leftPageNumber = useMemo(() => {
+    const candidate = currentOddPage + 1
+    return candidate <= TOTAL_PAGES ? candidate : null
+  }, [currentOddPage])
+
+  const visiblePages = useMemo(() => {
+    const pagesToShow = [{ pageNumber: currentOddPage, side: "right" as PageSide }]
+    if (leftPageNumber) {
+      pagesToShow.unshift({ pageNumber: leftPageNumber, side: "left" as PageSide })
+    }
+    return pagesToShow
+  }, [currentOddPage, leftPageNumber])
+
+  const prefetchedPages = useMemo(() => {
+    const neighbors = [
+      currentOddPage - 2,
+      currentOddPage - 1,
+      currentOddPage + 2,
+      currentOddPage + 3,
+    ].filter((pageNumber): pageNumber is number => pageNumber >= 1 && pageNumber <= TOTAL_PAGES)
+    return neighbors
+  }, [currentOddPage])
+
+  const verseCache = useMemo(() => {
+    const cache = new Map<number, VerseDisplay[]>()
+    const pageNumbers = new Set<number>([
+      currentOddPage,
+      ...(leftPageNumber ? [leftPageNumber] : []),
+      ...prefetchedPages,
+    ])
+
+    pageNumbers.forEach((pageNumber) => {
+      const verseKeys = PAGE_DATA[String(pageNumber)] ?? []
+      const versesForPage = verseKeys.map((verseKey) => {
+        const { surahNumber, ayahNumber } = parseVerseKey(verseKey)
+        const surah = getSurahInfo(surahNumber)
+        return {
+          verseKey,
+          pageNumber,
+          surahNumber,
+          ayahNumber,
+          text: getVerseText(verseKey),
+          surahName: surah?.arabicName ?? `سورة ${surahNumber}`,
+          englishName: surah?.englishName,
+          isSurahStart: ayahNumber === 1,
+        }
+      })
+      cache.set(pageNumber, versesForPage)
+    })
+
+    return cache
+  }, [currentOddPage, leftPageNumber, prefetchedPages])
+
+  const triggerTurnAnimation = useCallback((direction: "forward" | "backward") => {
+    setFlipDirection(direction)
+    setIsAnimating(true)
+    window.setTimeout(() => {
+      setIsAnimating(false)
+      setFlipDirection(null)
+    }, 420)
+  }, [])
+
+  const handleSpreadChange = useCallback(
+    (direction: "forward" | "backward") => {
+      if (isAnimating) return
+      triggerTurnAnimation(direction)
+      setCurrentOddPage((page) => {
+        if (direction === "forward") {
+          return Math.min(page + 2, MAX_ODD_PAGE)
+        }
+        return Math.max(page - 2, 1)
+      })
+    },
+    [isAnimating, triggerTurnAnimation],
+  )
+
+  const handleNext = useCallback(() => {
+    if (currentOddPage >= MAX_ODD_PAGE) return
+    handleSpreadChange("forward")
+  }, [currentOddPage, handleSpreadChange])
+
+  const handlePrevious = useCallback(() => {
+    if (currentOddPage <= 1) return
+    handleSpreadChange("backward")
+  }, [currentOddPage, handleSpreadChange])
+
+  const handlePageSubmit = useCallback(() => {
+    const target = Number.parseInt(pageInput, 10)
+    if (Number.isNaN(target)) {
+      setPageInput(String(currentOddPage))
+      return
+    }
+    const nextOdd = clampOddPage(target)
+    setCurrentOddPage(nextOdd)
+    setPageInput(String(nextOdd))
+  }, [currentOddPage, pageInput])
+
+  const handleVerseSelect = useCallback(
+    (verse: VerseDisplay) => {
+      setCurrentVerse(createSelection(verse))
+      if (verse.pageNumber !== currentOddPage && verse.pageNumber !== leftPageNumber) {
+        setCurrentOddPage(clampOddPage(verse.pageNumber))
+      }
+    },
+    [currentOddPage, leftPageNumber, setCurrentVerse],
+  )
+
+  useEffect(() => {
+    setPageInput(String(currentOddPage))
+  }, [currentOddPage])
+
+  useEffect(() => {
+    if (currentVerse) {
+      return
+    }
+    const firstVerseKey = PAGE_DATA["1"]?.[0]
+    if (!firstVerseKey) return
+    const defaultVerse = verseCache.get(1)?.find((verse) => verse.verseKey === firstVerseKey)
+    if (defaultVerse) {
+      setCurrentVerse(createSelection(defaultVerse))
+    }
+  }, [currentVerse, setCurrentVerse, verseCache])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "ArrowRight") {
+        event.preventDefault()
+        handleNext()
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault()
+        handlePrevious()
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+    }
+  }, [handleNext, handlePrevious])
+
+  const animationClass = isAnimating
+    ? flipDirection === "forward"
+      ? "mushaf-turn-forward"
+      : "mushaf-turn-backward"
+    : ""
+
+  return (
+    <article className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8">
+      <header className="space-y-2 text-center">
+        <p className="text-sm font-medium uppercase tracking-[0.3em] text-amber-700">Student Quran Reader</p>
+        <h1 className="text-3xl font-semibold text-slate-800 sm:text-4xl">مصحف المدينة المنورة</h1>
+        <p className="text-sm text-slate-500">
+          Navigate the Mushaf pages, select an āyah, and start your live tajwīd analysis instantly.
+        </p>
+      </header>
+
+      <div
+        className={cn(
+          "relative mx-auto w-full rounded-3xl border border-slate-200 bg-gradient-to-b from-white to-amber-50/60 p-6 shadow-[0_20px_60px_-30px_rgba(76,29,149,0.35)] transition-transform", 
+          animationClass,
+        )}
+      >
+        <div className="pointer-events-none absolute inset-y-0 left-1/2 hidden w-px -translate-x-1/2 bg-slate-200 lg:block" aria-hidden />
+        <div className="grid gap-4 lg:grid-cols-2">
+          {visiblePages.map(({ pageNumber, side }) => {
+            const verses = verseCache.get(pageNumber) ?? []
+            const isRightPage = side === "right"
+            return (
+              <section
+                key={`${side}-${pageNumber}`}
+                aria-label={`Page ${pageNumber}`}
+                dir="rtl"
+                className={cn(
+                  "flex h-full flex-col gap-4 rounded-2xl bg-white/90 p-6 shadow-inner ring-1 ring-inset ring-slate-100 backdrop-blur",
+                  isRightPage ? "lg:rounded-l-2xl" : "lg:rounded-r-2xl",
+                )}
+              >
+                <header className="flex items-center justify-between text-sm text-slate-500">
+                  <span>{isRightPage ? "الصفحة اليمنى" : "الصفحة اليسرى"}</span>
+                  <span className="font-medium text-slate-700">{pageNumber}</span>
+                </header>
+
+                <div className="flex flex-col gap-3">
+                  {verses.length === 0 ? (
+                    <p className="text-sm text-slate-400">هذه الصفحة خالية.</p>
+                  ) : (
+                    verses.map((verse) => {
+                      const isActive = currentVerse?.verseKey === verse.verseKey
+                      return (
+                        <button
+                          key={verse.verseKey}
+                          type="button"
+                          onClick={() => handleVerseSelect(verse)}
+                          className={cn(
+                            "group w-full rounded-xl border px-4 py-3 text-right transition-all duration-200",
+                            "border-transparent bg-white/70 text-slate-900 hover:border-amber-200 hover:bg-amber-50/70",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40",
+                            isActive && "border-amber-300 bg-amber-100/80 shadow-inner",
+                          )}
+                          aria-pressed={isActive}
+                          aria-label={`Recite verse ${verse.ayahNumber} from ${verse.surahName}`}
+                        >
+                          {verse.isSurahStart ? (
+                            <p className="mb-1 text-sm font-semibold text-emerald-700">
+                              {verse.surahName}
+                              {verse.englishName ? <span className="ml-2 text-xs text-slate-400">({verse.englishName})</span> : null}
+                            </p>
+                          ) : null}
+                          <p className="font-[family:var(--font-tajawal)] text-2xl leading-[2.4] tracking-wide text-slate-900">
+                            {verse.text}
+                          </p>
+                          <div className="mt-3 flex items-center justify-between text-sm text-slate-500">
+                            <span>{`${verse.surahName} • ${verse.ayahNumber}`}</span>
+                            <span className="inline-flex items-center gap-1 text-primary">
+                              <Volume2 className="h-4 w-4" aria-hidden />
+                              تلاوة
+                            </span>
+                          </div>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </section>
+            )
+          })}
+        </div>
+      </div>
+
+      <footer className="flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handlePrevious}
+            disabled={currentOddPage <= 1}
+            aria-label="Previous page spread"
+          >
+            <ChevronLeft className="h-4 w-4" aria-hidden />
+            الصفحة السابقة
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleNext}
+            disabled={currentOddPage >= MAX_ODD_PAGE}
+            aria-label="Next page spread"
+          >
+            الصفحة التالية
+            <ChevronRight className="h-4 w-4" aria-hidden />
+          </Button>
+        </div>
+
+        <div className="flex items-center gap-3 text-sm text-slate-600">
+          <span>اذهب إلى صفحة</span>
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault()
+              handlePageSubmit()
+            }}
+          >
+            <Input
+              value={pageInput}
+              onChange={(event) => setPageInput(event.target.value)}
+              onBlur={handlePageSubmit}
+              className="w-20 text-center"
+              inputMode="numeric"
+              aria-label="Page number"
+            />
+            <span className="text-slate-400">/ {TOTAL_PAGES}</span>
+          </form>
+        </div>
+
+        <div className="text-sm font-medium text-slate-700">
+          الصفحة الحالية: {currentOddPage}
+          {leftPageNumber ? ` – ${leftPageNumber}` : ""} من {TOTAL_PAGES}
+        </div>
+      </footer>
+    </article>
+  )
+}
