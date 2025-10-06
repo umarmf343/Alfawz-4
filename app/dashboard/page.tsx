@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { useCallback, useEffect, useMemo, useState } from "react"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -66,6 +67,9 @@ export default function DashboardPage() {
     completeRecitationAssignment,
     completeHabit,
   } = useUser()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
 
   const firstName = useMemo(() => profile.name.split(" ")[0] ?? profile.name, [profile.name])
   const studyMinutes = stats.studyMinutes
@@ -129,6 +133,31 @@ export default function DashboardPage() {
   const [newGoalDeadline, setNewGoalDeadline] = useState("")
   const [hasShownCelebration, setHasShownCelebration] = useState(false)
   const [completingRecitationId, setCompletingRecitationId] = useState<string | null>(null)
+  const [isGameDialogOpen, setIsGameDialogOpen] = useState(false)
+
+  const searchParamsString = searchParams?.toString() ?? ""
+  const playGamesParam = useMemo(() => searchParams?.get("playGames") === "true", [searchParams])
+
+  const handleGameDialogChange = useCallback(
+    (open: boolean) => {
+      setIsGameDialogOpen(open)
+      const params = new URLSearchParams(searchParamsString)
+      if (open) {
+        params.set("playGames", "true")
+      } else {
+        params.delete("playGames")
+      }
+      const query = params.toString()
+      router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false })
+    },
+    [pathname, router, searchParamsString],
+  )
+
+  useEffect(() => {
+    if (playGamesParam) {
+      setIsGameDialogOpen(true)
+    }
+  }, [playGamesParam])
 
   useEffect(() => {
     if (dailyTarget) {
@@ -568,286 +597,107 @@ export default function DashboardPage() {
               <Progress value={dashboard.memorizationPercentage} className="h-2 bg-rose-800/60" />
             </CardContent>
           </Card>
-        </div>
+          </div>
 
-        <div className="grid lg:grid-cols-3 gap-8">
-        {/* Main Content */}
-        <div className="lg:col-span-2 space-y-8">
-          {gamePanel && (
-            <Card className="shadow-lg">
-              <CardHeader>
-                <CardTitle className="text-xl flex items-center gap-2">
-                  <Gamepad2 className="w-5 h-5 text-maroon-600" /> Quest Command Center
-                </CardTitle>
-                <CardDescription>
-                  Track daily missions, energy, and rewards from the Habit Quest arena.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="rounded-lg border border-maroon-100 bg-white p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs uppercase text-gray-500">Season level</p>
-                        <p className="text-lg font-semibold text-maroon-900">
-                          Level {gamePanel.season.level}
-                        </p>
-                      </div>
-                      <Zap className="w-5 h-5 text-yellow-500" />
+          <div className="grid lg:grid-cols-3 gap-8">
+            {/* Main Content */}
+            <div className="lg:col-span-2 space-y-8">
+              {gamePanel && (
+                <div>
+                  <Button
+                    className="inline-flex items-center gap-2 bg-gradient-to-r from-maroon-600 to-maroon-700 text-white hover:from-maroon-700 hover:to-maroon-800 shadow-lg px-6 py-3 rounded-full"
+                    onClick={() => handleGameDialogChange(true)}
+                  >
+                    <Gamepad2 className="w-5 h-5" />
+                    Play Games
+                  </Button>
+                </div>
+              )}
+
+              <Card className="shadow-lg">
+                <CardHeader>
+                  <CardTitle className="text-xl flex items-center gap-2">
+                    <Target className="w-5 h-5 text-maroon-600" /> Daily Target
+                  </CardTitle>
+                  <CardDescription>Stay on pace for today’s recitation goal.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm text-maroon-600">Today’s Goal</p>
+                      <p className="text-3xl font-bold text-maroon-900">{dailyTarget?.targetAyahs ?? 0} Ayahs</p>
                     </div>
-                    <Progress value={seasonXpPercent} className="mt-3" />
-                    <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
-                      <span>{gamePanel.season.xp} XP earned</span>
+                    <div className="text-right">
+                      <p className="text-sm text-gray-500">Completed</p>
+                      <p className="text-3xl font-bold text-maroon-700">{dailyTarget?.completedAyahs ?? 0}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <Progress value={dailyTargetPercent} className="h-3" />
+                    <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
+                      <span>{dailyTargetPercent}% of goal complete</span>
                       <span>
-                        {Math.max(0, gamePanel.season.xpToNext - gamePanel.season.xp)} XP to next
+                        Updated {dailyTarget ? new Date(dailyTarget.lastUpdated).toLocaleTimeString() : ""}
                       </span>
                     </div>
-                    <p className="mt-2 text-xs text-gray-500">
-                      Season ends {new Date(gamePanel.season.endsOn).toLocaleDateString()}
-                    </p>
                   </div>
-                  <div className="rounded-lg border border-maroon-100 bg-white p-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs uppercase text-gray-500">Streak shield</p>
-                        <p className="text-lg font-semibold text-maroon-900">
-                          {gamePanel.streak.current} days
-                        </p>
-                      </div>
-                      <Shield className="w-5 h-5 text-green-600" />
-                    </div>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Best streak {gamePanel.streak.best} days
-                    </p>
-                    <div className="mt-4">
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>Energy {gamePanel.energy.current}/{gamePanel.energy.max}</span>
-                        <span>Last refresh {new Date(gamePanel.energy.refreshedAt).toLocaleTimeString()}</span>
-                      </div>
-                      <Progress value={energyPercent} className="mt-2" />
-                    </div>
-                  </div>
-                  <div className="rounded-lg border border-maroon-100 bg-white p-4">
-                    <p className="text-xs uppercase text-gray-500">Active boosts</p>
-                    <div className="mt-3 space-y-2">
-                      {gameBoosts.length > 0 ? (
-                        gameBoosts.slice(0, 3).map((boost) => (
-                          <div
-                            key={boost.id}
-                            className={`rounded-md border px-3 py-2 text-xs ${
-                              boost.active
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : "border-gray-200 bg-gray-50 text-gray-600"
-                            }`}
-                          >
-                            <p className="font-semibold text-sm">{boost.name}</p>
-                            <p className="mt-1 leading-tight">{boost.description}</p>
-                            {boost.expiresAt && (
-                              <p className="mt-1 text-[11px] text-gray-500">
-                                Expires {new Date(boost.expiresAt).toLocaleTimeString()}
-                              </p>
-                            )}
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-xs text-gray-500">No boosts unlocked yet. Complete quests to earn them.</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {gameTasks.map((task) => {
-                    const completionPercent = task.target
-                      ? Math.max(0, Math.min(100, Math.round((task.progress / task.target) * 100)))
-                      : 0
-                    const isCompleted = task.status === "completed"
-                    const icon =
-                      task.type === "habit" ? (
-                        <Flame className="w-5 h-5 text-orange-500" />
-                      ) : task.type === "recitation" ? (
-                        <Mic className="w-5 h-5 text-blue-500" />
-                      ) : task.type === "memorization" ? (
-                        <Brain className="w-5 h-5 text-emerald-600" />
-                      ) : (
-                        <Target className="w-5 h-5 text-maroon-600" />
-                      )
-
-                    return (
-                      <div
-                        key={task.id}
-                        className="rounded-lg border border-maroon-100 bg-white p-4 shadow-sm"
+                  <div className="space-y-3">
+                    <Label htmlFor="daily-target-input" className="text-sm font-medium text-maroon-900">
+                      Customize daily ayah target
+                    </Label>
+                    <div className="flex flex-col md:flex-row md:items-center gap-3">
+                      <Slider
+                        value={[customTarget]}
+                        min={1}
+                        max={100}
+                        step={1}
+                        onValueChange={(value) => setCustomTarget(value[0] ?? dailyTarget?.targetAyahs ?? customTarget)}
+                        className="flex-1"
+                      />
+                      <Input
+                        id="daily-target-input"
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={customTarget}
+                        onChange={(event) => {
+                          const nextValue = Number(event.target.value)
+                          if (!Number.isNaN(nextValue)) {
+                            setCustomTarget(Math.min(100, Math.max(1, nextValue)))
+                          }
+                        }}
+                        className="w-24"
+                      />
+                      <Button
+                        variant="outline"
+                        onClick={handleSaveTarget}
+                        disabled={dailyTarget ? customTarget === dailyTarget.targetAyahs : false}
                       >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="flex items-start gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-maroon-50 flex items-center justify-center">
-                              {icon}
-                            </div>
-                            <div>
-                              <p className="text-sm font-semibold text-maroon-900">{task.title}</p>
-                              <p className="text-xs text-gray-600">{task.description}</p>
-                              <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-gray-500">
-                                {task.teacherId && (
-                                  <span>Teacher: {teacherMap.get(task.teacherId) ?? "Instructor"}</span>
-                                )}
-                                {task.dueDate && (
-                                  <span>Due {new Date(task.dueDate).toLocaleDateString()}</span>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                          <Badge
-                            variant="secondary"
-                            className={`text-xs ${gameTaskStatusStyles[task.status] ?? ""}`}
-                          >
-                            {gameTaskStatusLabels[task.status] ?? task.status}
-                          </Badge>
-                        </div>
-
-                        <div className="mt-3">
-                          <Progress value={completionPercent} className="h-2" />
-                          <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
-                            <span>
-                              {task.progress}/{task.target} steps
-                            </span>
-                            <span>
-                              +{task.xpReward} XP • +{task.hasanatReward} hasanat
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap items-center gap-2">
-                          {isCompleted ? (
-                            <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 text-xs">
-                              Reward granted
-                            </Badge>
-                          ) : task.type === "daily_target" ? (
-                            <Button variant="outline" size="sm" className="bg-white" asChild>
-                              <Link href="/reader">
-                                <Target className="w-4 h-4 mr-2" />
-                                Continue reading
-                              </Link>
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
-                              onClick={() => handleGameTaskAction(task)}
-                              disabled={
-                                (task.type === "recitation" && completingRecitationId === task.recitationTaskId) ||
-                                (task.type === "habit" && !task.habitId)
-                              }
-                            >
-                              {task.type === "habit"
-                                ? "Complete quest"
-                                : task.type === "memorization"
-                                  ? "Review now"
-                                  : "Submit assignment"}
-                            </Button>
-                          )}
-                          {!isCompleted && task.type === "recitation" && (
-                            <span className="text-[11px] text-gray-500">
-                              Auto-rewards on submission
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {gameTasks.length === 0 && (
-                    <div className="rounded-lg border border-dashed border-maroon-200 bg-maroon-50/60 p-4 text-sm text-maroon-700">
-                      No quests are active yet. Your teacher will unlock new missions soon.
+                        Save Target
+                      </Button>
                     </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card className="shadow-lg">
-            <CardHeader>
-              <CardTitle className="text-xl flex items-center gap-2">
-                <Target className="w-5 h-5 text-maroon-600" /> Daily Target
-                </CardTitle>
-                <CardDescription>Stay on pace for today’s recitation goal.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-maroon-600">Today’s Goal</p>
-                    <p className="text-3xl font-bold text-maroon-900">{dailyTarget?.targetAyahs ?? 0} Ayahs</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-sm text-gray-500">Completed</p>
-                    <p className="text-3xl font-bold text-maroon-700">{dailyTarget?.completedAyahs ?? 0}</p>
-                  </div>
-                </div>
-                <div>
-                  <Progress value={dailyTargetPercent} className="h-3" />
-                  <div className="flex items-center justify-between text-xs text-gray-500 mt-2">
-                    <span>{dailyTargetPercent}% of goal complete</span>
-                    <span>
-                      Updated {dailyTarget ? new Date(dailyTarget.lastUpdated).toLocaleTimeString() : ""}
-                    </span>
-                  </div>
-                </div>
-                <div className="space-y-3">
-                  <Label htmlFor="daily-target-input" className="text-sm font-medium text-maroon-900">
-                    Customize daily ayah target
-                  </Label>
-                  <div className="flex flex-col md:flex-row md:items-center gap-3">
-                    <Slider
-                      value={[customTarget]}
-                      min={1}
-                      max={100}
-                      step={1}
-                      onValueChange={(value) => setCustomTarget(value[0] ?? dailyTarget?.targetAyahs ?? customTarget)}
-                      className="flex-1"
-                    />
-                    <Input
-                      id="daily-target-input"
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={customTarget}
-                      onChange={(event) => {
-                        const nextValue = Number(event.target.value)
-                        if (!Number.isNaN(nextValue)) {
-                          setCustomTarget(Math.min(100, Math.max(1, nextValue)))
-                        }
-                      }}
-                      className="w-24"
-                    />
+                  <div className="flex flex-wrap items-center gap-3">
                     <Button
-                      variant="outline"
-                      onClick={handleSaveTarget}
-                      disabled={dailyTarget ? customTarget === dailyTarget.targetAyahs : false}
+                      onClick={handleNextAyah}
+                      className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
+                      disabled={dailyGoalMet}
                     >
-                      Save Target
+                      Next Ayah
                     </Button>
+                    <Button variant="outline" onClick={resetDailyTargetProgress} disabled={dailyTargetCompleted === 0}>
+                      Reset Progress
+                    </Button>
+                    <Badge variant="secondary" className={`text-xs ${dailyGoalMet ? "bg-green-100 text-green-700" : ""}`}>
+                      {dailyGoalMet
+                        ? "Goal complete"
+                        : `Remaining ${Math.max(dailyTargetGoal - dailyTargetCompleted, 0)}`}
+                    </Badge>
                   </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    onClick={handleNextAyah}
-                    className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
-                    disabled={dailyGoalMet}
-                  >
-                    Next Ayah
-                  </Button>
-                  <Button variant="outline" onClick={resetDailyTargetProgress} disabled={dailyTargetCompleted === 0}>
-                    Reset Progress
-                  </Button>
-                  <Badge variant="secondary" className={`text-xs ${dailyGoalMet ? "bg-green-100 text-green-700" : ""}`}>
-                    {dailyGoalMet
-                      ? "Goal complete"
-                      : `Remaining ${Math.max(dailyTargetGoal - dailyTargetCompleted, 0)}`}
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card className="shadow-lg">
+              <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="text-xl flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-maroon-600" />
@@ -1837,6 +1687,181 @@ export default function DashboardPage() {
         </div>
       </div>
       </AppLayout>
+
+      {gamePanel && (
+        <Dialog open={isGameDialogOpen} onOpenChange={handleGameDialogChange}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-2xl font-semibold text-maroon-900">
+                <Gamepad2 className="w-5 h-5 text-maroon-600" /> Quest Command Center
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-600">
+                Track daily missions, energy, and rewards from the Habit Quest arena.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
+              <div className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-xl border border-maroon-100 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs uppercase text-gray-500">Season level</p>
+                      <p className="text-lg font-semibold text-maroon-900">Level {gamePanel.season.level}</p>
+                    </div>
+                    <Zap className="w-5 h-5 text-yellow-500" />
+                  </div>
+                  <Progress value={seasonXpPercent} className="mt-3" />
+                  <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+                    <span>{gamePanel.season.xp} XP earned</span>
+                    <span>{Math.max(0, gamePanel.season.xpToNext - gamePanel.season.xp)} XP to next</span>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Season ends {new Date(gamePanel.season.endsOn).toLocaleDateString()}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-maroon-100 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs uppercase text-gray-500">Streak shield</p>
+                      <p className="text-lg font-semibold text-maroon-900">{gamePanel.streak.current} days</p>
+                    </div>
+                    <Shield className="w-5 h-5 text-green-600" />
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">Best streak {gamePanel.streak.best} days</p>
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>Energy {gamePanel.energy.current}/{gamePanel.energy.max}</span>
+                      <span>Last refresh {new Date(gamePanel.energy.refreshedAt).toLocaleTimeString()}</span>
+                    </div>
+                    <Progress value={energyPercent} className="mt-2" />
+                  </div>
+                </div>
+                <div className="rounded-xl border border-maroon-100 bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase text-gray-500">Active boosts</p>
+                  <div className="mt-3 space-y-2">
+                    {gameBoosts.length > 0 ? (
+                      gameBoosts.slice(0, 3).map((boost) => (
+                        <div
+                          key={boost.id}
+                          className={`rounded-md border px-3 py-2 text-xs ${
+                            boost.active
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : "border-gray-200 bg-gray-50 text-gray-600"
+                          }`}
+                        >
+                          <p className="font-semibold text-sm">{boost.name}</p>
+                          <p className="mt-1 leading-tight">{boost.description}</p>
+                          {boost.expiresAt && (
+                            <p className="mt-1 text-[11px] text-gray-500">
+                              Expires {new Date(boost.expiresAt).toLocaleTimeString()}
+                            </p>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-gray-500">No boosts unlocked yet. Complete quests to earn them.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {gameTasks.map((task) => {
+                  const completionPercent = task.target
+                    ? Math.max(0, Math.min(100, Math.round((task.progress / task.target) * 100)))
+                    : 0
+                  const isCompleted = task.status === "completed"
+                  const icon =
+                    task.type === "habit" ? (
+                      <Flame className="w-5 h-5 text-orange-500" />
+                    ) : task.type === "recitation" ? (
+                      <Mic className="w-5 h-5 text-blue-500" />
+                    ) : task.type === "memorization" ? (
+                      <Brain className="w-5 h-5 text-emerald-600" />
+                    ) : (
+                      <Target className="w-5 h-5 text-maroon-600" />
+                    )
+
+                  return (
+                    <div key={task.id} className="rounded-lg border border-maroon-100 bg-white p-4 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-maroon-50 flex items-center justify-center">
+                            {icon}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-maroon-900">{task.title}</p>
+                            <p className="text-xs text-gray-600">{task.description}</p>
+                            <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-gray-500">
+                              {task.teacherId && (
+                                <span>Teacher: {teacherMap.get(task.teacherId) ?? "Instructor"}</span>
+                              )}
+                              {task.dueDate && <span>Due {new Date(task.dueDate).toLocaleDateString()}</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <Badge variant="secondary" className={`text-xs ${gameTaskStatusStyles[task.status] ?? ""}`}>
+                          {gameTaskStatusLabels[task.status] ?? task.status}
+                        </Badge>
+                      </div>
+
+                      <div className="mt-3">
+                        <Progress value={completionPercent} className="h-2" />
+                        <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+                          <span>
+                            {task.progress}/{task.target} steps
+                          </span>
+                          <span>
+                            +{task.xpReward} XP • +{task.hasanatReward} hasanat
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {isCompleted ? (
+                          <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 text-xs">
+                            Reward granted
+                          </Badge>
+                        ) : task.type === "daily_target" ? (
+                          <Button variant="outline" size="sm" className="bg-white" asChild>
+                            <Link href="/reader">
+                              <Target className="w-4 h-4 mr-2" />
+                              Continue reading
+                            </Link>
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
+                            onClick={() => handleGameTaskAction(task)}
+                            disabled={
+                              (task.type === "recitation" && completingRecitationId === task.recitationTaskId) ||
+                              (task.type === "habit" && !task.habitId)
+                            }
+                          >
+                            {task.type === "habit"
+                              ? "Complete quest"
+                              : task.type === "memorization"
+                                ? "Review now"
+                                : "Submit assignment"}
+                          </Button>
+                        )}
+                        {!isCompleted && task.type === "recitation" && (
+                          <span className="text-[11px] text-gray-500">Auto-rewards on submission</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+                {gameTasks.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-maroon-200 bg-maroon-50/60 p-4 text-sm text-maroon-700">
+                    No quests are active yet. Your teacher will unlock new missions soon.
+                  </div>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog open={isCelebrating} onOpenChange={setIsCelebrating}>
       <DialogContent className="max-w-sm text-center">
