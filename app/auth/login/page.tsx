@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { BookOpen, Eye, EyeOff, ArrowLeft } from "lucide-react"
 import Link from "next/link"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { getDefaultRedirect, signInWithEmail } from "@/lib/data/auth"
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
@@ -18,18 +20,23 @@ export default function LoginPage() {
     email: "",
     password: "",
   })
+  const [error, setError] = useState<string | null>(null)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
+    setError(null)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500))
-
-    // Redirect to dashboard based on user role
-    window.location.href = "/dashboard"
-
-    setIsLoading(false)
+    try {
+      const session = signInWithEmail(formData.email, formData.password)
+      const redirect = getDefaultRedirect(session.role)
+      window.location.href = redirect
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Unable to sign in"
+      setError(message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -108,6 +115,12 @@ export default function LoginPage() {
                 {isLoading ? "Signing In..." : "Sign In"}
               </Button>
             </form>
+
+            {error && (
+              <Alert variant="destructive" className="mt-2">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
             <div className="relative">
               <Separator />

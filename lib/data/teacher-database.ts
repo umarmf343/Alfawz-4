@@ -409,6 +409,187 @@ const database: TeacherDatabaseSchema = {
   learners: {},
 }
 
+const rolePrefixes: Record<UserRole, string> = {
+  student: "user",
+  teacher: "teacher",
+  parent: "parent",
+  admin: "admin",
+}
+
+function generateLearnerId(prefix: string): string {
+  let counter = 1
+  let candidate = `${prefix}_${counter.toString().padStart(3, "0")}`
+  while (database.learners[candidate]) {
+    counter += 1
+    candidate = `${prefix}_${counter.toString().padStart(3, "0")}`
+  }
+  return candidate
+}
+
+function createEmptyDashboardRecord(
+  studentId: string,
+  plan: SubscriptionPlan,
+  referenceDate: Date,
+): StudentDashboardRecord {
+  const referenceIso = iso(referenceDate)
+  const seasonEnd = new Date(referenceDate.getTime() + 14 * 24 * 60 * 60 * 1000)
+
+  return {
+    studentId,
+    dailyTarget: {
+      targetAyahs: 5,
+      completedAyahs: 0,
+      lastUpdated: referenceIso,
+    },
+    recitationPercentage: 0,
+    memorizationPercentage: 0,
+    lastRead: {
+      surah: "",
+      ayah: 0,
+      totalAyahs: 0,
+    },
+    preferredHabitId: undefined,
+    activities: [],
+    goals: [],
+    achievements: [],
+    leaderboard: [],
+    teacherNotes: [],
+    habitCompletion: {
+      completed: 0,
+      target: 0,
+      weeklyChange: 0,
+    },
+    premiumBoost: {
+      xpBonus: plan === "premium" ? 15 : 0,
+      description:
+        plan === "premium"
+          ? "Premium boost ready to be activated."
+          : "Upgrade to premium to unlock additional boosts.",
+      isActive: false,
+      availableSessions: 0,
+    },
+    recitationTasks: [],
+    recitationSessions: [],
+    memorizationQueue: [],
+    memorizationPlaylists: [],
+    memorizationSummary: {
+      dueToday: 0,
+      newCount: 0,
+      totalMastered: 0,
+      streak: 0,
+      recommendedDuration: 0,
+      focusArea: "",
+      lastReviewedOn: null,
+      reviewHeatmap: [],
+    },
+    tajweedFocus: [],
+    gamePanel: {
+      season: {
+        name: "Season 1",
+        level: 1,
+        xp: 0,
+        xpToNext: 200,
+        endsOn: iso(seasonEnd),
+      },
+      energy: {
+        current: 5,
+        max: 5,
+        refreshedAt: referenceIso,
+      },
+      streak: { current: 0, best: 0 },
+      tasks: [],
+      boosts: [],
+      leaderboard: {
+        rank: 0,
+        nextReward: 0,
+        classRank: 0,
+      },
+    },
+  }
+}
+
+export interface CreateLearnerInput {
+  id?: string
+  name: string
+  email: string
+  role: UserRole
+  locale?: string
+  plan?: SubscriptionPlan
+  joinedAt?: string
+}
+
+export function createLearnerAccount(input: CreateLearnerInput): LearnerState {
+  const name = input.name.trim()
+  if (!name) {
+    throw new Error("Name is required to create a learner account")
+  }
+
+  const email = input.email.trim()
+  if (!email) {
+    throw new Error("Email is required to create a learner account")
+  }
+
+  const normalizedEmail = email.toLowerCase()
+  if (getLearnerIdByEmail(normalizedEmail)) {
+    throw new Error("An account with this email already exists")
+  }
+
+  const role = input.role
+  if (!role) {
+    throw new Error("A role is required to create a learner account")
+  }
+
+  let learnerId = input.id?.trim()
+  if (learnerId) {
+    if (database.learners[learnerId]) {
+      throw new Error("A learner with this identifier already exists")
+    }
+  } else {
+    const prefix = rolePrefixes[role] ?? "user"
+    learnerId = generateLearnerId(prefix)
+  }
+
+  const now = new Date()
+  const joinDateCandidate = input.joinedAt ? new Date(input.joinedAt) : null
+  const joinDate = joinDateCandidate && !Number.isNaN(joinDateCandidate.getTime()) ? joinDateCandidate : now
+  const plan = input.plan ?? "free"
+  const locale = input.locale ?? "en-US"
+
+  const record: LearnerRecord = {
+    profile: {
+      id: learnerId,
+      name,
+      email: normalizedEmail,
+      role,
+      locale,
+      plan,
+      joinedAt: iso(joinDate),
+    },
+    stats: {
+      hasanat: 0,
+      streak: 0,
+      ayahsRead: 0,
+      studyMinutes: 0,
+      rank: 0,
+      level: 1,
+      xp: 0,
+      xpToNext: 500,
+      completedHabits: 0,
+      weeklyXP: Array.from({ length: 7 }, () => 0),
+    },
+    habits: [],
+    dashboard: createEmptyDashboardRecord(learnerId, plan, now),
+    meta: {
+      lastHabitActivityDate: null,
+      completedGameTasks: [],
+    },
+  }
+
+  database.learners[learnerId] = record
+
+  return cloneLearnerState(record)
+}
+
 database.learners["user_001"] = {
   profile: {
     id: "user_001",
