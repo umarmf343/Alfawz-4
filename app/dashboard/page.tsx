@@ -57,7 +57,6 @@ export default function DashboardPage() {
     isLoading,
     error,
     updateDailyTarget,
-    incrementDailyTarget,
     resetDailyTargetProgress,
     setFeaturedHabit,
     updateGoalProgress,
@@ -385,8 +384,8 @@ export default function DashboardPage() {
     updateDailyTarget(customTarget)
   }
 
-  const handleNextAyah = () => {
-    incrementDailyTarget(1)
+  const handleReciteNow = () => {
+    router.push("/reader?source=daily-target")
   }
 
   const dailyGoalMet = dailyTargetGoal > 0 && dailyTargetCompleted >= dailyTargetGoal
@@ -679,11 +678,10 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex flex-wrap items-center gap-3">
                     <Button
-                      onClick={handleNextAyah}
+                      onClick={handleReciteNow}
                       className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
-                      disabled={dailyGoalMet}
                     >
-                      Next Ayah
+                      <BookOpen className="mr-2 h-4 w-4" /> Recite Now
                     </Button>
                     <Button variant="outline" onClick={resetDailyTargetProgress} disabled={dailyTargetCompleted === 0}>
                       Reset Progress
