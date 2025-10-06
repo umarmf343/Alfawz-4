@@ -618,7 +618,7 @@ export default function QuranReaderPage() {
     }
   }, [])
 
-  const stopLiveRecording = useCallback(() => {
+  const stopLiveRecording = useCallback((options?: { collapse?: boolean }) => {
     try {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
         mediaRecorderRef.current.stop()
@@ -637,7 +637,13 @@ export default function QuranReaderPage() {
     isProcessingChunkRef.current = false
     setIsRecording(false)
     setIsProcessingLiveChunk(false)
-    setAnalysisMessage("Review your tajweed insights and resume when ready.")
+    if (options?.collapse !== false) {
+      setIsAnalysisStarted(false)
+      setLiveTranscription("")
+      setLiveMistakes([])
+      setLiveAnalysisError(null)
+      setAnalysisMessage("Review your tajweed insights and resume when ready.")
+    }
   }, [])
 
   const startLiveRecording = useCallback(async () => {
@@ -690,20 +696,33 @@ export default function QuranReaderPage() {
     } catch (error) {
       console.error("Failed to start live recording", error)
       setLiveAnalysisError("We couldn't access your microphone. Please check permissions and try again.")
-      stopLiveRecording()
+      stopLiveRecording({ collapse: false })
     }
   }, [isRecording, processChunkQueue, weakestMetric, stopLiveRecording])
 
-  useEffect(() => {
-    if (!isAnalysisStarted && isRecording) {
+  const handleLiveAnalysisToggle = useCallback(() => {
+    if (!isAnalysisStarted && !isRecording) {
+      setIsAnalysisStarted(true)
+      return
+    }
+
+    if (isRecording || isAnalysisStarted) {
       stopLiveRecording()
     }
   }, [isAnalysisStarted, isRecording, stopLiveRecording])
 
   useEffect(() => {
+    if (isAnalysisStarted && !isRecording) {
+      void startLiveRecording()
+    }
+  }, [isAnalysisStarted, isRecording, startLiveRecording])
+
+  useEffect(() => {
     if (!isAnalysisStarted && !isRecording) {
       setAnalysisMessage("Start the live analysis to receive tajweed feedback in real time.")
       setLiveAnalysisError(null)
+      setLiveTranscription("")
+      setLiveMistakes([])
     }
   }, [isAnalysisStarted, isRecording])
 
@@ -792,6 +811,8 @@ export default function QuranReaderPage() {
       setHasCelebrated(false)
     }
   }, [dailyTargetCompleted, dailyTargetGoal, sessionRecited, hasCelebrated])
+
+  const isLiveAnalysisActive = isRecording || isAnalysisStarted
 
   return (
     <div className="min-h-screen bg-gradient-cream">
@@ -978,27 +999,168 @@ export default function QuranReaderPage() {
                     </div>
 
                     <Button
-                      variant={isAnalysisStarted ? "default" : "outline"}
+                      variant={isLiveAnalysisActive ? "default" : "outline"}
                       size="sm"
-                      onClick={() => setIsAnalysisStarted((previous) => !previous)}
-                      className={isAnalysisStarted ? "" : "bg-transparent"}
+                      onClick={handleLiveAnalysisToggle}
+                      className={
+                        isLiveAnalysisActive
+                          ? "bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
+                          : "bg-transparent"
+                      }
                     >
-                      {isAnalysisStarted ? (
+                      {isLiveAnalysisActive ? (
                         <MicOff className="w-4 h-4 mr-2" />
                       ) : (
                         <Sparkles className="w-4 h-4 mr-2 text-amber-500" />
                       )}
-                      {isAnalysisStarted
-                        ? isRecording
-                          ? "Stop Live Analysis"
-                          : "Hide Live Analysis"
-                        : "Start Live Analysis"}
+                      {isLiveAnalysisActive ? "Stop Live Analysis" : "Start Live Analysis"}
                     </Button>
-                  </div>
+                </div>
 
-                  <div className="pt-4 border-t border-muted/60 space-y-3">
-                    <div className="flex flex-wrap items-center justify-center gap-3">
-                      <Button
+                {isLiveAnalysisActive && (
+                  <div className="space-y-5 rounded-xl border border-primary/30 bg-background/80 p-6 shadow-inner">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-primary">Live Tajweed Analysis</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Real-time insights on your recitation quality.
+                        </p>
+                      </div>
+                      <Badge
+                        variant={isRecording ? "default" : "secondary"}
+                        className={`text-xs flex items-center gap-1 ${isRecording ? "bg-emerald-600" : ""}`}
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> {isRecording ? "Live" : "Listening"}
+                      </Badge>
+                    </div>
+
+                    <div className="grid gap-4 lg:grid-cols-3">
+                      <div className="bg-muted/40 rounded-lg p-4 space-y-2">
+                        <div className="flex items-center justify-between text-sm font-medium">
+                          <span>Average score</span>
+                          <span>{averageTajweed}%</span>
+                        </div>
+                        <Progress value={averageTajweed} className="h-2" />
+                      </div>
+
+                      <div className="lg:col-span-2 space-y-3">
+                        {tajweedMetrics.map((metric) => (
+                          <div key={metric.id} className="space-y-2 rounded-lg border border-border/60 p-3">
+                            <div className="flex items-center justify-between text-sm font-medium">
+                              <span>{metric.label}</span>
+                              <span>{metric.score}%</span>
+                            </div>
+                            <Progress value={metric.score} className="h-2" />
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>{metric.description}</span>
+                              <span
+                                className={
+                                  metric.trend >= 0
+                                    ? "flex items-center gap-1 text-emerald-600"
+                                    : "flex items-center gap-1 text-rose-600"
+                                }
+                              >
+                                {metric.trend >= 0 ? (
+                                  <ArrowUpRight className="w-3 h-3" />
+                                ) : (
+                                  <ArrowDownRight className="w-3 h-3" />
+                                )}
+                                {Math.abs(metric.trend)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {liveAnalysisError && (
+                      <Alert variant="destructive" className="border-destructive/30 bg-destructive/10 text-destructive">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle className="h-4 w-4" />
+                          <AlertDescription className="text-xs leading-relaxed">{liveAnalysisError}</AlertDescription>
+                        </div>
+                      </Alert>
+                    )}
+
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-foreground">Transcribed Text</span>
+                          {isProcessingLiveChunk && (
+                            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className="inline-flex h-2.5 w-2.5 animate-ping rounded-full bg-primary"></span>
+                              Processing…
+                            </span>
+                          )}
+                        </div>
+                        <p
+                          className={`rounded-md border bg-background/80 p-3 text-sm leading-relaxed ${
+                            liveTranscription ? "text-foreground" : "text-muted-foreground italic"
+                          }`}
+                        >
+                          {liveTranscription ||
+                            "No recitation captured yet. Start recording to see the live transcription."}
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <span className="font-semibold text-foreground">Mistakes & Tajweed alerts</span>
+                        {liveMistakes.length > 0 ? (
+                          <ul className="space-y-2 text-sm">
+                            {liveMistakes.map((mistake) => (
+                              <li
+                                key={`${mistake.index}-${mistake.word || "missing"}`}
+                                className="rounded-md border border-rose-200 bg-rose-50 p-3 text-rose-700"
+                              >
+                                <div className="font-medium">
+                                  Incorrect: <span className="font-semibold">{mistake.word || "—"}</span>
+                                </div>
+                                {mistake.correct && (
+                                  <div className="text-sm text-rose-600">
+                                    Expected: <span className="font-semibold text-rose-700">{mistake.correct}</span>
+                                  </div>
+                                )}
+                                <div className="text-xs text-rose-500">
+                                  {mistake.tajweedError ?? "Articulation adjustment recommended."}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                            No mistakes detected yet. Keep reciting with confidence.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <Alert
+                      className={
+                        isRecording
+                          ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                          : "bg-muted border-border/60 text-muted-foreground"
+                      }
+                    >
+                      <div className="flex items-start gap-3">
+                        <Sparkles className="w-4 h-4 mt-0.5" />
+                        <div>
+                          <AlertTitle className="text-sm font-semibold">
+                            {isRecording ? "Analyzing pronunciation" : "Ready for analysis"}
+                          </AlertTitle>
+                          <AlertDescription className="text-xs leading-relaxed">{analysisMessage}</AlertDescription>
+                        </div>
+                      </div>
+                    </Alert>
+
+                    <p className="text-xs text-muted-foreground">
+                      Use the live analysis toggle above to stop recording and clear feedback when you pause.
+                    </p>
+                  </div>
+                )}
+
+                <div className="pt-4 border-t border-muted/60 space-y-3">
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <Button
                         className="gradient-maroon text-white border-0 px-6"
                         onClick={handleReciteAyah}
                       >
@@ -1225,173 +1387,6 @@ export default function QuranReaderPage() {
                     {dailyTargetPercent}% of today’s goal
                   </p>
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* Live Tajweed Analysis */}
-            <Card className="border-border/50">
-              <CardHeader className="pb-4 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Live Tajweed Analysis</CardTitle>
-                  <Badge
-                    variant={isRecording ? "default" : "secondary"}
-                    className={`text-xs flex items-center gap-1 ${isRecording ? "bg-emerald-600" : ""}`}
-                  >
-                    <Sparkles className="w-3.5 h-3.5" /> {isRecording ? "Live" : "Standby"}
-                  </Badge>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Real-time insights on your recitation quality.
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="bg-muted/40 rounded-lg p-4 space-y-2">
-                  <div className="flex items-center justify-between text-sm font-medium">
-                    <span>Average score</span>
-                    <span>{averageTajweed}%</span>
-                  </div>
-                  <Progress value={averageTajweed} className="h-2" />
-                </div>
-
-                <div className="space-y-3">
-                  {tajweedMetrics.map((metric) => (
-                    <div key={metric.id} className="space-y-2 rounded-lg border border-border/60 p-3">
-                      <div className="flex items-center justify-between text-sm font-medium">
-                        <span>{metric.label}</span>
-                        <span>{metric.score}%</span>
-                      </div>
-                      <Progress value={metric.score} className="h-2" />
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{metric.description}</span>
-                        <span
-                          className={
-                            metric.trend >= 0 ? "flex items-center gap-1 text-emerald-600" : "flex items-center gap-1 text-rose-600"
-                          }
-                        >
-                          {metric.trend >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                          {Math.abs(metric.trend)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {isAnalysisStarted && (
-                  <div className="space-y-4 rounded-lg border border-dashed border-primary/40 p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div>
-                        <h4 className="text-sm font-semibold text-primary">Live Recitation</h4>
-                        <p className="text-xs text-muted-foreground">
-                          Record your recitation to receive transcription and tajweed alerts instantly.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          size="sm"
-                          onClick={startLiveRecording}
-                          disabled={isRecording || isProcessingLiveChunk}
-                          className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white"
-                        >
-                          Start Recording
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={stopLiveRecording}
-                          disabled={!isRecording}
-                          className="bg-transparent"
-                        >
-                          Stop Recording
-                        </Button>
-                      </div>
-                    </div>
-
-                    {liveAnalysisError && (
-                      <Alert
-                        variant="destructive"
-                        className="border-destructive/30 bg-destructive/10 text-destructive"
-                      >
-                        <div className="flex items-start gap-2">
-                          <AlertCircle className="h-4 w-4" />
-                          <AlertDescription className="text-xs leading-relaxed">
-                            {liveAnalysisError}
-                          </AlertDescription>
-                        </div>
-                      </Alert>
-                    )}
-
-                    <div className="space-y-3 text-sm">
-                      <div>
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-foreground">Transcribed Text</span>
-                          {isProcessingLiveChunk && (
-                            <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <span className="inline-flex h-2.5 w-2.5 animate-ping rounded-full bg-primary"></span>
-                              Processing…
-                            </span>
-                          )}
-                        </div>
-                        <p
-                          className={`mt-2 rounded-md border bg-background/80 p-3 text-sm leading-relaxed ${
-                            liveTranscription ? "text-foreground" : "text-muted-foreground italic"
-                          }`}
-                        >
-                          {liveTranscription ||
-                            "No recitation captured yet. Start recording to see the live transcription."}
-                        </p>
-                      </div>
-
-                      <div>
-                        <span className="font-semibold text-foreground">Mistakes & Tajweed alerts</span>
-                        {liveMistakes.length > 0 ? (
-                          <ul className="mt-2 space-y-2 text-sm">
-                            {liveMistakes.map((mistake) => (
-                              <li
-                                key={`${mistake.index}-${mistake.word || "missing"}`}
-                                className="rounded-md border border-rose-200 bg-rose-50 p-3 text-rose-700"
-                              >
-                                <div className="font-medium">
-                                  Incorrect: <span className="font-semibold">{mistake.word || "—"}</span>
-                                </div>
-                                {mistake.correct && (
-                                  <div className="text-sm text-rose-600">
-                                    Expected:{" "}
-                                    <span className="font-semibold text-rose-700">{mistake.correct}</span>
-                                  </div>
-                                )}
-                                <div className="text-xs text-rose-500">
-                                  {mistake.tajweedError ?? "Articulation adjustment recommended."}
-                                </div>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="mt-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
-                            No mistakes detected yet. Keep reciting with confidence.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <Alert
-                  className={
-                    isRecording
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                      : "bg-muted border-border/60 text-muted-foreground"
-                  }
-                >
-                  <div className="flex items-start gap-3">
-                    <Sparkles className="w-4 h-4 mt-0.5" />
-                    <div>
-                      <AlertTitle className="text-sm font-semibold">
-                        {isRecording ? "Analyzing pronunciation" : "Ready for analysis"}
-                      </AlertTitle>
-                      <AlertDescription className="text-xs leading-relaxed">{analysisMessage}</AlertDescription>
-                    </div>
-                  </div>
-                </Alert>
               </CardContent>
             </Card>
 
