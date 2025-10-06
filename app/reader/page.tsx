@@ -1,11 +1,12 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Slider } from "@/components/ui/slider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   Play,
   Pause,
@@ -19,10 +20,22 @@ import {
   Mic,
   MicOff,
   RotateCcw,
+  AlertCircle,
 } from "lucide-react"
 import Link from "next/link"
 
 // Sample Qur'an data - in real app this would come from Al-Quran Cloud API
+const AUDIO_BASE_URL = "https://cdn.islamic.network/quran/audio/128/ar.alafasy"
+
+const RECITER_AUDIO_SLUGS = {
+  mishary: "ar.alafasy",
+  sudais: "ar.alafasy",
+  husary: "ar.husary",
+  minshawi: "ar.minshawi",
+} as const
+
+type ReciterKey = keyof typeof RECITER_AUDIO_SLUGS
+
 const sampleSurah = {
   number: 1,
   name: "Al-Fatiha",
@@ -35,42 +48,42 @@ const sampleSurah = {
       text: "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
       translation: "In the name of Allah, the Entirely Merciful, the Especially Merciful.",
       transliteration: "Bismillahir-Rahmanir-Raheem",
-      audioUrl: "/audio/001001.mp3",
+      audioUrl: `${AUDIO_BASE_URL}/1.mp3`,
     },
     {
       number: 2,
       text: "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ",
       translation: "All praise is due to Allah, Lord of the worlds.",
       transliteration: "Alhamdu lillahi rabbil-alameen",
-      audioUrl: "/audio/001002.mp3",
+      audioUrl: `${AUDIO_BASE_URL}/2.mp3`,
     },
     {
       number: 3,
       text: "الرَّحْمَٰنِ الرَّحِيمِ",
       translation: "The Entirely Merciful, the Especially Merciful,",
       transliteration: "Ar-Rahmanir-Raheem",
-      audioUrl: "/audio/001003.mp3",
+      audioUrl: `${AUDIO_BASE_URL}/3.mp3`,
     },
     {
       number: 4,
       text: "مَالِكِ يَوْمِ الدِّينِ",
       translation: "Sovereign of the Day of Recompense.",
       transliteration: "Maliki yawmid-deen",
-      audioUrl: "/audio/001004.mp3",
+      audioUrl: `${AUDIO_BASE_URL}/4.mp3`,
     },
     {
       number: 5,
       text: "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ",
       translation: "It is You we worship and You we ask for help.",
       transliteration: "Iyyaka na'budu wa iyyaka nasta'een",
-      audioUrl: "/audio/001005.mp3",
+      audioUrl: `${AUDIO_BASE_URL}/5.mp3`,
     },
     {
       number: 6,
       text: "اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ",
       translation: "Guide us to the straight path -",
       transliteration: "Ihdinassiratal-mustaqeem",
-      audioUrl: "/audio/001006.mp3",
+      audioUrl: `${AUDIO_BASE_URL}/6.mp3`,
     },
     {
       number: 7,
@@ -78,7 +91,7 @@ const sampleSurah = {
       translation:
         "The path of those upon whom You have bestowed favor, not of those who have evoked [Your] anger or of those who are astray.",
       transliteration: "Siratal-lazeena an'amta alayhim ghayril-maghdoobi alayhim wa lad-dalleen",
-      audioUrl: "/audio/001007.mp3",
+      audioUrl: `${AUDIO_BASE_URL}/7.mp3`,
     },
   ],
 }
@@ -92,18 +105,40 @@ export default function QuranReaderPage() {
   const [showTransliteration, setShowTransliteration] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [fontSize, setFontSize] = useState("text-4xl")
-  const [reciter, setReciter] = useState("mishary")
+  const [reciter, setReciter] = useState<ReciterKey>("mishary")
+  const [audioError, setAudioError] = useState<string | null>(null)
 
   const audioRef = useRef<HTMLAudioElement>(null)
+  const activeAudioSrc = useMemo(() => {
+    const selectedSlug = RECITER_AUDIO_SLUGS[reciter] ?? RECITER_AUDIO_SLUGS.mishary
+    const ayahAudio = sampleSurah.ayahs[currentAyah].audioUrl
+    return ayahAudio.replace("ar.alafasy", selectedSlug)
+  }, [currentAyah, reciter])
 
-  const handlePlayPause = () => {
-    if (audioRef.current) {
-      if (isPlaying) {
-        audioRef.current.pause()
-      } else {
-        audioRef.current.play()
-      }
-      setIsPlaying(!isPlaying)
+  const handlePlayPause = async () => {
+    const audioEl = audioRef.current
+    if (!audioEl) return
+
+    if (isPlaying) {
+      audioEl.pause()
+      setIsPlaying(false)
+      return
+    }
+
+    if (audioEl.canPlayType("audio/mpeg") === "") {
+      setAudioError("Your browser can't play MP3 audio. Try a different browser.")
+      return
+    }
+
+    setAudioError(null)
+
+    try {
+      await audioEl.play()
+      setIsPlaying(true)
+    } catch (error) {
+      console.error("Failed to play audio", error)
+      setIsPlaying(false)
+      setAudioError("We couldn't start the recitation. Please try again.")
     }
   }
 
@@ -130,6 +165,20 @@ export default function QuranReaderPage() {
     setIsRecording(!isRecording)
     // In real app, this would start/stop audio recording for AI feedback
   }
+
+  useEffect(() => {
+    const audioEl = audioRef.current
+    if (!audioEl) {
+      return
+    }
+
+    audioEl.pause()
+    audioEl.currentTime = 0
+    // Reload ensures the browser fetches the new source immediately when ayah changes
+    audioEl.load()
+    setIsPlaying(false)
+    setAudioError(null)
+  }, [currentAyah, reciter])
 
   useEffect(() => {
     if (audioRef.current) {
@@ -259,6 +308,23 @@ export default function QuranReaderPage() {
                     </Button>
                   </div>
 
+                  {audioError && (
+                    <Alert
+                      variant="destructive"
+                      className="bg-destructive/10 border-destructive/30 text-destructive"
+                    >
+                      <div className="flex items-start space-x-3">
+                        <AlertCircle className="w-4 h-4 mt-1" />
+                        <div>
+                          <AlertTitle className="text-sm font-semibold">Audio unavailable</AlertTitle>
+                          <AlertDescription className="text-sm text-destructive/90">
+                            {audioError}
+                          </AlertDescription>
+                        </div>
+                      </div>
+                    </Alert>
+                  )}
+
                   <div className="flex items-center space-x-4">
                     <Volume2 className="w-5 h-5 text-muted-foreground" />
                     <Slider value={volume} onValueChange={setVolume} max={100} step={1} className="flex-1" />
@@ -280,7 +346,14 @@ export default function QuranReaderPage() {
                         </SelectContent>
                       </Select>
 
-                      <Select value={reciter} onValueChange={setReciter}>
+                      <Select
+                        value={reciter}
+                        onValueChange={(value) => {
+                          const typedValue = value as ReciterKey
+                          setReciter(typedValue)
+                          setAudioError(null)
+                        }}
+                      >
                         <SelectTrigger className="w-32 h-8">
                           <SelectValue />
                         </SelectTrigger>
@@ -453,10 +526,14 @@ export default function QuranReaderPage() {
       {/* Hidden Audio Element */}
       <audio
         ref={audioRef}
-        src={sampleSurah.ayahs[currentAyah].audioUrl}
+        src={activeAudioSrc}
         onEnded={() => setIsPlaying(false)}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
+        onError={() => {
+          setIsPlaying(false)
+          setAudioError("The selected reciter's audio couldn't be loaded.")
+        }}
       />
     </div>
   )
