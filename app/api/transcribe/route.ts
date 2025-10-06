@@ -16,14 +16,16 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
     const audioFile = formData.get("audio") as File
-    const expectedText = formData.get("expectedText") as string
-    const ayahId = formData.get("ayahId") as string
+    const expectedText = (formData.get("expectedText") as string) ?? ""
+    const ayahId = (formData.get("ayahId") as string) ?? ""
+    const mode = (formData.get("mode") as string) ?? "standard"
+    const isLiveMode = mode === "live"
 
     if (!audioFile) {
       return NextResponse.json({ error: "No audio file provided" }, { status: 400 })
     }
 
-    if (!expectedText) {
+    if (!expectedText && !isLiveMode) {
       return NextResponse.json({ error: "Missing expected text" }, { status: 400 })
     }
 
@@ -39,7 +41,10 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(arrayBuffer)
 
     // Create a temporary file-like object for OpenAI
-    const file = new File([buffer], "audio.wav", { type: "audio/wav" })
+    const originalType = audioFile.type || ""
+    const fileName = audioFile.name || (originalType.includes("wav") ? "audio.wav" : "audio.webm")
+    const fileType = originalType || "audio/webm"
+    const file = new File([buffer], fileName, { type: fileType })
 
     // Transcribe audio using OpenAI Whisper
     const transcription = await openai.audio.transcriptions.create({
@@ -49,6 +54,15 @@ export async function POST(request: NextRequest) {
       response_format: "verbose_json",
       timestamp_granularities: ["word"],
     })
+
+    if (isLiveMode) {
+      return NextResponse.json({
+        transcription: transcription.text,
+        words: transcription.words,
+        duration: transcription.duration,
+        ayahId,
+      })
+    }
 
     // Analyze transcription against expected text
     const feedback = analyzeRecitation(transcription.text, expectedText, transcription.words || [])

@@ -1,12 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Mic, Square, RotateCcw, AlertCircle, Sparkles } from "lucide-react"
+import { Loader2, Mic, Square, RotateCcw, AlertCircle, Sparkles } from "lucide-react"
 
 import type { RecitationVerseRecord } from "@/lib/data/teacher-database"
 import { cn } from "@/lib/utils"
@@ -35,16 +35,22 @@ type IssueDescriptor = {
   hint: string
 }
 
-type RecognitionInstance = SpeechRecognition & {
-  start: () => void
-  stop: () => void
-  abort: () => void
-}
-
-declare global {
-  interface Window {
-    webkitSpeechRecognition?: typeof SpeechRecognition
+type LiveSummary = {
+  transcription: string
+  expectedText: string
+  feedback: {
+    overallScore: number
+    accuracy: number
+    timingScore: number
+    fluencyScore: number
+    feedback: string
+    errors: { type: string; message: string; expected?: string; transcribed?: string }[]
   }
+  hasanatPoints: number
+  arabicLetterCount: number
+  words?: { start: number; end: number; word: string }[]
+  duration?: number
+  ayahId?: string
 }
 
 const ARABIC_DIACRITICS = /[\u064B-\u065F\u0670]/g
@@ -135,23 +141,315 @@ function buildHint(expected: string, heard: string, severity: IssueDescriptor["s
 
 export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAnalyzerProps) {
   const [transcript, setTranscript] = useState("")
+  const [recognizedTokens, setRecognizedTokens] = useState<string[]>([])
   const [isListening, setIsListening] = useState(false)
   const [hasActivated, setHasActivated] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isSupported, setIsSupported] = useState(true)
+  const [isProcessingChunk, setIsProcessingChunk] = useState(false)
+  const [isFinalizing, setIsFinalizing] = useState(false)
+  const [finalSummary, setFinalSummary] = useState<LiveSummary | null>(null)
 
-  const recognitionRef = useRef<RecognitionInstance | null>(null)
-  const shouldResumeRef = useRef(false)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunkQueueRef = useRef<Blob[]>([])
+  const allChunksRef = useRef<Blob[]>([])
+  const recognitionHistoryRef = useRef<string[]>([])
+  const displayHistoryRef = useRef<string[]>([])
+  const isProcessingRef = useRef(false)
+  const recorderMimeTypeRef = useRef("audio/webm")
+  const shouldFinalizeRef = useRef(false)
 
   const expectedTokens = useMemo(() => buildTokens(verses), [verses])
-  const normalizedTranscript = useMemo(() => normalizeArabic(transcript), [transcript])
-  const recognizedTokens = useMemo(
-    () => (normalizedTranscript.length > 0 ? normalizedTranscript.split(" ").filter(Boolean) : []),
-    [normalizedTranscript],
+  const expectedFullText = useMemo(() => verses.map((verse) => verse.arabic).join(" "), [verses])
+  const versesFingerprint = useMemo(
+    () => verses.map((verse) => `${verse.ayah}:${verse.arabic}`).join("|"),
+    [verses],
   )
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+    const hasRecorder = typeof window.MediaRecorder !== "undefined"
+    const hasMicrophone = !!navigator.mediaDevices?.getUserMedia
+    setIsSupported(hasRecorder && hasMicrophone)
+  }, [])
+
+  useEffect(() => {
+    recognitionHistoryRef.current = []
+    displayHistoryRef.current = []
+    chunkQueueRef.current = []
+    allChunksRef.current = []
+    setTranscript("")
+    setRecognizedTokens([])
+    setFinalSummary(null)
+    setHasActivated(false)
+  }, [versesFingerprint])
+
+  const cleanupStream = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      shouldFinalizeRef.current = false
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        try {
+          recorderRef.current.stop()
+        } catch (caught) {
+          console.error("Failed to stop recorder on cleanup", caught)
+        }
+      }
+      cleanupStream()
+    }
+  }, [cleanupStream])
+
+  const updateTranscriptFromChunk = useCallback((chunkText: string) => {
+    const rawTokens = chunkText.split(/\s+/).filter(Boolean)
+    if (rawTokens.length === 0) {
+      return
+    }
+
+    const zipped = rawTokens
+      .map((raw) => ({ raw, normalized: normalizeArabic(raw) }))
+      .filter((entry) => entry.normalized.length > 0)
+
+    if (zipped.length === 0) {
+      return
+    }
+
+    const history = recognitionHistoryRef.current
+    const newNormalized = zipped.map((entry) => entry.normalized)
+    let overlap = Math.min(history.length, newNormalized.length)
+
+    while (overlap > 0) {
+      const historySuffix = history.slice(history.length - overlap).join(" ")
+      const chunkPrefix = newNormalized.slice(0, overlap).join(" ")
+      if (historySuffix === chunkPrefix) {
+        break
+      }
+      overlap--
+    }
+
+    const entriesToAdd = zipped.slice(overlap)
+    if (entriesToAdd.length === 0) {
+      return
+    }
+
+    recognitionHistoryRef.current = [...history, ...entriesToAdd.map((entry) => entry.normalized)]
+    displayHistoryRef.current = [...displayHistoryRef.current, ...entriesToAdd.map((entry) => entry.raw)]
+    setRecognizedTokens([...recognitionHistoryRef.current])
+    setTranscript(displayHistoryRef.current.join(" "))
+  }, [])
+
+  const processQueue = useCallback(async () => {
+    if (isProcessingRef.current) {
+      return
+    }
+    const nextChunk = chunkQueueRef.current.shift()
+    if (!nextChunk) {
+      return
+    }
+
+    isProcessingRef.current = true
+    setIsProcessingChunk(true)
+
+    try {
+      const chunkType = (nextChunk as Blob).type || recorderMimeTypeRef.current || "audio/webm"
+      const chunkFile = new File([nextChunk], `live-chunk-${Date.now()}.webm`, { type: chunkType })
+      const formData = new FormData()
+      formData.append("audio", chunkFile)
+      formData.append("mode", "live")
+
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(`Live transcription failed with status ${response.status}`)
+      }
+
+      const result = (await response.json()) as { transcription?: string }
+      if (typeof result.transcription === "string" && result.transcription.trim().length > 0) {
+        updateTranscriptFromChunk(result.transcription)
+      }
+    } catch (caught) {
+      console.error("Live chunk transcription failed", caught)
+      setError("Live transcription encountered an error on a segment. We\'re still recording — you can continue reciting.")
+    } finally {
+      isProcessingRef.current = false
+      setIsProcessingChunk(false)
+      if (chunkQueueRef.current.length > 0) {
+        setTimeout(() => {
+          void processQueue()
+        }, 150)
+      }
+    }
+  }, [updateTranscriptFromChunk])
+  const finalizeAnalysis = useCallback(
+    async (audioBlob: Blob) => {
+      if (!expectedFullText) {
+        return
+      }
+
+      setIsFinalizing(true)
+      try {
+        const fileType = audioBlob.type || recorderMimeTypeRef.current || "audio/webm"
+        const file = new File([audioBlob], "live-session.webm", { type: fileType })
+        const formData = new FormData()
+        formData.append("audio", file)
+        formData.append("expectedText", expectedFullText)
+        formData.append("ayahId", "live-session")
+
+        const response = await fetch("/api/transcribe", {
+          method: "POST",
+          body: formData,
+        })
+
+        if (!response.ok) {
+          throw new Error(`Failed to finalise analysis: ${response.status}`)
+        }
+
+        const result = (await response.json()) as LiveSummary
+        setFinalSummary(result)
+        if (typeof result.transcription === "string" && result.transcription.trim().length > 0) {
+          updateTranscriptFromChunk(result.transcription)
+        }
+      } catch (caught) {
+        console.error("Failed to finalise live tajweed analysis", caught)
+        setError("We couldn't generate the final tajweed summary. You can record another attempt and try again.")
+      } finally {
+        setIsFinalizing(false)
+        allChunksRef.current = []
+      }
+    },
+    [expectedFullText, updateTranscriptFromChunk],
+  )
+
+  const startListening = useCallback(async () => {
+    if (isListening) {
+      return
+    }
+
+    if (!isSupported) {
+      setError("Your browser does not support live tajweed analysis. Please try a modern Chromium-based browser.")
+      return
+    }
+
+    if (expectedTokens.length === 0) {
+      setError("No verses are available for live analysis. Ask your teacher to assign text with verse details.")
+      return
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          sampleRate: 44100,
+        },
+      })
+
+      streamRef.current = stream
+      const recorder = new MediaRecorder(stream, {
+        mimeType: "audio/webm;codecs=opus",
+      })
+
+      recorderMimeTypeRef.current = recorder.mimeType || "audio/webm"
+      recorderRef.current = recorder
+      chunkQueueRef.current = []
+      allChunksRef.current = []
+      recognitionHistoryRef.current = []
+      displayHistoryRef.current = []
+      setRecognizedTokens([])
+      setTranscript("")
+      setFinalSummary(null)
+      setError(null)
+      setHasActivated(true)
+
+      recorder.onstart = () => {
+        shouldFinalizeRef.current = false
+        setIsListening(true)
+      }
+
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunkQueueRef.current.push(event.data)
+          allChunksRef.current.push(event.data)
+          if (chunkQueueRef.current.length > 4) {
+            chunkQueueRef.current.splice(0, chunkQueueRef.current.length - 4)
+          }
+          void processQueue()
+        }
+      }
+
+      recorder.onstop = () => {
+        setIsListening(false)
+        cleanupStream()
+        recorderRef.current = null
+        const shouldFinalize = shouldFinalizeRef.current
+        shouldFinalizeRef.current = false
+        if (shouldFinalize && allChunksRef.current.length > 0) {
+          const finalBlob = new Blob(allChunksRef.current, {
+            type: recorderMimeTypeRef.current || "audio/webm",
+          })
+          void finalizeAnalysis(finalBlob)
+        }
+      }
+
+      recorder.onerror = (event) => {
+        console.error("Recorder error", event)
+        setError("Live analysis encountered a recording error. Try restarting the session.")
+        setIsListening(false)
+        cleanupStream()
+      }
+
+      recorder.start(4000)
+    } catch (caught) {
+      console.error("Unable to access microphone for live analysis", caught)
+      setError("Could not access the microphone. Check your permissions and try again.")
+      cleanupStream()
+    }
+  }, [cleanupStream, expectedTokens.length, finalizeAnalysis, isListening, isSupported, processQueue])
+
+  const stopListening = useCallback(() => {
+    if (!recorderRef.current) {
+      return
+    }
+    shouldFinalizeRef.current = true
+    try {
+      if (recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop()
+      }
+    } catch (caught) {
+      console.error("Unable to stop live recorder", caught)
+      cleanupStream()
+    }
+  }, [cleanupStream])
+
+  const resetAnalysis = () => {
+    recognitionHistoryRef.current = []
+    displayHistoryRef.current = []
+    chunkQueueRef.current = []
+    allChunksRef.current = []
+    setRecognizedTokens([])
+    setTranscript("")
+    setFinalSummary(null)
+    setError(null)
+    if (!isListening) {
+      setHasActivated(false)
+    }
+  }
+
   const tokenStatuses: TokenStatus[] = useMemo(() => {
-    if (expectedTokens.length === 0) return []
+    if (expectedTokens.length === 0) {
+      return []
+    }
     return expectedTokens.map((token, index) => {
       const heard = recognizedTokens[index]
       if (heard == null) {
@@ -211,101 +509,6 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     })
   }, [expectedTokens, tokenStatuses, recognizedTokens])
 
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return
-    }
-    const RecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!RecognitionClass) {
-      setIsSupported(false)
-      return
-    }
-
-    const recognition = new RecognitionClass() as RecognitionInstance
-    recognition.lang = "ar-SA"
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.maxAlternatives = 1
-
-    recognition.onresult = (event) => {
-      const value = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? "")
-        .join(" ")
-      setTranscript(value.trim())
-    }
-
-    recognition.onstart = () => {
-      setIsListening(true)
-      setError(null)
-    }
-
-    recognition.onend = () => {
-      setIsListening(false)
-      if (shouldResumeRef.current) {
-        setTimeout(() => {
-          try {
-            recognition.start()
-          } catch (caught) {
-            console.error("Failed to restart speech recognition", caught)
-            setError("Speech recognition stopped unexpectedly. Try starting again.")
-            shouldResumeRef.current = false
-          }
-        }, 350)
-      }
-    }
-
-    recognition.onerror = (event) => {
-      const message = event.error === "not-allowed"
-        ? "Microphone permission denied. Allow access to use live analysis."
-        : event.error === "no-speech"
-          ? "No speech detected. Try speaking closer to the microphone."
-          : "Speech recognition error occurred."
-      setError(message)
-      setIsListening(false)
-    }
-
-    recognitionRef.current = recognition
-
-    return () => {
-      shouldResumeRef.current = false
-      recognition.stop()
-      recognitionRef.current = null
-    }
-  }, [])
-
-  const startListening = () => {
-    if (!recognitionRef.current || isListening) {
-      return
-    }
-    try {
-      setTranscript("")
-      setError(null)
-      shouldResumeRef.current = true
-      recognitionRef.current.start()
-      setHasActivated(true)
-    } catch (caught) {
-      console.error("Unable to start speech recognition", caught)
-      setError("Could not start live analysis. Ensure your microphone is available.")
-      shouldResumeRef.current = false
-    }
-  }
-
-  const stopListening = () => {
-    if (!recognitionRef.current) {
-      return
-    }
-    shouldResumeRef.current = false
-    try {
-      recognitionRef.current.stop()
-    } catch (caught) {
-      console.error("Unable to stop speech recognition", caught)
-    }
-  }
-
-  const resetAnalysis = () => {
-    setTranscript("")
-  }
-
   const ayahSummary = useMemo(() => {
     if (verses.length === 0) return ""
     const first = verses[0]?.ayah
@@ -316,6 +519,22 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     }
     return `Ayahs ${first}-${last}`
   }, [verses])
+
+  const statusBadgeLabel = isListening
+    ? isProcessingChunk
+      ? "Live • analysing"
+      : "Live"
+    : isFinalizing
+      ? "Summarising"
+      : "Standby"
+
+  const statusBadgeClass = isListening
+    ? isProcessingChunk
+      ? "bg-emerald-600 animate-pulse"
+      : "bg-emerald-600"
+    : isFinalizing
+      ? "bg-blue-600 text-white"
+      : "bg-maroon-100 text-maroon-700"
 
   const statusStyles: Record<TokenStatus, string> = {
     correct: "bg-emerald-100 text-emerald-800 border border-emerald-200",
@@ -334,9 +553,9 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
           </CardTitle>
           <Badge
             variant={isListening ? "default" : "secondary"}
-            className={cn("text-xs", isListening ? "bg-emerald-600" : "bg-maroon-100 text-maroon-700")}
+            className={cn("text-xs", statusBadgeClass)}
           >
-            {isListening ? "Live" : "Standby"}
+            {statusBadgeLabel}
           </Badge>
         </div>
         <p className="text-sm text-gray-600">
@@ -350,7 +569,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
             <AlertCircle className="w-4 h-4" />
             <AlertTitle className="text-sm font-semibold">Browser not supported</AlertTitle>
             <AlertDescription className="text-xs text-muted-foreground">
-              Your browser does not support the Web Speech API required for live tajweed analysis. Please use a modern Chrome
+              Your browser does not support the MediaRecorder API required for live tajweed analysis. Please use a modern Chrome
               or Edge browser.
             </AlertDescription>
           </Alert>
@@ -365,7 +584,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                 <Badge variant="secondary" className="text-xs bg-emerald-50 text-emerald-700">
                   {progress}% precise
                 </Badge>
-                {transcript && (
+                {(transcript || finalSummary) && (
                   <Button variant="ghost" size="sm" onClick={resetAnalysis} className="text-gray-600 hover:text-maroon-700">
                     <RotateCcw className="w-4 h-4 mr-1" /> Reset
                   </Button>
@@ -441,6 +660,11 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                         {extraTokens} extra word{extraTokens === 1 ? "" : "s"} detected
                       </Badge>
                     )}
+                    {isProcessingChunk && (
+                      <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">
+                        <Loader2 className="w-3 h-3 mr-1 animate-spin" /> syncing audio
+                      </Badge>
+                    )}
                   </div>
                 </div>
 
@@ -503,6 +727,87 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                 <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm" dir="rtl">
                   {transcript}
                 </div>
+              </div>
+            )}
+
+            {(isFinalizing || finalSummary) && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-sm font-semibold text-maroon-900 flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-maroon-600" /> Session summary
+                  </h4>
+                  {isFinalizing && (
+                    <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" /> Processing
+                    </Badge>
+                  )}
+                </div>
+                {finalSummary ? (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-4 text-center">
+                        <p className="text-xs uppercase tracking-wide text-emerald-700">Overall</p>
+                        <p className="text-3xl font-bold text-emerald-700">{finalSummary.feedback.overallScore}%</p>
+                        <p className="text-xs text-emerald-700">Composite precision</p>
+                      </div>
+                      <div className="rounded-lg border border-maroon-200 bg-cream-50 p-4 text-center">
+                        <p className="text-xs uppercase tracking-wide text-maroon-700">Accuracy</p>
+                        <p className="text-2xl font-semibold text-maroon-800">{finalSummary.feedback.accuracy}%</p>
+                        <p className="text-xs text-maroon-600">Word alignment</p>
+                      </div>
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-center">
+                        <p className="text-xs uppercase tracking-wide text-blue-700">Fluency</p>
+                        <p className="text-2xl font-semibold text-blue-700">{finalSummary.feedback.fluencyScore}%</p>
+                        <p className="text-xs text-blue-600">Cadence &amp; pacing</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-gold-200 bg-gold-50/80 p-4 text-center">
+                      <p className="text-xs uppercase tracking-wide text-gold-700">Hasanat earned</p>
+                      <p className="text-3xl font-bold text-gold-700">+{finalSummary.hasanatPoints}</p>
+                      <p className="text-xs text-gold-700">{finalSummary.arabicLetterCount} letters × 10 × accuracy</p>
+                    </div>
+
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+                      {finalSummary.feedback.feedback}
+                    </div>
+
+                    {finalSummary.feedback.errors?.length > 0 && (
+                      <div className="space-y-2">
+                        <h5 className="text-xs font-semibold uppercase tracking-wide text-maroon-700">
+                          Priority corrections
+                        </h5>
+                        <div className="space-y-2">
+                          {finalSummary.feedback.errors.slice(0, 5).map((issue, index) => (
+                            <div key={`${issue.type}-${index}`} className="rounded-md border border-amber-200 bg-amber-50/80 p-3 text-xs">
+                              <p className="font-semibold text-maroon-800 capitalize">{issue.type}</p>
+                              <p className="text-maroon-700 mt-1">{issue.message}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-xs font-medium text-gray-600">Expected passage</p>
+                        <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm font-arabic" dir="rtl">
+                          {finalSummary.expectedText}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-gray-600">Your recitation</p>
+                        <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm font-arabic" dir="rtl">
+                          {finalSummary.transcription}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-gray-300 bg-white/70 p-4 text-sm text-gray-600">
+                    Whisper is compiling the detailed tajweed summary for this session.
+                  </div>
+                )}
               </div>
             )}
           </>
