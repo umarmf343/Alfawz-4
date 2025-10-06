@@ -7,6 +7,9 @@ import { Badge } from "@/components/ui/badge"
 import { Slider } from "@/components/ui/slider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Progress } from "@/components/ui/progress"
+import { useUser } from "@/hooks/use-user"
 import {
   Play,
   Pause,
@@ -17,10 +20,14 @@ import {
   Settings,
   Bookmark,
   Share,
-  Mic,
   MicOff,
   RotateCcw,
   AlertCircle,
+  Sparkles,
+  Activity,
+  ArrowUpRight,
+  ArrowDownRight,
+  CheckCircle2,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -96,7 +103,25 @@ const sampleSurah = {
   ],
 }
 
+type TajweedMetric = {
+  id: string
+  label: string
+  score: number
+  trend: number
+  description: string
+}
+
 export default function QuranReaderPage() {
+  const { dashboard, incrementDailyTarget } = useUser()
+  const dailyTarget = dashboard?.dailyTarget
+  const dailyTargetGoal = dailyTarget?.targetAyahs ?? 0
+  const dailyTargetCompleted = dailyTarget?.completedAyahs ?? 0
+  const dailyGoalMet = dailyTargetGoal > 0 && dailyTargetCompleted >= dailyTargetGoal
+  const dailyTargetPercent = dailyTargetGoal === 0
+    ? 0
+    : Math.max(0, Math.min(100, Math.round((dailyTargetCompleted / dailyTargetGoal) * 100)))
+  const remainingAyahs = Math.max(dailyTargetGoal - dailyTargetCompleted, 0)
+
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentAyah, setCurrentAyah] = useState(0)
   const [volume, setVolume] = useState([75])
@@ -107,6 +132,57 @@ export default function QuranReaderPage() {
   const [fontSize, setFontSize] = useState("text-4xl")
   const [reciter, setReciter] = useState<ReciterKey>("mishary")
   const [audioError, setAudioError] = useState<string | null>(null)
+  const [sessionRecited, setSessionRecited] = useState(0)
+  const [isCelebrationOpen, setIsCelebrationOpen] = useState(false)
+  const [hasCelebrated, setHasCelebrated] = useState(false)
+  const [tajweedMetrics, setTajweedMetrics] = useState<TajweedMetric[]>(() => [
+    {
+      id: "makharij",
+      label: "Makharij",
+      score: 87,
+      trend: 0,
+      description: "Clarity of articulation points",
+    },
+    {
+      id: "madd",
+      label: "Madd",
+      score: 82,
+      trend: 0,
+      description: "Consistency of elongation",
+    },
+    {
+      id: "ghunnah",
+      label: "Ghunnah",
+      score: 85,
+      trend: 0,
+      description: "Nasal resonance balance",
+    },
+    {
+      id: "qalqalah",
+      label: "Qalqalah",
+      score: 79,
+      trend: 0,
+      description: "Echo on heavy letters",
+    },
+  ])
+  const [analysisMessage, setAnalysisMessage] = useState(
+    "Start the live analysis to receive tajweed feedback in real time.",
+  )
+
+  const weakestMetric = useMemo(() => {
+    if (tajweedMetrics.length === 0) {
+      return null
+    }
+    return tajweedMetrics.reduce((lowest, metric) => (metric.score < lowest.score ? metric : lowest), tajweedMetrics[0])
+  }, [tajweedMetrics])
+
+  const averageTajweed = useMemo(() => {
+    if (tajweedMetrics.length === 0) {
+      return 0
+    }
+    const total = tajweedMetrics.reduce((sum, metric) => sum + metric.score, 0)
+    return Math.round(total / tajweedMetrics.length)
+  }, [tajweedMetrics])
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const activeAudioSrc = useMemo(() => {
@@ -161,8 +237,27 @@ export default function QuranReaderPage() {
     setIsPlaying(false)
   }
 
+  const handleReciteAyah = () => {
+    incrementDailyTarget(1)
+    setSessionRecited((count) => count + 1)
+    setIsPlaying(false)
+    setCurrentAyah((index) => (index < sampleSurah.ayahs.length - 1 ? index + 1 : index))
+  }
+
   const toggleRecording = () => {
-    setIsRecording(!isRecording)
+    setIsRecording((previous) => {
+      const next = !previous
+      if (next) {
+        if (weakestMetric) {
+          setAnalysisMessage(`Focus on ${weakestMetric.label} — ${weakestMetric.description}.`)
+        } else {
+          setAnalysisMessage("Live analysis activated. Keep steady breath and clarity.")
+        }
+      } else {
+        setAnalysisMessage("Review your tajweed insights and resume when ready.")
+      }
+      return next
+    })
     // In real app, this would start/stop audio recording for AI feedback
   }
 
@@ -186,6 +281,52 @@ export default function QuranReaderPage() {
       audioRef.current.playbackRate = Number.parseFloat(playbackSpeed)
     }
   }, [volume, playbackSpeed])
+
+  useEffect(() => {
+    if (!isRecording) {
+      setTajweedMetrics((metrics) => metrics.map((metric) => ({ ...metric, trend: 0 })))
+      return
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout>
+
+    const updateMetrics = () => {
+      setTajweedMetrics((metrics) =>
+        metrics.map((metric) => {
+          const delta = Math.floor(Math.random() * 5) - 2
+          const nextScore = Math.max(60, Math.min(100, metric.score + delta))
+          return { ...metric, score: nextScore, trend: delta }
+        }),
+      )
+      timeoutId = setTimeout(updateMetrics, 2200)
+    }
+
+    updateMetrics()
+
+    return () => {
+      clearTimeout(timeoutId)
+    }
+  }, [isRecording])
+
+  useEffect(() => {
+    if (isRecording && weakestMetric) {
+      setAnalysisMessage(`Focus on ${weakestMetric.label} — ${weakestMetric.description}.`)
+    }
+  }, [isRecording, weakestMetric])
+
+  useEffect(() => {
+    if (dailyTargetGoal === 0) {
+      return
+    }
+    const goalMet = dailyTargetCompleted >= dailyTargetGoal
+    if (goalMet && sessionRecited > 0 && !hasCelebrated) {
+      setIsCelebrationOpen(true)
+      setHasCelebrated(true)
+    }
+    if (!goalMet && hasCelebrated) {
+      setHasCelebrated(false)
+    }
+  }, [dailyTargetCompleted, dailyTargetGoal, sessionRecited, hasCelebrated])
 
   return (
     <div className="min-h-screen bg-gradient-cream">
@@ -372,9 +513,35 @@ export default function QuranReaderPage() {
                       onClick={toggleRecording}
                       className={isRecording ? "" : "bg-transparent"}
                     >
-                      {isRecording ? <MicOff className="w-4 h-4 mr-2" /> : <Mic className="w-4 h-4 mr-2" />}
-                      {isRecording ? "Stop Recording" : "Practice Recitation"}
+                      {isRecording ? (
+                        <MicOff className="w-4 h-4 mr-2" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 mr-2 text-amber-500" />
+                      )}
+                      {isRecording ? "Stop Live Analysis" : "Start Live Analysis"}
                     </Button>
+                  </div>
+
+                  <div className="pt-4 border-t border-muted/60 space-y-3">
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      <Button
+                        className="gradient-maroon text-white border-0 px-6"
+                        onClick={handleReciteAyah}
+                      >
+                        <Activity className="w-4 h-4 mr-2" /> Mark Ayah Recited
+                      </Button>
+                      <Badge
+                        variant="secondary"
+                        className={`text-xs ${dailyGoalMet ? "bg-emerald-100 text-emerald-700" : ""}`}
+                      >
+                        {dailyGoalMet
+                          ? "Daily goal complete"
+                          : `${remainingAyahs} ayah${remainingAyahs === 1 ? "" : "s"} remaining`}
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Each marked ayah updates your daily target automatically.
+                    </p>
                   </div>
                 </div>
 
@@ -474,28 +641,106 @@ export default function QuranReaderPage() {
                     <span>Surah Progress</span>
                     <span>{Math.round(((currentAyah + 1) / sampleSurah.numberOfAyahs) * 100)}%</span>
                   </div>
-                  <div className="w-full bg-muted rounded-full h-2">
-                    <div
-                      className="gradient-maroon h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${((currentAyah + 1) / sampleSurah.numberOfAyahs) * 100}%` }}
-                    ></div>
-                  </div>
+                  <Progress value={((currentAyah + 1) / sampleSurah.numberOfAyahs) * 100} className="h-2" />
                 </div>
 
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Today's Goal</span>
-                    <span className="text-primary font-medium">5 Ayahs</span>
+                    <span className="text-muted-foreground">Today’s Goal</span>
+                    <span className="text-primary font-medium">
+                      {dailyTargetGoal > 0 ? `${dailyTargetGoal} Ayahs` : "No target"}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Completed</span>
-                    <span className="text-primary font-medium">{currentAyah + 1} Ayahs</span>
+                    <span className="text-primary font-medium">{dailyTargetCompleted} Ayahs</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Streak</span>
-                    <span className="text-accent font-medium">7 days</span>
+                    <span className="text-muted-foreground">Remaining</span>
+                    <span className={dailyGoalMet ? "text-emerald-600 font-medium" : "text-primary font-medium"}>
+                      {remainingAyahs}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Recited this session</span>
+                    <span className="text-accent font-medium">{sessionRecited}</span>
                   </div>
                 </div>
+
+                <div className="space-y-2 pt-2">
+                  <Progress value={dailyTargetPercent} className="h-2" />
+                  <p className="text-xs text-muted-foreground text-right">
+                    {dailyTargetPercent}% of today’s goal
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Live Tajweed Analysis */}
+            <Card className="border-border/50">
+              <CardHeader className="pb-4 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg">Live Tajweed Analysis</CardTitle>
+                  <Badge
+                    variant={isRecording ? "default" : "secondary"}
+                    className={`text-xs flex items-center gap-1 ${isRecording ? "bg-emerald-600" : ""}`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" /> {isRecording ? "Live" : "Standby"}
+                  </Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Real-time insights on your recitation quality.
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-muted/40 rounded-lg p-4 space-y-2">
+                  <div className="flex items-center justify-between text-sm font-medium">
+                    <span>Average score</span>
+                    <span>{averageTajweed}%</span>
+                  </div>
+                  <Progress value={averageTajweed} className="h-2" />
+                </div>
+
+                <div className="space-y-3">
+                  {tajweedMetrics.map((metric) => (
+                    <div key={metric.id} className="space-y-2 rounded-lg border border-border/60 p-3">
+                      <div className="flex items-center justify-between text-sm font-medium">
+                        <span>{metric.label}</span>
+                        <span>{metric.score}%</span>
+                      </div>
+                      <Progress value={metric.score} className="h-2" />
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>{metric.description}</span>
+                        <span
+                          className={
+                            metric.trend >= 0 ? "flex items-center gap-1 text-emerald-600" : "flex items-center gap-1 text-rose-600"
+                          }
+                        >
+                          {metric.trend >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                          {Math.abs(metric.trend)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <Alert
+                  className={
+                    isRecording
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                      : "bg-muted border-border/60 text-muted-foreground"
+                  }
+                >
+                  <div className="flex items-start gap-3">
+                    <Sparkles className="w-4 h-4 mt-0.5" />
+                    <div>
+                      <AlertTitle className="text-sm font-semibold">
+                        {isRecording ? "Analyzing pronunciation" : "Ready for analysis"}
+                      </AlertTitle>
+                      <AlertDescription className="text-xs leading-relaxed">{analysisMessage}</AlertDescription>
+                    </div>
+                  </div>
+                </Alert>
               </CardContent>
             </Card>
 
@@ -520,8 +765,33 @@ export default function QuranReaderPage() {
               </CardContent>
             </Card>
           </div>
-        </div>
       </div>
+    </div>
+
+      <Dialog open={isCelebrationOpen} onOpenChange={setIsCelebrationOpen}>
+        <DialogContent className="max-w-sm text-center">
+          <DialogHeader className="space-y-2">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
+              <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+            </div>
+            <DialogTitle className="text-2xl font-semibold text-maroon-900">Masha’Allah!</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              You’ve completed today’s target of {dailyTargetGoal} ayahs. Keep reciting to deepen your mastery.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+            <Button variant="outline" className="flex-1" onClick={() => setIsCelebrationOpen(false)}>
+              Keep Reciting
+            </Button>
+            <Button
+              className="flex-1 bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
+              onClick={() => setIsCelebrationOpen(false)}
+            >
+              Continue Session
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Hidden Audio Element */}
       <audio
