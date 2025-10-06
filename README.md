@@ -90,6 +90,31 @@ import { useUser } from "@/hooks/use-user"
 const { profile, stats, completeHabit } = useUser()
 ```
 
+### Demo data reference
+
+On first load the platform seeds a rich learner profile so every dashboard view feels realistic. The default records live in
+`lib/data/teacher-database.ts` and are summarized below. To sign in manually, use any of the seeded credentials from
+`lib/data/auth.ts` – the default session picks the student account automatically:
+
+- **Student dashboard:** `ahmad@example.com` / `student123`
+- **Teacher dashboard:** `kareem@alfawz.example` / `teacher123`
+- **Parent portal:** `parent@example.com` / `parent123`
+- **Admin console:** `admin@example.com` / `admin123`
+
+- **Learner:** Ahmad Al-Hafiz (`user_001`, `ahmad@example.com`) on the **free** plan with locale `en-US`.
+- **Core stats:** 1,247 hasanat, level 8 (3,400 XP with 500 XP to next level), seven-day streak, 342 ayahs read, and 135 study minutes this week.
+- **Habits in progress:**
+  - *Daily Recitation Quest* (medium) – level 3, streak 6, progress 40%, rewards 60 XP / 45 hasanat per completion.
+  - *Memorization Review* (hard) – level 2, streak 4, progress 60%, rewards 75 XP / 60 hasanat.
+  - *Reflection Journal* (easy) – level 2, streak 3, progress 10%, rewards 40 XP / 30 hasanat.
+- **Dashboard snapshot:** Daily target of 10 ayahs (4 already completed today), last read at Surah Al-Baqarah ayah 156, featured habit set to Daily Recitation, and active goals such as completing Surah Al-Mulk and memorising five new ayahs.
+- **Instructor context:**
+  - `teacher_001` – Ustadh Kareem (Tajweed lead).
+  - `teacher_002` – Ustadha Maryam (Memorization mentor).
+  - Both teachers have existing feedback notes, assignments, and review queues tied to Ahmad’s profile so recitation and memorisation panels render populated states.
+
+Use this reference when exploring or extending the UI so you know which default entities and IDs are already available for mocks, tests, or premium-gating flows.
+
 ## Habit Quest Arena (Game Loop)
 
 Navigate to `/habits` from the sidebar to experience the gamified flow:
