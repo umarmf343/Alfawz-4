@@ -19,10 +19,12 @@ import AppLayout from "@/components/app-layout"
 import { PremiumGate } from "@/components/premium-gate"
 import { QuranFlipBook } from "@/components/quran-flipbook"
 import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
+import { useToast } from "@/hooks/use-toast"
 import { useUser } from "@/hooks/use-user"
 import { StudentWelcomeAudio } from "@/components/student/StudentWelcomeAudio"
 import { VoiceRecognitionWidget } from "@/components/student/VoiceRecognitionWidget"
 import { getDailySurahRecommendations } from "@/lib/daily-surah"
+import { trackError, trackEvent, trackStateChange } from "@/lib/analytics"
 import {
   BookOpen,
   Play,
@@ -90,6 +92,38 @@ export default function DashboardPage() {
     completeRecitationAssignment,
     completeHabit,
   } = useUser()
+  const { toast } = useToast()
+
+  const trackDashboardEvent = useCallback(
+    (eventName: string, payload: Record<string, unknown> = {}) => {
+      trackEvent(eventName, {
+        area: "student_dashboard",
+        userId: profile.id,
+        ...payload,
+      })
+    },
+    [profile.id],
+  )
+
+  const trackDashboardState = useCallback(
+    (scope: string, change: Record<string, unknown>) => {
+      trackStateChange(scope, change, {
+        area: "student_dashboard",
+        userId: profile.id,
+      })
+    },
+    [profile.id],
+  )
+
+  const getErrorMessage = useCallback((caught: unknown) => {
+    if (caught instanceof Error) {
+      return caught.message
+    }
+    if (typeof caught === "string") {
+      return caught
+    }
+    return "An unexpected error occurred."
+  }, [])
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -158,6 +192,7 @@ export default function DashboardPage() {
   const handleGameDialogChange = useCallback(
     (open: boolean) => {
       setIsGameDialogOpen(open)
+      trackDashboardEvent("dashboard_game_dialog_toggled", { open })
       const params = new URLSearchParams(searchParamsString)
       if (open) {
         params.set("playGames", "true")
@@ -167,7 +202,7 @@ export default function DashboardPage() {
       const query = params.toString()
       router.replace(`${pathname}${query ? `?${query}` : ""}`, { scroll: false })
     },
-    [pathname, router, searchParamsString],
+    [pathname, router, searchParamsString, trackDashboardEvent],
   )
 
   useEffect(() => {
@@ -391,36 +426,137 @@ export default function DashboardPage() {
 
   const teacherMap = useMemo(() => new Map(teachers.map((teacher) => [teacher.id, teacher.name])), [teachers])
 
-  const handleSaveTarget = () => {
-    updateDailyTarget(customTarget)
-  }
+  const handleSaveTarget = useCallback(() => {
+    try {
+      updateDailyTarget(customTarget)
+      trackDashboardState("daily_target", {
+        action: "update_target",
+        targetAyahs: customTarget,
+        completedAyahs: dailyTargetCompleted,
+      })
+      toast({
+        title: "Daily target updated",
+        description: `Your goal is now set to ${customTarget} ayah${customTarget === 1 ? "" : "s"}.`,
+      })
+    } catch (caught) {
+      const message = getErrorMessage(caught)
+      trackError("dashboard_daily_target_update_failed", caught, {
+        action: "update_target",
+        targetAyahs: customTarget,
+        userId: profile.id,
+      })
+      toast({
+        title: "Could not update target",
+        description: message,
+        variant: "destructive",
+      })
+    }
+  }, [customTarget, dailyTargetCompleted, getErrorMessage, profile.id, toast, trackDashboardState, updateDailyTarget])
 
-  const handleReciteNow = () => {
+  const handleReciteNow = useCallback(() => {
+    trackDashboardEvent("dashboard_daily_target_recite_now", {
+      targetAyahs: dailyTargetGoal,
+      completedAyahs: dailyTargetCompleted,
+    })
     router.push("/reader?source=daily-target")
-  }
+  }, [dailyTargetCompleted, dailyTargetGoal, router, trackDashboardEvent])
 
   const dailyGoalMet = dailyTargetGoal > 0 && dailyTargetCompleted >= dailyTargetGoal
   const canCreateGoal = newGoalTitle.trim().length > 0 && newGoalDeadline.trim().length > 0
 
-  const handleCreateGoal = () => {
-    if (!canCreateGoal) return
-    const isoDeadline = new Date(newGoalDeadline).toISOString()
-    addGoal({ title: newGoalTitle.trim(), deadline: isoDeadline })
-    setGoalFormOpen(false)
-    setNewGoalTitle("")
-    setNewGoalDeadline("")
-  }
+  const handleCreateGoal = useCallback(() => {
+    const trimmedTitle = newGoalTitle.trim()
+    const trimmedDeadline = newGoalDeadline.trim()
+    if (trimmedTitle.length === 0 || trimmedDeadline.length === 0) {
+      toast({
+        title: "Add goal details",
+        description: "Provide a title and deadline to save your goal.",
+        variant: "destructive",
+      })
+      return
+    }
+    try {
+      const isoDeadline = new Date(trimmedDeadline).toISOString()
+      addGoal({ title: trimmedTitle, deadline: isoDeadline })
+      trackDashboardEvent("dashboard_goal_created", {
+        goalTitle: trimmedTitle,
+        deadline: isoDeadline,
+      })
+      trackDashboardState("goal", {
+        action: "create",
+        title: trimmedTitle,
+        deadline: isoDeadline,
+      })
+      toast({
+        title: "Goal added",
+        description: `We'll remind you about “${trimmedTitle}”.`,
+      })
+      setGoalFormOpen(false)
+      setNewGoalTitle("")
+      setNewGoalDeadline("")
+    } catch (caught) {
+      const message = getErrorMessage(caught)
+      trackError("dashboard_goal_create_failed", caught, {
+        title: trimmedTitle,
+        deadline: trimmedDeadline,
+        userId: profile.id,
+      })
+      toast({
+        title: "Could not add goal",
+        description: message,
+        variant: "destructive",
+      })
+    }
+  }, [addGoal, getErrorMessage, newGoalDeadline, newGoalTitle, profile.id, toast, trackDashboardEvent, trackDashboardState])
 
   const handleCompleteRecitation = useCallback(
     (taskId: string) => {
+      const task = recitationTasks.find((entry) => entry.id === taskId)
+      trackDashboardEvent("dashboard_recitation_mark_complete_click", {
+        taskId,
+        surah: task?.surah,
+        ayahRange: task?.ayahRange,
+      })
       setCompletingRecitationId(taskId)
       try {
         completeRecitationAssignment(taskId)
+        trackDashboardState("recitation_task", {
+          action: "mark_complete",
+          taskId,
+          surah: task?.surah,
+          ayahRange: task?.ayahRange,
+        })
+        toast({
+          title: "Recitation marked complete",
+          description: task
+            ? `${task.surah} • Ayah ${task.ayahRange} submitted for review.`
+            : "Your recitation has been submitted for review.",
+        })
+      } catch (caught) {
+        const message = getErrorMessage(caught)
+        trackError("dashboard_recitation_completion_failed", caught, {
+          taskId,
+          surah: task?.surah,
+          userId: profile.id,
+        })
+        toast({
+          title: "Could not mark recitation complete",
+          description: message,
+          variant: "destructive",
+        })
       } finally {
         setCompletingRecitationId(null)
       }
     },
-    [completeRecitationAssignment],
+    [
+      completeRecitationAssignment,
+      getErrorMessage,
+      profile.id,
+      recitationTasks,
+      toast,
+      trackDashboardEvent,
+      trackDashboardState,
+    ],
   )
 
   const handleGameTaskAction = useCallback(
@@ -428,10 +564,118 @@ export default function DashboardPage() {
       if (!task || task.status === "completed") {
         return
       }
+      trackDashboardEvent("dashboard_game_task_action", {
+        taskId: task.id,
+        taskType: task.type,
+        status: task.status,
+      })
       setIsGameDialogOpen(false)
       router.push(`/games/${task.id}`)
     },
-    [router],
+    [router, trackDashboardEvent],
+  )
+
+  const handleResetDailyTarget = useCallback(() => {
+    try {
+      resetDailyTargetProgress()
+      trackDashboardState("daily_target", {
+        action: "reset_progress",
+        targetAyahs: dailyTargetGoal,
+      })
+      trackDashboardEvent("dashboard_daily_target_reset", {
+        targetAyahs: dailyTargetGoal,
+        completedAyahs: dailyTargetCompleted,
+      })
+      toast({
+        title: "Progress reset",
+        description: "Your daily target progress has been cleared.",
+      })
+    } catch (caught) {
+      const message = getErrorMessage(caught)
+      trackError("dashboard_daily_target_reset_failed", caught, {
+        targetAyahs: dailyTargetGoal,
+        completedAyahs: dailyTargetCompleted,
+        userId: profile.id,
+      })
+      toast({
+        title: "Could not reset progress",
+        description: message,
+        variant: "destructive",
+      })
+    }
+  }, [
+    dailyTargetCompleted,
+    dailyTargetGoal,
+    getErrorMessage,
+    profile.id,
+    resetDailyTargetProgress,
+    toast,
+    trackDashboardEvent,
+    trackDashboardState,
+  ])
+
+  const handleFeaturedHabitChange = useCallback(
+    (habitId: string) => {
+      if (!habitId) {
+        return
+      }
+      setFeaturedHabit(habitId)
+      const habit = habits.find((entry) => entry.id === habitId)
+      trackDashboardState("featured_habit", {
+        habitId,
+        habitTitle: habit?.title,
+      })
+      trackDashboardEvent("dashboard_featured_habit_selected", {
+        habitId,
+        habitTitle: habit?.title,
+      })
+      toast({
+        title: "Featured habit updated",
+        description: habit
+          ? `${habit.title} is now highlighted on your dashboard.`
+          : "Your featured habit has been updated.",
+      })
+    },
+    [habits, setFeaturedHabit, toast, trackDashboardEvent, trackDashboardState],
+  )
+
+  const handleLeaderboardScopeChange = useCallback(
+    (value: string) => {
+      const normalized = value === "global" ? "global" : "class"
+      setLeaderboardScope(normalized)
+      trackDashboardEvent("dashboard_leaderboard_scope_change", { scope: normalized })
+    },
+    [trackDashboardEvent],
+  )
+
+  const handleLeaderboardTimeframeChange = useCallback(
+    (value: string) => {
+      const normalized = value === "monthly" ? "monthly" : "weekly"
+      setLeaderboardTimeframe(normalized)
+      trackDashboardEvent("dashboard_leaderboard_timeframe_change", { timeframe: normalized })
+    },
+    [trackDashboardEvent],
+  )
+
+  const handleGoalCompletionToggle = useCallback(
+    (goalId: string, completed: boolean) => {
+      const goal = goals.find((entry) => entry.id === goalId)
+      toggleGoalCompletion(goalId, completed)
+      trackDashboardEvent("dashboard_goal_toggled", {
+        goalId,
+        completed,
+      })
+      trackDashboardState("goal", {
+        action: completed ? "completed" : "reopened",
+        goalId,
+        progress: completed ? 100 : goal?.progress ?? 0,
+      })
+      toast({
+        title: completed ? "Goal completed" : "Goal reopened",
+        description: goal ? goal.title : undefined,
+      })
+    },
+    [goals, toast, trackDashboardEvent, trackDashboardState, toggleGoalCompletion],
   )
 
   useEffect(() => {
@@ -689,7 +933,7 @@ export default function DashboardPage() {
                     >
                       <BookOpen className="mr-2 h-4 w-4" /> Recite Now
                     </Button>
-                    <Button variant="outline" onClick={resetDailyTargetProgress} disabled={dailyTargetCompleted === 0}>
+                    <Button variant="outline" onClick={handleResetDailyTarget} disabled={dailyTargetCompleted === 0}>
                       Reset Progress
                     </Button>
                     <Badge variant="secondary" className={`text-xs ${dailyGoalMet ? "bg-green-100 text-green-700" : ""}`}>
@@ -1154,12 +1398,7 @@ export default function DashboardPage() {
                         <Label htmlFor="featured-habit" className="text-xs uppercase tracking-wide text-maroon-700">
                           Featured habit quest
                         </Label>
-                        <Select
-                          value={featuredHabit?.id ?? ""}
-                          onValueChange={(value) => {
-                            if (value) setFeaturedHabit(value)
-                          }}
-                        >
+                        <Select value={featuredHabit?.id ?? ""} onValueChange={handleFeaturedHabitChange}>
                           <SelectTrigger id="featured-habit" className="mt-2 bg-white">
                             <SelectValue placeholder="Choose habit" />
                           </SelectTrigger>
@@ -1373,7 +1612,7 @@ export default function DashboardPage() {
                           id={`goal-${goal.id}`}
                           checked={goal.status === "completed"}
                           onCheckedChange={(checked) =>
-                            toggleGoalCompletion(goal.id, checked === true)
+                            handleGoalCompletionToggle(goal.id, checked === true)
                           }
                         />
                         <div>
@@ -1520,10 +1759,7 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs uppercase text-gray-500">Scope</Label>
-                    <Select
-                      value={leaderboardScope}
-                      onValueChange={(value) => setLeaderboardScope(value as "class" | "global")}
-                    >
+                      <Select value={leaderboardScope} onValueChange={handleLeaderboardScopeChange}>
                       <SelectTrigger className="mt-1">
                         <SelectValue placeholder="Choose scope" />
                       </SelectTrigger>
@@ -1535,10 +1771,7 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <Label className="text-xs uppercase text-gray-500">Time Range</Label>
-                    <Select
-                      value={leaderboardTimeframe}
-                      onValueChange={(value) => setLeaderboardTimeframe(value as "weekly" | "monthly")}
-                    >
+                      <Select value={leaderboardTimeframe} onValueChange={handleLeaderboardTimeframeChange}>
                       <SelectTrigger className="mt-1">
                         <SelectValue placeholder="Choose range" />
                       </SelectTrigger>
