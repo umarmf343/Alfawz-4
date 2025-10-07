@@ -33,7 +33,7 @@ export default function Navigation() {
 
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: Home },
-    { name: "Play Games", href: "/dashboard?playGames=true", icon: Gamepad2 },
+    { name: "Play Games", href: "/games", icon: Gamepad2 },
     { name: "Habit Quest", href: "/habits", icon: Gamepad2 },
     { name: "Qur'an Reader", href: "/reader", icon: BookOpen },
     { name: "Memorization", href: "/student/memorization", icon: Target },
