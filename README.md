@@ -43,16 +43,48 @@ hooks/
 
 ## Getting Started
 
-1. **Install dependencies**
+### Prerequisites
+
+Set up the following tools before working with the project locally:
+
+- **Node.js** `>= 18.18.0` – aligns with the version required by the Next.js runtime.
+- **npm** `>= 10.0.0` – used for dependency management and scripts.
+- **Git** – to clone the repository and manage version control.
+- **Python 3 + FontTools (optional)** – only needed when you want to fetch and convert the Madinah Mushaf font assets (see [Mushaf font assets](#mushaf-font-assets-from-quran-ttx)).
+
+Verify your Node.js and npm versions:
+
+```bash
+node -v
+npm -v
+```
+
+### Local development
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/<your-org>/Alfawz-4.git
+   cd Alfawz-4
+   ```
+2. **Create environment file**
+   ```bash
+   cp .env.example .env.local
+   ```
+   Fill in the required keys listed in [Environment variables](#environment-variables) before running the app.
+3. **Install dependencies**
    ```bash
    npm install
    ```
-2. **Start the development server**
+4. **(Optional) Sync Mushaf fonts** – run this if you want the high-fidelity Mushaf reader locally.
+   ```bash
+   npm run fonts:mushaf
+   ```
+5. **Start the development server**
    ```bash
    npm run rundev
    ```
-   Visit `http://localhost:3001` to explore the dashboards and Habit Quest Arena.
-3. **Run lint checks**
+   The application will be available at `http://localhost:3001`.
+6. **Run lint checks (optional but recommended)**
    ```bash
    npm run lint
    ```
