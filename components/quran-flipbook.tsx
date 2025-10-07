@@ -1,10 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, Bookmark, ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { BookOpen, Bookmark, ChevronLeft, ChevronRight } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { getOfflineSurahList, quranAPI, type Ayah, type Surah } from "@/lib/quran-api"
+import { getSurahInfo, getVerseText, parseVerseKey, type VerseKey } from "@/lib/quran-data"
+import mushafPages from "@/data/mushaf-pages.json"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -22,35 +24,117 @@ interface QuranFlipBookProps {
   className?: string
 }
 
-interface QuranPage {
+type SurahPageInfo = { arabic: string; english: string }
+
+type VerseDisplay = {
+  verseKey: VerseKey
+  surahNumber: number
+  ayahNumber: number
   pageNumber: number
-  ayahs: Ayah[]
+  text: string
+  surahName: string
+  englishName?: string
 }
 
-interface QuranSpread {
-  left?: QuranPage
-  right?: QuranPage
+type MushafPage = {
+  pageNumber: number
+  verses: VerseDisplay[]
+  surahNumbers: number[]
+  surahNames: string[]
+  surahEnglishNames: string[]
 }
 
-interface FocusedAyah {
-  ayah: Ayah
+type MushafSpread = {
+  left: MushafPage | null
+  right: MushafPage | null
+}
+
+type FocusedAyah = {
+  verse: VerseDisplay
   translation?: string
 }
 
+const TOTAL_PAGES = 604
+const PAGE_DATA = mushafPages as Record<string, VerseKey[]>
+const PAGE_LOOKUP = new Map<number, MushafPage>()
+const SURAH_FIRST_PAGE = new Map<number, number>()
+const VERSE_PAGE_LOOKUP = new Map<string, number>()
+const MUSHAF_PAGES: MushafPage[] = []
+
+for (let pageNumber = 1; pageNumber <= TOTAL_PAGES; pageNumber += 1) {
+  const verseKeys = PAGE_DATA[String(pageNumber)] ?? []
+  const surahInfoMap = new Map<number, SurahPageInfo>()
+  const verses: VerseDisplay[] = verseKeys.map((verseKey) => {
+    const { surahNumber, ayahNumber } = parseVerseKey(verseKey)
+    const surahInfo = getSurahInfo(surahNumber)
+    const arabicName = surahInfo?.arabicName ?? `سورة ${surahNumber}`
+    const englishName = surahInfo?.englishName ?? `Surah ${surahNumber}`
+
+    if (!surahInfoMap.has(surahNumber)) {
+      surahInfoMap.set(surahNumber, { arabic: arabicName, english: englishName })
+    }
+
+    const verse: VerseDisplay = {
+      verseKey,
+      surahNumber,
+      ayahNumber,
+      pageNumber,
+      text: getVerseText(verseKey),
+      surahName: arabicName,
+      englishName,
+    }
+
+    VERSE_PAGE_LOOKUP.set(verseKey, pageNumber)
+    if (!SURAH_FIRST_PAGE.has(surahNumber)) {
+      SURAH_FIRST_PAGE.set(surahNumber, pageNumber)
+    }
+
+    return verse
+  })
+
+  const surahNumbers = Array.from(surahInfoMap.keys())
+  const surahNames = surahNumbers.map((number) => surahInfoMap.get(number)?.arabic ?? `سورة ${number}`)
+  const surahEnglishNames = surahNumbers.map((number) => surahInfoMap.get(number)?.english ?? `Surah ${number}`)
+
+  const page: MushafPage = {
+    pageNumber,
+    verses,
+    surahNumbers,
+    surahNames,
+    surahEnglishNames,
+  }
+
+  PAGE_LOOKUP.set(pageNumber, page)
+  MUSHAF_PAGES.push(page)
+}
+
+const MUSHAF_SPREADS: MushafSpread[] = []
+for (let oddPage = 1; oddPage <= TOTAL_PAGES; oddPage += 2) {
+  const rightPage = PAGE_LOOKUP.get(oddPage) ?? null
+  const leftPage = PAGE_LOOKUP.get(oddPage + 1) ?? null
+  MUSHAF_SPREADS.push({ left: leftPage, right: rightPage })
+}
+
+const TOTAL_SPREADS = MUSHAF_SPREADS.length
+
 export function QuranFlipBook({ initialSurahName, initialAyah, className }: QuranFlipBookProps) {
   const [surahs, setSurahs] = useState<Surah[]>(() => getOfflineSurahList())
-  const [selectedSurah, setSelectedSurah] = useState<Surah | null>(null)
-  const [pages, setPages] = useState<QuranPage[]>([])
-  const [translationMap, setTranslationMap] = useState<Record<number, string>>({})
+  const [selectedSurahNumber, setSelectedSurahNumber] = useState<number | null>(null)
   const [spreadIndex, setSpreadIndex] = useState(0)
-  const [isLoading, setIsLoading] = useState(false)
   const [isFlipping, setIsFlipping] = useState(false)
   const [flipDirection, setFlipDirection] = useState<"forward" | "backward">("forward")
   const [focusedAyah, setFocusedAyah] = useState<FocusedAyah | null>(null)
+  const [translationCache, setTranslationCache] = useState<Record<number, Record<number, string>>>({})
 
   const flipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const initialSurahRef = useRef<string | undefined>(undefined)
+  const initialSurahRef = useRef<string | null>(null)
   const isMountedRef = useRef(true)
+  const loadingTranslationsRef = useRef(new Set<number>())
+  const translationCacheRef = useRef<Record<number, Record<number, string>>>({})
+
+  useEffect(() => {
+    translationCacheRef.current = translationCache
+  }, [translationCache])
 
   useEffect(() => {
     return () => {
@@ -77,165 +161,193 @@ export function QuranFlipBook({ initialSurahName, initialAyah, className }: Qura
     void loadSurahs()
   }, [])
 
-  const spreads = useMemo(() => {
-    const spreadCollection: QuranSpread[] = []
-    for (let index = 0; index < pages.length; index += 2) {
-      spreadCollection.push({
-        left: pages[index],
-        right: pages[index + 1],
-      })
+  const currentSpread = useMemo(() => MUSHAF_SPREADS[spreadIndex] ?? null, [spreadIndex])
+
+  const loadTranslation = useCallback(async (surahNumber: number) => {
+    if (translationCacheRef.current[surahNumber] || loadingTranslationsRef.current.has(surahNumber)) {
+      return
     }
-    return spreadCollection
-  }, [pages])
 
-  const currentSpread = useMemo(() => spreads[spreadIndex] ?? null, [spreads, spreadIndex])
-
-  const handleSurahLoad = async (surahNumber: number, focusAyah?: number) => {
-    setIsLoading(true)
+    loadingTranslationsRef.current.add(surahNumber)
     try {
-      const [arabicData, translationData] = await Promise.all([
-        quranAPI.getSurah(surahNumber, "quran-uthmani"),
-        quranAPI.getSurah(surahNumber, "en.sahih"),
-      ])
+      const translationData = await quranAPI.getSurah(surahNumber, "en.sahih")
+      if (!translationData || !isMountedRef.current) return
 
-      if (!isMountedRef.current) return
+      const translationLookup: Record<number, string> = {}
+      translationData.ayahs.forEach((ayah: Ayah) => {
+        translationLookup[ayah.numberInSurah] = ayah.text
+      })
 
-      if (arabicData) {
-        setSelectedSurah(arabicData.surah)
-
-        const groupedPages = groupAyahsByPage(arabicData.ayahs)
-        setPages(groupedPages)
-
-        const translationLookup: Record<number, string> = {}
-        translationData?.ayahs.forEach((ayah) => {
-          translationLookup[ayah.numberInSurah] = ayah.text
-        })
-        setTranslationMap(translationLookup)
-
-        const targetPageIndex = focusAyah
-          ? groupedPages.findIndex((page) => page.ayahs.some((ayah) => ayah.numberInSurah === focusAyah))
-          : 0
-
-        const nextSpreadIndex = targetPageIndex >= 0 ? Math.floor(targetPageIndex / 2) : 0
-        setSpreadIndex(nextSpreadIndex)
-
-        const fallbackAyah = focusAyah
-          ? groupedPages[targetPageIndex]?.ayahs.find((ayah) => ayah.numberInSurah === focusAyah)
-          : groupedPages[0]?.ayahs[0]
-
-        if (fallbackAyah) {
-          setFocusedAyah({ ayah: fallbackAyah, translation: translationLookup[fallbackAyah.numberInSurah] })
-        } else {
-          setFocusedAyah(null)
+      setTranslationCache((previous) => {
+        if (previous[surahNumber]) {
+          return previous
         }
-      }
+        const next = { ...previous, [surahNumber]: translationLookup }
+        return next
+      })
     } catch (error) {
-      console.error("Failed to load surah content", error)
+      console.error(`Failed to load translation for surah ${surahNumber}`, error)
     } finally {
-      if (isMountedRef.current) {
-        setIsLoading(false)
-      }
+      loadingTranslationsRef.current.delete(surahNumber)
     }
-  }
+  }, [])
+
+  const goToSurah = useCallback(
+    (surahNumber: number, ayahNumber?: number) => {
+      const targetPage = getPageForSurah(surahNumber, ayahNumber)
+      if (!targetPage) {
+        return
+      }
+
+      const nextSpreadIndex = getSpreadIndexForPage(targetPage)
+      setSpreadIndex(nextSpreadIndex)
+
+      const page = PAGE_LOOKUP.get(targetPage)
+      if (!page) {
+        return
+      }
+
+      const verseCandidate =
+        page.verses.find(
+          (verse) => verse.surahNumber === surahNumber && (typeof ayahNumber !== "number" || verse.ayahNumber === ayahNumber),
+        ) ?? page.verses.find((verse) => verse.surahNumber === surahNumber) ?? page.verses[0]
+
+      if (!verseCandidate) {
+        return
+      }
+
+      const translation = translationCacheRef.current[verseCandidate.surahNumber]?.[verseCandidate.ayahNumber]
+      setFocusedAyah({ verse: verseCandidate, translation })
+      setSelectedSurahNumber(surahNumber)
+      void loadTranslation(verseCandidate.surahNumber)
+    },
+    [loadTranslation],
+  )
 
   useEffect(() => {
     if (surahs.length === 0) return
 
-    // Initial load or when parent requests a new surah
-    if (!selectedSurah) {
-      const target = findSurahMatch(surahs, initialSurahName) ?? surahs[0]
-      initialSurahRef.current = initialSurahName
-      if (target) {
-        void handleSurahLoad(target.number, initialAyah)
-      }
-      return
-    }
-
-    if (initialSurahName && initialSurahName !== initialSurahRef.current) {
-      const target = findSurahMatch(surahs, initialSurahName)
-      if (target) {
-        initialSurahRef.current = initialSurahName
-        void handleSurahLoad(target.number, initialAyah)
-      }
-    }
-  }, [surahs, selectedSurah, initialSurahName, initialAyah])
-
-  useEffect(() => {
-    if (!initialAyah || pages.length === 0) return
     if (initialSurahName) {
-      const matchesInitial = [
-        selectedSurah?.englishName,
-        selectedSurah?.englishNameTranslation,
-        selectedSurah?.name,
-      ]
-        .filter(Boolean)
-        .some((name) => name?.toLowerCase() === initialSurahName.toLowerCase())
+      const match = findSurahMatch(surahs, initialSurahName)
+      if (match) {
+        const alreadyFocused =
+          focusedAyah?.verse.surahNumber === match.number &&
+          (typeof initialAyah !== "number" || focusedAyah.verse.ayahNumber === initialAyah)
 
-      if (!matchesInitial) {
+        if (!alreadyFocused || initialSurahRef.current !== initialSurahName) {
+          initialSurahRef.current = initialSurahName
+          goToSurah(match.number, initialAyah)
+        }
         return
       }
     }
 
-    const targetPageIndex = pages.findIndex((page) => page.ayahs.some((ayah) => ayah.numberInSurah === initialAyah))
-    if (targetPageIndex >= 0) {
-      const nextSpreadIndex = Math.floor(targetPageIndex / 2)
-      if (nextSpreadIndex !== spreadIndex) {
-        setSpreadIndex(nextSpreadIndex)
-      }
-      const ayah = pages[targetPageIndex].ayahs.find((pageAyah) => pageAyah.numberInSurah === initialAyah)
-      if (ayah) {
-        setFocusedAyah({ ayah, translation: translationMap[ayah.numberInSurah] })
-      }
+    if (!focusedAyah && surahs.length > 0) {
+      const defaultSurah = surahs[0]
+      goToSurah(defaultSurah.number)
     }
-  }, [initialAyah, pages, translationMap, initialSurahName, selectedSurah, spreadIndex])
+  }, [surahs, initialSurahName, initialAyah, goToSurah, focusedAyah])
 
   useEffect(() => {
-    const firstVisibleAyah = currentSpread?.left?.ayahs[0] ?? currentSpread?.right?.ayahs[0]
-    if (!firstVisibleAyah) return
+    if (!initialSurahName && typeof initialAyah === "number" && selectedSurahNumber) {
+      const alreadyFocused =
+        focusedAyah?.verse.surahNumber === selectedSurahNumber &&
+        focusedAyah.verse.ayahNumber === initialAyah
+      if (!alreadyFocused) {
+        goToSurah(selectedSurahNumber, initialAyah)
+      }
+    }
+  }, [initialAyah, initialSurahName, selectedSurahNumber, goToSurah, focusedAyah])
 
-    const focusIsVisible = focusedAyah
-      ? [currentSpread?.left, currentSpread?.right].some((page) =>
-          page?.ayahs.some((ayah) => ayah.number === focusedAyah.ayah.number),
-        )
-      : false
+  useEffect(() => {
+    const spread = currentSpread
+    if (!spread) return
 
-    if (focusIsVisible) {
+    const visibleVerses = [...(spread.right?.verses ?? []), ...(spread.left?.verses ?? [])]
+    if (visibleVerses.length === 0) {
       return
     }
 
-    setFocusedAyah({ ayah: firstVisibleAyah, translation: translationMap[firstVisibleAyah.numberInSurah] })
-  }, [currentSpread, focusedAyah, translationMap])
+    const focusVisible = focusedAyah
+      ? visibleVerses.some((verse) => verse.verseKey === focusedAyah.verse.verseKey)
+      : false
 
-  const handleSpreadTurn = (direction: "forward" | "backward") => {
-    if (isFlipping) return
-    const nextIndex = direction === "forward" ? spreadIndex + 1 : spreadIndex - 1
-    if (nextIndex < 0 || nextIndex >= spreads.length) return
-
-    setFlipDirection(direction)
-    setIsFlipping(true)
-
-    if (flipTimeoutRef.current) {
-      clearTimeout(flipTimeoutRef.current)
+    if (!focusVisible) {
+      const firstVerse = visibleVerses[0]
+      const translation = translationCacheRef.current[firstVerse.surahNumber]?.[firstVerse.ayahNumber]
+      setFocusedAyah({ verse: firstVerse, translation })
+      setSelectedSurahNumber(firstVerse.surahNumber)
+      void loadTranslation(firstVerse.surahNumber)
     }
+  }, [currentSpread, focusedAyah, loadTranslation])
 
-    flipTimeoutRef.current = setTimeout(() => {
-      setSpreadIndex(nextIndex)
+  useEffect(() => {
+    if (!focusedAyah) {
+      return
+    }
+    const translation =
+      translationCache[focusedAyah.verse.surahNumber]?.[focusedAyah.verse.ayahNumber]
+    if (translation && translation !== focusedAyah.translation) {
+      setFocusedAyah((previous) => {
+        if (!previous) return previous
+        if (previous.verse.verseKey !== focusedAyah.verse.verseKey) return previous
+        return { ...previous, translation }
+      })
+    }
+  }, [focusedAyah, translationCache])
+
+  useEffect(() => {
+    if (focusedAyah) {
+      setSelectedSurahNumber(focusedAyah.verse.surahNumber)
+    }
+  }, [focusedAyah])
+
+  const handleSpreadTurn = useCallback(
+    (direction: "forward" | "backward") => {
+      if (isFlipping) return
+      const nextIndex = direction === "forward" ? spreadIndex + 1 : spreadIndex - 1
+      if (nextIndex < 0 || nextIndex >= TOTAL_SPREADS) return
+
+      setFlipDirection(direction)
+      setIsFlipping(true)
+
+      if (flipTimeoutRef.current) {
+        clearTimeout(flipTimeoutRef.current)
+      }
+
       flipTimeoutRef.current = setTimeout(() => {
-        setIsFlipping(false)
-      }, 450)
-    }, 150)
-  }
-
-  const handleAyahFocus = (ayah: Ayah) => {
-    setFocusedAyah({ ayah, translation: translationMap[ayah.numberInSurah] })
-  }
-
-  const currentPageNumbers = [currentSpread?.left?.pageNumber, currentSpread?.right?.pageNumber].filter(
-    (value): value is number => typeof value === "number",
+        setSpreadIndex(nextIndex)
+        flipTimeoutRef.current = setTimeout(() => {
+          setIsFlipping(false)
+        }, 450)
+      }, 150)
+    },
+    [isFlipping, spreadIndex],
   )
 
-  const surahDescription = selectedSurah
-    ? `${selectedSurah.englishNameTranslation} • ${selectedSurah.numberOfAyahs} Ayahs • ${selectedSurah.revelationType}`
+  const handleVerseFocus = useCallback(
+    (verse: VerseDisplay) => {
+      const translation = translationCacheRef.current[verse.surahNumber]?.[verse.ayahNumber]
+      setFocusedAyah({ verse, translation })
+      setSelectedSurahNumber(verse.surahNumber)
+      void loadTranslation(verse.surahNumber)
+    },
+    [loadTranslation],
+  )
+
+  const currentPageNumbers = useMemo(() => {
+    const numbers = [currentSpread?.right?.pageNumber, currentSpread?.left?.pageNumber]
+      .filter((value): value is number => typeof value === "number")
+      .sort((a, b) => a - b)
+    return numbers
+  }, [currentSpread])
+
+  const currentSurah = selectedSurahNumber
+    ? surahs.find((surah) => surah.number === selectedSurahNumber) ?? null
+    : null
+
+  const surahDescription = currentSurah
+    ? `${currentSurah.englishNameTranslation} • ${currentSurah.numberOfAyahs} Ayahs • ${currentSurah.revelationType}`
     : ""
 
   return (
@@ -247,11 +359,10 @@ export function QuranFlipBook({ initialSurahName, initialAyah, className }: Qura
         </CardTitle>
         <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
           <Select
-            value={selectedSurah ? String(selectedSurah.number) : undefined}
+            value={selectedSurahNumber ? String(selectedSurahNumber) : undefined}
             onValueChange={(value) => {
               const surahNumber = Number(value)
-              initialSurahRef.current = initialSurahName
-              void handleSurahLoad(surahNumber)
+              goToSurah(surahNumber)
             }}
           >
             <SelectTrigger className="w-56 bg-white">
@@ -265,7 +376,7 @@ export function QuranFlipBook({ initialSurahName, initialAyah, className }: Qura
               ))}
             </SelectContent>
           </Select>
-          {selectedSurah && (
+          {currentSurah && (
             <Badge variant="outline" className="justify-center border-maroon-200 text-maroon-700">
               {surahDescription}
             </Badge>
@@ -273,100 +384,73 @@ export function QuranFlipBook({ initialSurahName, initialAyah, className }: Qura
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-16 text-maroon-700">
-            <Loader2 className="mr-2 h-6 w-6 animate-spin" /> Loading mushaf pages…
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center justify-between gap-4">
-              <Button
-                variant="outline"
-                className="bg-white"
-                disabled={spreadIndex === 0 || spreads.length === 0 || isFlipping}
-                onClick={() => handleSpreadTurn("backward")}
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Previous pages
-              </Button>
-              <div className="text-center text-sm text-gray-600">
-                {spreads.length > 0 ? (
-                  <>
-                    Spread {spreadIndex + 1} of {spreads.length}
-                    {currentPageNumbers.length > 0 && (
-                      <div className="text-xs text-gray-500">Mushaf page{currentPageNumbers.length === 1 ? "" : "s"} {currentPageNumbers.join(" & ")}</div>
-                    )}
-                  </>
-                ) : (
-                  <span>Select a surah to begin exploring.</span>
-                )}
-              </div>
-              <Button
-                variant="outline"
-                className="bg-white"
-                disabled={spreadIndex >= spreads.length - 1 || spreads.length === 0 || isFlipping}
-                onClick={() => handleSpreadTurn("forward")}
-              >
-                Next pages
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="flipbook-perspective">
-              <div
-                className={cn(
-                  "flipbook-spread mx-auto flex max-w-4xl gap-6 px-4",
-                  isFlipping && flipDirection === "forward" && "flip-forward",
-                  isFlipping && flipDirection === "backward" && "flip-backward",
-                )}
-              >
-                {renderPage(currentSpread?.left, "left", selectedSurah, translationMap, focusedAyah, handleAyahFocus)}
-                {renderPage(currentSpread?.right, "right", selectedSurah, translationMap, focusedAyah, handleAyahFocus)}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-maroon-100 bg-white/90 p-5 shadow-inner">
-              <div className="flex items-center gap-2 text-sm font-semibold text-maroon-800">
-                <Bookmark className="h-4 w-4" /> Focused Ayah Snippet
-              </div>
-              {focusedAyah ? (
-                <div className="mt-3 space-y-3">
-                  <div className="text-right text-2xl font-arabic leading-relaxed text-maroon-900" dir="rtl">
-                    {focusedAyah.ayah.text}
-                  </div>
-                  <p className="text-sm text-gray-700">
-                    {focusedAyah.translation ?? "Translation loading…"}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Surah {selectedSurah?.englishName ?? ""} • Ayah {focusedAyah.ayah.numberInSurah} • Page {focusedAyah.ayah.page}
-                  </p>
+        <div className="flex items-center justify-between gap-4">
+          <Button
+            variant="outline"
+            className="bg-white"
+            disabled={spreadIndex === 0 || isFlipping}
+            onClick={() => handleSpreadTurn("backward")}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Previous pages
+          </Button>
+          <div className="text-center text-sm text-gray-600">
+            <>
+              Spread {spreadIndex + 1} of {TOTAL_SPREADS}
+              {currentPageNumbers.length > 0 && (
+                <div className="text-xs text-gray-500">
+                  Mushaf page{currentPageNumbers.length === 1 ? "" : "s"} {currentPageNumbers.join(" & ")}
                 </div>
-              ) : (
-                <p className="mt-3 text-sm text-gray-500">Hover over an ayah to preview its translation snippet.</p>
               )}
+            </>
+          </div>
+          <Button
+            variant="outline"
+            className="bg-white"
+            disabled={spreadIndex >= TOTAL_SPREADS - 1 || isFlipping}
+            onClick={() => handleSpreadTurn("forward")}
+          >
+            Next pages
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="flipbook-perspective">
+          <div
+            className={cn(
+              "flipbook-spread mx-auto flex max-w-4xl gap-6 px-4",
+              isFlipping && flipDirection === "forward" && "flip-forward",
+              isFlipping && flipDirection === "backward" && "flip-backward",
+            )}
+          >
+            {renderPage(currentSpread?.left ?? null, "left", focusedAyah, translationCache, handleVerseFocus)}
+            {renderPage(currentSpread?.right ?? null, "right", focusedAyah, translationCache, handleVerseFocus)}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-maroon-100 bg-white/90 p-5 shadow-inner">
+          <div className="flex items-center gap-2 text-sm font-semibold text-maroon-800">
+            <Bookmark className="h-4 w-4" /> Focused Ayah Snippet
+          </div>
+          {focusedAyah ? (
+            <div className="mt-3 space-y-3">
+              <div className="text-right text-2xl font-arabic leading-relaxed text-maroon-900" dir="rtl">
+                {focusedAyah.verse.text}
+              </div>
+              <p className="text-sm text-gray-700">
+                {focusedAyah.translation ?? "Translation loading…"}
+              </p>
+              <p className="text-xs text-gray-500">
+                {focusedAyah.verse.englishName ?? "Surah"} • Ayah {focusedAyah.verse.ayahNumber} • Page {focusedAyah.verse.pageNumber}
+              </p>
             </div>
-          </>
-        )}
+          ) : (
+            <p className="mt-3 text-sm text-gray-500">Hover or focus an āyah to preview its translation snippet.</p>
+          )}
+        </div>
       </CardContent>
     </Card>
   )
-}
-
-function groupAyahsByPage(ayahs: Ayah[]): QuranPage[] {
-  const pageMap = new Map<number, Ayah[]>()
-  ayahs.forEach((ayah) => {
-    if (!pageMap.has(ayah.page)) {
-      pageMap.set(ayah.page, [])
-    }
-    pageMap.get(ayah.page)?.push(ayah)
-  })
-
-  return Array.from(pageMap.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([pageNumber, pageAyahs]) => ({
-      pageNumber,
-      ayahs: pageAyahs.sort((a, b) => a.numberInSurah - b.numberInSurah),
-    }))
 }
 
 function findSurahMatch(surahs: Surah[], name?: string): Surah | undefined {
@@ -381,13 +465,23 @@ function findSurahMatch(surahs: Surah[], name?: string): Surah | undefined {
   })
 }
 
+function getPageForSurah(surahNumber: number, ayahNumber?: number): number | undefined {
+  if (typeof ayahNumber === "number") {
+    return VERSE_PAGE_LOOKUP.get(`${surahNumber}:${ayahNumber}`)
+  }
+  return SURAH_FIRST_PAGE.get(surahNumber)
+}
+
+function getSpreadIndexForPage(pageNumber: number): number {
+  return Math.max(0, Math.floor((pageNumber - 1) / 2))
+}
+
 function renderPage(
-  page: QuranPage | undefined,
+  page: MushafPage | null,
   side: "left" | "right",
-  selectedSurah: Surah | null,
-  translationMap: Record<number, string>,
   focusedAyah: FocusedAyah | null,
-  onAyahFocus: (ayah: Ayah) => void,
+  translationCache: Record<number, Record<number, string>>,
+  onVerseFocus: (verse: VerseDisplay) => void,
 ) {
   return (
     <div
@@ -400,18 +494,21 @@ function renderPage(
         <div className="flex h-full flex-col gap-4">
           <div className="flex items-center justify-between text-xs text-gray-500">
             <span>Page {page.pageNumber}</span>
-            <span>{selectedSurah?.englishName}</span>
+            <span className="text-right">
+              {page.surahEnglishNames.join(" • ")}
+            </span>
           </div>
           <div className="flex-1 space-y-4">
-            {page.ayahs.map((ayah) => {
-              const isFocused = focusedAyah?.ayah.number === ayah.number
-              const translation = translationMap[ayah.numberInSurah]
+            {page.verses.map((verse) => {
+              const isFocused = focusedAyah?.verse.verseKey === verse.verseKey
+              const translation = translationCache[verse.surahNumber]?.[verse.ayahNumber]
               return (
                 <button
-                  key={ayah.number}
+                  key={verse.verseKey}
                   type="button"
-                  onMouseEnter={() => onAyahFocus(ayah)}
-                  onFocus={() => onAyahFocus(ayah)}
+                  onMouseEnter={() => onVerseFocus(verse)}
+                  onFocus={() => onVerseFocus(verse)}
+                  onClick={() => onVerseFocus(verse)}
                   className={cn(
                     "w-full rounded-lg border border-transparent bg-white/80 p-3 text-right shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-maroon-400",
                     "hover:border-maroon-200",
@@ -419,11 +516,13 @@ function renderPage(
                   )}
                 >
                   <div className="flex items-center justify-between text-[0.65rem] text-gray-500">
-                    <span>Ayah {ayah.numberInSurah}</span>
-                    <span>Juz {ayah.juz}</span>
+                    <span>
+                      {verse.surahName} • آية {verse.ayahNumber}
+                    </span>
+                    <span>Page {verse.pageNumber}</span>
                   </div>
                   <div className="mt-2 text-2xl font-arabic leading-relaxed text-maroon-900" dir="rtl">
-                    {ayah.text}
+                    {verse.text}
                   </div>
                   {translation && (
                     <p className="mt-3 text-[0.75rem] text-gray-600">
