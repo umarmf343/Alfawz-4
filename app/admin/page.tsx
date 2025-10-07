@@ -21,13 +21,20 @@ import {
   AudioWaveform,
   ShieldCheck,
   ListChecks,
+  Brain,
+  RefreshCcw,
+  ServerCog,
+  Layers,
+  CloudDownload,
 } from "lucide-react"
 import { getAdminOverview } from "@/lib/data/teacher-database"
 import { getTajweedCMSOverview } from "@/lib/data/tajweed-cms"
+import { getArabicPipelineOverview } from "@/lib/data/arabic-pipeline"
 
 export default function AdminDashboard() {
   const { stats, recentActivity, userGrowth, gamification } = getAdminOverview()
   const tajweedOverview = getTajweedCMSOverview()
+  const pipelineOverview = getArabicPipelineOverview()
   const activeUserPercent =
     stats.totalUsers === 0 ? 0 : Math.round((stats.activeUsers / stats.totalUsers) * 100)
   const sessionMinutes = Number.parseInt(stats.avgSessionTime.replace(/[^\d]/g, ""), 10)
@@ -39,6 +46,12 @@ export default function AdminDashboard() {
     totalGameTasks === 0 ? 0 : Math.round((gamification.completedTasks / totalGameTasks) * 100)
   const premiumUsers = Math.round((stats.subscriptionRate / 100) * stats.totalUsers)
   const basicUsers = Math.max(0, stats.totalUsers - premiumUsers)
+  const pipelineHealthyStages = pipelineOverview.stages.filter((stage) => stage.status === "healthy").length
+  const pipelineWarningStages = pipelineOverview.stages.filter((stage) => stage.status === "warning").length
+  const latestPipelineRun = pipelineOverview.recentRuns.at(0)
+  const latestPipelineStage = latestPipelineRun
+    ? pipelineOverview.stages.find((stage) => stage.id === latestPipelineRun.stageId)
+    : undefined
 
   const getActivityIcon = (type: string) => {
     switch (type) {
@@ -65,6 +78,21 @@ export default function AdminDashboard() {
         return "bg-blue-100 text-blue-800 border-blue-200"
       default:
         return "bg-gray-100 text-gray-800 border-gray-200"
+    }
+  }
+
+  const getStageStatusStyles = (status: string) => {
+    switch (status) {
+      case "healthy":
+        return "bg-emerald-100 text-emerald-800 border-emerald-200"
+      case "warning":
+        return "bg-amber-100 text-amber-800 border-amber-200"
+      case "running":
+        return "bg-blue-100 text-blue-800 border-blue-200"
+      case "idle":
+        return "bg-gray-100 text-gray-700 border-gray-200"
+      default:
+        return "bg-gray-100 text-gray-700 border-gray-200"
     }
   }
 
@@ -145,7 +173,7 @@ export default function AdminDashboard() {
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6 bg-white/50 backdrop-blur-sm">
+          <TabsList className="grid w-full grid-cols-7 bg-white/50 backdrop-blur-sm">
             <TabsTrigger value="overview" className="data-[state=active]:bg-maroon-600 data-[state=active]:text-white">
               <BarChart3 className="h-4 w-4 mr-2" />
               Overview
@@ -169,6 +197,10 @@ export default function AdminDashboard() {
             <TabsTrigger value="tajweed" className="data-[state=active]:bg-maroon-600 data-[state=active]:text-white">
               <BookOpen className="h-4 w-4 mr-2" />
               Tajweed CMS
+            </TabsTrigger>
+            <TabsTrigger value="pipeline" className="data-[state=active]:bg-maroon-600 data-[state=active]:text-white">
+              <Brain className="h-4 w-4 mr-2" />
+              Arabic NLP
             </TabsTrigger>
           </TabsList>
 
@@ -872,6 +904,237 @@ export default function AdminDashboard() {
                 </Card>
               </div>
             </div>
+          </TabsContent>
+          <TabsContent value="pipeline" className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="bg-gradient-to-br from-emerald-600 to-emerald-700 text-white border-0">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-emerald-100 text-sm">Healthy Stages</p>
+                      <p className="text-2xl font-bold">{pipelineHealthyStages}</p>
+                      <p className="text-emerald-100 text-xs">
+                        {pipelineOverview.stages.length} total pipeline checkpoints
+                      </p>
+                    </div>
+                    <ServerCog className="h-8 w-8 text-emerald-100" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-amber-500 to-amber-600 text-white border-0">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-amber-100 text-sm">Warnings</p>
+                      <p className="text-2xl font-bold">{pipelineWarningStages}</p>
+                      <p className="text-amber-100 text-xs">Requires export QA follow-up</p>
+                    </div>
+                    <AlertTriangle className="h-8 w-8 text-amber-100" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-blue-600 to-blue-700 text-white border-0">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-blue-100 text-sm">Tokenizers Cached</p>
+                      <p className="text-2xl font-bold">{pipelineOverview.tokenizers.length}</p>
+                      <p className="text-blue-100 text-xs">tkseem models synced</p>
+                    </div>
+                    <Layers className="h-8 w-8 text-blue-200" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-purple-600 to-purple-700 text-white border-0">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-purple-100 text-sm">Last Run</p>
+                      <p className="text-2xl font-bold">
+                        {latestPipelineRun ? new Date(latestPipelineRun.finishedAt).toLocaleTimeString() : "—"}
+                      </p>
+                      <p className="text-purple-100 text-xs">
+                        {latestPipelineStage ? latestPipelineStage.name : "Awaiting pipeline activity"}
+                      </p>
+                    </div>
+                    <RefreshCcw className="h-8 w-8 text-purple-200" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <Card className="bg-white/80 backdrop-blur-sm xl:col-span-2">
+                <CardHeader>
+                  <CardTitle>Pipeline Stages</CardTitle>
+                  <CardDescription>Operational checkpoints for the tkseem/tnkeeh workflow</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {pipelineOverview.stages.map((stage) => (
+                    <div key={stage.id} className="rounded-lg border border-maroon-100 bg-cream-50/80 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-maroon-900">{stage.name}</p>
+                          <p className="text-xs text-maroon-700">{stage.description}</p>
+                        </div>
+                        <Badge
+                          variant="secondary"
+                          className={`${getStageStatusStyles(stage.status)} uppercase tracking-wider text-[11px]`}
+                        >
+                          {stage.status}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 grid grid-cols-1 md:grid-cols-4 gap-3 text-xs text-maroon-700">
+                        <div>
+                          <span className="font-semibold">Processed:</span> {stage.processedAyat.toLocaleString()} ayat
+                        </div>
+                        <div>
+                          <span className="font-semibold">Latency:</span> {stage.avgLatencyMs}ms
+                        </div>
+                        <div>
+                          <span className="font-semibold">Success:</span> {(stage.successRate * 100).toFixed(1)}%
+                        </div>
+                        <div>
+                          <span className="font-semibold">Last run:</span> {new Date(stage.lastRunAt).toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-maroon-600">
+                        {stage.linkedTokenizerIds.map((tokenizerId) => {
+                          const tokenizer = pipelineOverview.tokenizers.find((item) => item.id === tokenizerId)
+                          return tokenizer ? (
+                            <Badge key={tokenizerId} variant="outline" className="border-blue-200 text-blue-800">
+                              tkseem • {tokenizer.mode}
+                            </Badge>
+                          ) : null
+                        })}
+                        {stage.linkedRoutineIds.map((routineId) => {
+                          const routine = pipelineOverview.normalizationRoutines.find((item) => item.id === routineId)
+                          return routine ? (
+                            <Badge key={routineId} variant="outline" className="border-green-200 text-green-800">
+                              tnkeeh • {routine.name}
+                            </Badge>
+                          ) : null
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+              <Card className="bg-white/80 backdrop-blur-sm">
+                <CardHeader>
+                  <CardTitle>Tokenizer Registry</CardTitle>
+                  <CardDescription>Cached tkseem models with persisted vocabularies</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {pipelineOverview.tokenizers.map((tokenizer) => (
+                    <div key={tokenizer.id} className="rounded-md border border-blue-100 bg-blue-50/70 p-3">
+                      <p className="text-sm font-semibold text-blue-900">{tokenizer.name}</p>
+                      <p className="text-xs text-blue-800 capitalize">{tokenizer.mode.replaceAll("_", " ")}</p>
+                      <p className="mt-2 text-[11px] text-blue-700">
+                        Model: {tokenizer.modelPath} • Cache: {tokenizer.cachePath}
+                      </p>
+                      <p className="mt-1 text-[11px] text-blue-700">Updated {new Date(tokenizer.updatedAt).toLocaleString()}</p>
+                      <div className="mt-2 flex flex-wrap gap-1 text-[11px] text-blue-900">
+                        {tokenizer.examples.map((example) => (
+                          <span key={example} className="rounded bg-white/70 px-2 py-0.5">
+                            {example}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <Card className="bg-white/80 backdrop-blur-sm">
+                <CardHeader>
+                  <CardTitle>Normalization Routines</CardTitle>
+                  <CardDescription>tnkeeh cleaning recipes applied before training</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {pipelineOverview.normalizationRoutines.map((routine) => (
+                    <div key={routine.id} className="rounded-md border border-emerald-100 bg-emerald-50/70 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-emerald-900">{routine.name}</p>
+                          <p className="text-xs text-emerald-800">{routine.description}</p>
+                        </div>
+                        <Badge
+                          variant="secondary"
+                          className={routine.enabled ? "bg-emerald-200 text-emerald-900" : "bg-gray-200 text-gray-700"}
+                        >
+                          {routine.enabled ? "active" : "paused"}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-[11px] text-emerald-800">
+                        Operations: {routine.operations.map((operation) => operation.replaceAll("_", " ")).join(", ")}
+                      </p>
+                      <p className="mt-1 text-[11px] text-emerald-700">
+                        Last run {new Date(routine.lastRunAt).toLocaleString()} • {routine.datasetCount} datasets touched
+                      </p>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+              <Card className="bg-white/80 backdrop-blur-sm">
+                <CardHeader>
+                  <CardTitle>Recent Pipeline Runs</CardTitle>
+                  <CardDescription>Telemetry to ensure processing is tracked</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {pipelineOverview.recentRuns.map((run) => {
+                    const stage = pipelineOverview.stages.find((item) => item.id === run.stageId)
+                    return (
+                      <div key={run.id} className="rounded-md border border-purple-100 bg-purple-50/70 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-purple-900">{stage?.name ?? run.stageId}</p>
+                            <p className="text-xs text-purple-800">
+                              {new Date(run.startedAt).toLocaleString()} — {new Date(run.finishedAt).toLocaleString()}
+                            </p>
+                          </div>
+                          <Badge variant="secondary" className="bg-purple-200 text-purple-900">
+                            Cache hit {(run.cacheHitRate * 100).toFixed(0)}%
+                          </Badge>
+                        </div>
+                        <p className="mt-2 text-[11px] text-purple-800">
+                          {run.processedSamples.toLocaleString()} samples • Errors {run.errorCount}
+                        </p>
+                        {run.notes ? (
+                          <p className="mt-1 text-[11px] text-purple-900">{run.notes}</p>
+                        ) : null}
+                      </div>
+                    )
+                  })}
+                </CardContent>
+              </Card>
+            </div>
+            <Card className="bg-white/80 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle>Dataset Snapshots</CardTitle>
+                <CardDescription>Versioned corpora ready for tajweed analytics</CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {pipelineOverview.datasetSnapshots.map((dataset) => (
+                  <div key={dataset.id} className="rounded-lg border border-indigo-100 bg-indigo-50/70 p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-indigo-900">{dataset.label}</p>
+                        <p className="text-xs text-indigo-800">Pipeline v{dataset.pipelineVersion}</p>
+                      </div>
+                      <CloudDownload className="h-5 w-5 text-indigo-400" />
+                    </div>
+                    <p className="mt-2 text-[11px] text-indigo-700">
+                      {dataset.ayahCount.toLocaleString()} ayat • {dataset.tokenCount.toLocaleString()} tokens
+                    </p>
+                    <p className="mt-1 text-[11px] text-indigo-700">{dataset.storageLocation}</p>
+                    <p className="mt-1 text-[11px] text-indigo-600">
+                      Generated {new Date(dataset.generatedAt).toLocaleString()}
+                    </p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
