@@ -36,7 +36,7 @@ export default function Navigation() {
     { name: "Play Games", href: "/dashboard?playGames=true", icon: Gamepad2 },
     { name: "Habit Quest", href: "/habits", icon: Gamepad2 },
     { name: "Qur'an Reader", href: "/reader", icon: BookOpen },
-    { name: "Memorization", href: "/memorization", icon: Target },
+    { name: "Memorization", href: "/student/memorization", icon: Target },
     { name: "Progress", href: "/progress", icon: BarChart3 },
     { name: "Achievements", href: "/achievements", icon: Trophy },
     { name: "Leaderboard", href: "/leaderboard", icon: Crown },
