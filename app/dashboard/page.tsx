@@ -446,19 +446,10 @@ export default function DashboardPage() {
       if (!task || task.status === "completed") {
         return
       }
-      if (task.type === "habit" && task.habitId) {
-        completeHabit(task.habitId)
-        return
-      }
-      if (task.type === "recitation" && task.recitationTaskId) {
-        handleCompleteRecitation(task.recitationTaskId)
-        return
-      }
-      if (task.type === "memorization" && task.memorizationTaskId) {
-        handleMemorizationReview(task.memorizationTaskId)
-      }
+      setIsGameDialogOpen(false)
+      router.push(`/games/${task.id}`)
     },
-    [completeHabit, handleCompleteRecitation, handleMemorizationReview],
+    [router],
   )
 
   useEffect(() => {
@@ -1855,11 +1846,14 @@ export default function DashboardPage() {
                             Reward granted
                           </Badge>
                         ) : task.type === "daily_target" ? (
-                          <Button variant="outline" size="sm" className="bg-white" asChild>
-                            <Link href="/reader">
-                              <Target className="w-4 h-4 mr-2" />
-                              Continue reading
-                            </Link>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="bg-white"
+                            onClick={() => handleGameTaskAction(task)}
+                          >
+                            <Target className="w-4 h-4 mr-2" />
+                            Continue reading
                           </Button>
                         ) : (
                           <Button
