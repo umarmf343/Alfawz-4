@@ -27,6 +27,8 @@ export const MUSHAF_FONT_SOURCES: MushafFontSource[] = [
 
 export const MUSHAF_FONT_PUBLIC_PATH = "/fonts/mushaf"
 
+export const MUSHAF_FONTS_AVAILABLE = process.env.NEXT_PUBLIC_MUSHAF_FONTS_READY === "true"
+
 export function resolveMushafFontUrl(source: MushafFontSource): string {
   return `${MUSHAF_FONT_PUBLIC_PATH}/${source.file}`
 }
