@@ -17,11 +17,17 @@ import {
   BarChart3,
   Settings,
   Shield,
+  Database,
+  AudioWaveform,
+  ShieldCheck,
+  ListChecks,
 } from "lucide-react"
 import { getAdminOverview } from "@/lib/data/teacher-database"
+import { getTajweedCMSOverview } from "@/lib/data/tajweed-cms"
 
 export default function AdminDashboard() {
   const { stats, recentActivity, userGrowth, gamification } = getAdminOverview()
+  const tajweedOverview = getTajweedCMSOverview()
   const activeUserPercent =
     stats.totalUsers === 0 ? 0 : Math.round((stats.activeUsers / stats.totalUsers) * 100)
   const sessionMinutes = Number.parseInt(stats.avgSessionTime.replace(/[^\d]/g, ""), 10)
@@ -139,7 +145,7 @@ export default function AdminDashboard() {
         </div>
 
         <Tabs defaultValue="overview" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 bg-white/50 backdrop-blur-sm">
+          <TabsList className="grid w-full grid-cols-6 bg-white/50 backdrop-blur-sm">
             <TabsTrigger value="overview" className="data-[state=active]:bg-maroon-600 data-[state=active]:text-white">
               <BarChart3 className="h-4 w-4 mr-2" />
               Overview
@@ -159,6 +165,10 @@ export default function AdminDashboard() {
             <TabsTrigger value="security" className="data-[state=active]:bg-maroon-600 data-[state=active]:text-white">
               <Shield className="h-4 w-4 mr-2" />
               Security
+            </TabsTrigger>
+            <TabsTrigger value="tajweed" className="data-[state=active]:bg-maroon-600 data-[state=active]:text-white">
+              <BookOpen className="h-4 w-4 mr-2" />
+              Tajweed CMS
             </TabsTrigger>
           </TabsList>
 
@@ -669,6 +679,198 @@ export default function AdminDashboard() {
                   </div>
                 </CardContent>
               </Card>
+            </div>
+          </TabsContent>
+          <TabsContent value="tajweed" className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="bg-gradient-to-br from-maroon-600 to-maroon-700 text-white border-0">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-maroon-100 text-sm">Managed Assets</p>
+                      <p className="text-2xl font-bold">{tajweedOverview.assets.length}</p>
+                      <p className="text-maroon-100 text-xs">Tracked tajweed-ready datasets</p>
+                    </div>
+                    <Database className="h-8 w-8 text-maroon-100" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-amber-500 to-amber-600 text-white border-0">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-amber-100 text-sm">Audio Segments</p>
+                      <p className="text-2xl font-bold">
+                        {tajweedOverview.recitations.reduce((total, recitation) => total + recitation.segmentCount, 0)}
+                      </p>
+                      <p className="text-amber-100 text-xs">
+                        {tajweedOverview.recitations
+                          .flatMap((recitation) => recitation.segments)
+                          .filter((segment) => segment.qaStatus !== "approved").length}{" "}
+                        pending QA checks
+                      </p>
+                    </div>
+                    <AudioWaveform className="h-8 w-8 text-amber-100" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-0">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-emerald-100 text-sm">Role Assignments</p>
+                      <p className="text-2xl font-bold">{tajweedOverview.roleAssignments.length}</p>
+                      <p className="text-emerald-100 text-xs">Scholar-gated review workflows</p>
+                    </div>
+                    <ShieldCheck className="h-8 w-8 text-emerald-100" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-indigo-500 to-indigo-600 text-white border-0">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-indigo-100 text-sm">Reading Plans</p>
+                      <p className="text-2xl font-bold">{tajweedOverview.plans.length}</p>
+                      <p className="text-indigo-100 text-xs">Collaborative tajweed intensives</p>
+                    </div>
+                    <ListChecks className="h-8 w-8 text-indigo-100" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+              <Card className="bg-white/80 backdrop-blur-sm">
+                <CardHeader>
+                  <CardTitle>Quranic Assets</CardTitle>
+                  <CardDescription>Version-controlled translations, scripts, and datasets</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {tajweedOverview.assets.map((asset) => (
+                    <div key={asset.id} className="rounded-lg border border-maroon-100 bg-cream-50/80 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-maroon-900">{asset.title}</p>
+                          <p className="text-sm text-maroon-700 capitalize">
+                            {asset.type.replaceAll("_", " ")} • {asset.language.toUpperCase()}
+                          </p>
+                        </div>
+                        <Badge variant="secondary" className="bg-maroon-100 text-maroon-800">
+                          {asset.status}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {asset.tags.map((tag) => (
+                          <Badge key={tag} variant="outline" className="border-maroon-200 text-maroon-700">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                      <div className="mt-3 text-xs text-maroon-600">
+                        Last updated {new Date(asset.updatedAt).toLocaleString()} • Version {asset.versionHistory.at(-1)?.version}
+                      </div>
+                      {asset.annotationLayers.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-maroon-500">
+                            Annotation Layers
+                          </p>
+                          {asset.annotationLayers.map((layer) => (
+                            <div key={layer.id} className="rounded-md border border-amber-100 bg-amber-50/60 p-3">
+                              <p className="text-sm font-medium text-amber-900">{layer.name}</p>
+                              <p className="text-xs text-amber-800">{layer.description}</p>
+                              <p className="mt-1 text-xs text-amber-700">
+                                {layer.rulesCovered.join(", ")} • {layer.ayahKeys.length} ayat tracked
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+              <div className="space-y-6">
+                <Card className="bg-white/80 backdrop-blur-sm">
+                  <CardHeader>
+                    <CardTitle>Recitation Datasets</CardTitle>
+                    <CardDescription>Segment metadata for tajweed-aligned playback</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {tajweedOverview.recitations.map((recitation) => {
+                      const pendingSegments = recitation.segments.filter((segment) => segment.qaStatus !== "approved").length
+                      return (
+                        <div key={recitation.id} className="rounded-lg border border-emerald-100 bg-emerald-50/70 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="font-semibold text-emerald-900">{recitation.reciterName}</p>
+                              <p className="text-sm text-emerald-800">
+                                {recitation.style} • {recitation.type === "gapless" ? "Gapless" : "Ayah Segmented"}
+                              </p>
+                            </div>
+                            <Badge variant="secondary" className="bg-emerald-200 text-emerald-900">
+                              {recitation.status}
+                            </Badge>
+                          </div>
+                          <p className="mt-2 text-xs text-emerald-800">
+                            {recitation.segmentCount} segments • {(recitation.durationSeconds / 60).toFixed(1)} min • Uploaded by {recitation.uploadedBy}
+                          </p>
+                          <Progress value={((recitation.segmentCount - pendingSegments) / recitation.segmentCount) * 100} className="mt-3" />
+                          <p className="mt-2 text-xs text-emerald-900">
+                            {recitation.segmentCount - pendingSegments} approved • {pendingSegments} awaiting QA
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </CardContent>
+                </Card>
+                <Card className="bg-white/80 backdrop-blur-sm">
+                  <CardHeader>
+                    <CardTitle>Specialized Roles & Plans</CardTitle>
+                    <CardDescription>Governance for tajweed corrections and collaboration</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="rounded-lg border border-blue-100 bg-blue-50/60 p-4">
+                      <p className="text-sm font-semibold text-blue-900">Role Directory</p>
+                      <div className="mt-3 space-y-2">
+                        {tajweedOverview.roleAssignments.map((assignment) => (
+                          <div key={assignment.id} className="flex flex-col rounded-md border border-blue-100 bg-white/80 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-medium text-blue-900">{assignment.name}</p>
+                                <p className="text-xs text-blue-700">{assignment.email}</p>
+                              </div>
+                              <Badge variant="secondary" className="bg-blue-200 text-blue-900">
+                                {assignment.role}
+                              </Badge>
+                            </div>
+                            <p className="mt-2 text-xs text-blue-700">
+                              {assignment.scopes.join(", ")}
+                            </p>
+                            <p className="mt-1 text-[11px] text-blue-600">
+                              Granted {new Date(assignment.grantedAt).toLocaleDateString()} by {assignment.grantedBy}
+                              {assignment.expiresAt ? ` • Expires ${new Date(assignment.expiresAt).toLocaleDateString()}` : ""}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-purple-100 bg-purple-50/60 p-4">
+                      <p className="text-sm font-semibold text-purple-900">Active Reading Plans</p>
+                      <div className="mt-3 space-y-3">
+                        {tajweedOverview.plans.map((plan) => (
+                          <div key={plan.id} className="rounded-md border border-purple-100 bg-white/80 p-3">
+                            <p className="text-sm font-semibold text-purple-900">{plan.title}</p>
+                            <p className="text-xs text-purple-700">{plan.description}</p>
+                            <p className="mt-1 text-[11px] text-purple-600">
+                              {plan.milestones.length} milestones • {plan.participantIds.length} collaborators • v{plan.version}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </TabsContent>
         </Tabs>
