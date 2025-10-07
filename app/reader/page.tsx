@@ -39,6 +39,7 @@ import { MobileRecitationClient } from "@/components/recitation/mobile-recitatio
 import { useMushafFontLoader } from "@/hooks/useMushafFontLoader"
 import type { MicrophonePermissionStatus } from "@/hooks/useMicrophoneStream"
 import { quranAPI, type Surah as QuranSurah, type Ayah as QuranAyah } from "@/lib/quran-api"
+import { cn } from "@/lib/utils"
 import {
   annotateTajweedMistakes,
   analyzeMistakes,
@@ -286,6 +287,118 @@ export default function QuranReaderPage() {
   const [isGwaniLoading, setIsGwaniLoading] = useState(false)
   const [gwaniError, setGwaniError] = useState<string | null>(null)
   const [gwaniVolume, setGwaniVolume] = useState<number[]>([80])
+
+  const gwaniTheme = useMemo(() => {
+    if (gwaniError) {
+      return {
+        card: "border-rose-500/40 bg-rose-500/5 shadow-[0_25px_60px_-35px_rgba(244,63,94,0.85)]",
+        header: "bg-gradient-to-r from-rose-500 via-rose-600 to-rose-700",
+        chip: "bg-white/20 text-rose-50",
+        button:
+          "bg-gradient-to-r from-rose-500 via-rose-600 to-rose-700 hover:from-rose-600 hover:to-rose-800 focus-visible:ring-rose-400/40",
+        sliderAccent:
+          "[&_[data-slider-range]]:bg-rose-400 [&_[data-slider-thumb]]:border-rose-500 [&_[data-slider-thumb]]:shadow-[0_0_0_4px_rgba(244,63,94,0.2)]",
+        progressAccent: "[&>div]:bg-rose-400/80",
+        accentText: "text-rose-50",
+        secondaryText: "text-rose-100/80",
+        discTint: "text-rose-100/60",
+        statusChip: "border border-rose-400/40 bg-rose-500/15 text-rose-50",
+        statusHelperText: "text-rose-50/80",
+        statusIconWrapper: "bg-rose-500/25 text-rose-50",
+      }
+    }
+
+    if (isGwaniLoading) {
+      return {
+        card: "border-amber-400/40 bg-amber-400/10 shadow-[0_20px_55px_-35px_rgba(251,191,36,0.65)]",
+        header: "bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500",
+        chip: "bg-black/20 text-amber-50",
+        button:
+          "bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 hover:from-amber-500 hover:to-orange-600 focus-visible:ring-amber-400/40",
+        sliderAccent:
+          "[&_[data-slider-range]]:bg-amber-400 [&_[data-slider-thumb]]:border-amber-500 [&_[data-slider-thumb]]:shadow-[0_0_0_4px_rgba(251,191,36,0.25)]",
+        progressAccent: "[&>div]:bg-amber-400/80",
+        accentText: "text-amber-50",
+        secondaryText: "text-amber-100/85",
+        discTint: "text-amber-100/70",
+        statusChip: "border border-amber-400/40 bg-amber-400/20 text-amber-900 dark:text-amber-50",
+        statusHelperText: "text-amber-900/70 dark:text-amber-100/80",
+        statusIconWrapper: "bg-amber-500/25 text-amber-50",
+      }
+    }
+
+    if (isGwaniPlaying) {
+      return {
+        card: "border-emerald-500/45 bg-emerald-500/10 shadow-[0_28px_60px_-35px_rgba(16,185,129,0.7)]",
+        header: "bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600",
+        chip: "bg-black/10 text-emerald-50",
+        button:
+          "bg-gradient-to-r from-emerald-500 via-emerald-600 to-teal-600 hover:from-emerald-600 hover:to-teal-700 focus-visible:ring-emerald-400/40",
+        sliderAccent:
+          "[&_[data-slider-range]]:bg-emerald-400 [&_[data-slider-thumb]]:border-emerald-500 [&_[data-slider-thumb]]:shadow-[0_0_0_4px_rgba(16,185,129,0.25)]",
+        progressAccent: "[&>div]:bg-emerald-400/85",
+        accentText: "text-emerald-50",
+        secondaryText: "text-emerald-100/80",
+        discTint: "text-emerald-100/65",
+        statusChip: "border border-emerald-400/45 bg-emerald-500/20 text-emerald-900 dark:text-emerald-50",
+        statusHelperText: "text-emerald-900/70 dark:text-emerald-100/75",
+        statusIconWrapper: "bg-emerald-500/25 text-emerald-50",
+      }
+    }
+
+    return {
+      card: "border-border/50 bg-muted/20",
+      header: "bg-gradient-to-r from-indigo-500 via-indigo-600 to-sky-600",
+      chip: "bg-white/20 text-indigo-50",
+      button:
+        "bg-gradient-to-r from-indigo-500 via-indigo-600 to-sky-600 hover:from-indigo-600 hover:to-sky-700 focus-visible:ring-indigo-400/40",
+      sliderAccent:
+        "[&_[data-slider-range]]:bg-indigo-400 [&_[data-slider-thumb]]:border-indigo-500 [&_[data-slider-thumb]]:shadow-[0_0_0_4px_rgba(99,102,241,0.25)]",
+      progressAccent: "[&>div]:bg-indigo-400/85",
+      accentText: "text-white",
+      secondaryText: "text-indigo-100/80",
+      discTint: "text-indigo-100/60",
+      statusChip: "border border-indigo-400/30 bg-indigo-500/15 text-indigo-900 dark:text-indigo-50",
+      statusHelperText: "text-indigo-900/70 dark:text-indigo-100/80",
+      statusIconWrapper: "bg-indigo-500/20 text-indigo-50",
+    }
+  }, [gwaniError, isGwaniLoading, isGwaniPlaying])
+
+  const gwaniStatus = useMemo(() => {
+    if (gwaniError) {
+      return {
+        label: "Stream unavailable",
+        description: "We couldn't reach the Kano archive right now. Try again shortly, in shaa Allah.",
+        icon: AlertCircle,
+        isAnimated: false,
+      }
+    }
+
+    if (isGwaniLoading) {
+      return {
+        label: "Connecting to stream",
+        description: "Buffering the Kano studio recitation for you…",
+        icon: Loader2,
+        isAnimated: true,
+      }
+    }
+
+    if (isGwaniPlaying) {
+      return {
+        label: "Now playing",
+        description: "Streaming directly from the Gwani Dahiru archive.",
+        icon: Headphones,
+        isAnimated: false,
+      }
+    }
+
+    return {
+      label: "Ready when you are",
+      description: "Choose a surah and press play to begin your session.",
+      icon: Sparkles,
+      isAnimated: false,
+    }
+  }, [gwaniError, isGwaniLoading, isGwaniPlaying])
 
   const formatInferenceLatency = (latency: number | null | undefined) => {
     if (typeof latency !== "number" || Number.isNaN(latency) || latency <= 0) {
@@ -1441,6 +1554,8 @@ export default function QuranReaderPage() {
     })
   }, [liveTranscription, liveMistakes])
 
+  const GwaniStatusIcon = gwaniStatus.icon
+
   return (
     <div className="min-h-screen bg-gradient-cream">
       {/* Header */}
@@ -2041,26 +2156,79 @@ export default function QuranReaderPage() {
                 </CardContent>
               </Card>
 
-              <Card className="border-border/50 overflow-hidden">
+              <Card className={cn("overflow-hidden transition-all duration-500", gwaniTheme.card)}>
                 <CardHeader className="pb-0">
-                  <div className="rounded-xl bg-gradient-to-r from-maroon-600 to-maroon-700 p-5 text-white shadow-inner">
+                  <div
+                    className={cn(
+                      "rounded-xl p-5 text-white shadow-inner transition-all duration-500",
+                      gwaniTheme.header,
+                    )}
+                  >
                     <div className="flex items-start justify-between gap-4">
                       <div className="space-y-1">
-                        <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide">
+                        <div
+                          className={cn(
+                            "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide backdrop-blur-sm",
+                            gwaniTheme.chip,
+                          )}
+                        >
                           <Headphones className="h-3.5 w-3.5" /> Exclusive Audio Studio
                         </div>
-                        <CardTitle className="text-xl font-semibold text-white">
+                        <CardTitle
+                          className={cn(
+                            "text-xl font-semibold transition-colors duration-500",
+                            gwaniTheme.accentText,
+                          )}
+                        >
                           {GWANI_RECITER_NAME} Recitation
                         </CardTitle>
-                        <p className="text-sm text-white/80">
+                        <p
+                          className={cn(
+                            "text-sm transition-colors duration-500",
+                            gwaniTheme.secondaryText,
+                          )}
+                        >
                           Stream the full mushaf recorded live in Kano and follow along as you recite.
                         </p>
                       </div>
-                      <Disc3 className="h-10 w-10 text-white/70" />
+                      <Disc3
+                        className={cn(
+                          "h-10 w-10 transition-colors duration-500",
+                          gwaniTheme.discTint,
+                        )}
+                      />
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-5 pt-5">
+                  <div
+                    className={cn(
+                      "flex flex-col gap-3 rounded-xl px-4 py-3 transition-all duration-500 sm:flex-row sm:items-center sm:justify-between",
+                      gwaniTheme.statusChip,
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "flex h-11 w-11 items-center justify-center rounded-full transition-colors duration-500 sm:h-10 sm:w-10",
+                        gwaniTheme.statusIconWrapper,
+                      )}
+                    >
+                      <GwaniStatusIcon
+                        className={cn("h-5 w-5", gwaniStatus.isAnimated && "animate-spin")}
+                      />
+                    </div>
+                    <div className="space-y-1 sm:flex-1">
+                      <p className="text-sm font-semibold">{gwaniStatus.label}</p>
+                      <p
+                        className={cn(
+                          "text-xs leading-relaxed transition-colors duration-500",
+                          gwaniTheme.statusHelperText,
+                        )}
+                      >
+                        {gwaniStatus.description}
+                      </p>
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-muted-foreground">Choose Surah to Stream</label>
                     <Select
@@ -2089,13 +2257,21 @@ export default function QuranReaderPage() {
                     </p>
                   </div>
 
-                  <div className="space-y-4 rounded-xl border border-border/70 bg-muted/40 p-4">
+                  <div
+                    className={cn(
+                      "space-y-4 rounded-xl border border-border/70 bg-muted/40 p-4 transition-colors duration-500",
+                      gwaniTheme.sliderAccent,
+                    )}
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         <Button
                           onClick={handleGwaniPlayPause}
                           size="icon"
-                          className="h-12 w-12 rounded-full bg-gradient-to-r from-maroon-600 to-maroon-700 text-white shadow-lg"
+                          className={cn(
+                            "h-12 w-12 rounded-full text-white shadow-lg transition-transform duration-300 hover:scale-[1.03]",
+                            gwaniTheme.button,
+                          )}
                         >
                           {isGwaniPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
                         </Button>
@@ -2121,7 +2297,13 @@ export default function QuranReaderPage() {
                         onValueChange={handleGwaniProgressChange}
                         disabled={!Number.isFinite(gwaniDuration) || gwaniDuration <= 0}
                       />
-                      <Progress value={gwaniProgressPercent} className="h-1.5" />
+                      <Progress
+                        value={gwaniProgressPercent}
+                        className={cn(
+                          "h-1.5 overflow-hidden transition-colors duration-500",
+                          gwaniTheme.progressAccent,
+                        )}
+                      />
                     </div>
 
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -2136,7 +2318,12 @@ export default function QuranReaderPage() {
                           className="w-40"
                         />
                       </div>
-                      <Button variant="outline" size="sm" className="bg-transparent" onClick={handleSyncReaderWithGwani}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="bg-transparent hover:border-foreground/20 hover:bg-foreground/5"
+                        onClick={handleSyncReaderWithGwani}
+                      >
                         Sync reader to this surah
                       </Button>
                     </div>
