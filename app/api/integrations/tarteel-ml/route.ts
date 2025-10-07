@@ -104,6 +104,34 @@ const MISTAKE_DETECTION = {
   ],
 }
 
+const FALLBACK_REPOSITORY = {
+  name: "tarteel-ml",
+  description:
+    "Fallback metadata when GitHub is unreachable. Visit https://github.com/TarteelAI/tarteel-ml for the latest details.",
+  stargazers_count: 0,
+  watchers_count: 0,
+  forks_count: 0,
+  open_issues_count: 0,
+  default_branch: "master",
+  html_url: "https://github.com/TarteelAI/tarteel-ml",
+  homepage: null,
+  pushed_at: null,
+  updated_at: null,
+  has_wiki: true,
+  subscribers_count: 0,
+  watchers: 0,
+}
+
+const FALLBACK_CONTENTS: Array<{ name: string; path: string; download_url?: string | null; size?: number | null }> = []
+
+const FALLBACK_REQUIREMENTS_TEXT = ""
+
+const FALLBACK_COMMITS: Array<{
+  sha: string
+  html_url: string
+  commit: { message: string; author: { name?: string | null; date?: string | null } }
+}> = []
+
 const githubHeaders = () => {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
@@ -164,9 +192,22 @@ function parseRequirements(text: string): TarteelMlRequirement[] {
     })
 }
 
+function resolveResult<T>(
+  result: PromiseSettledResult<T>,
+  fallback: T,
+  label: string,
+): T {
+  if (result.status === "fulfilled") {
+    return result.value
+  }
+
+  console.warn(`[tarteel-ml] Falling back for ${label}:`, result.reason)
+  return fallback
+}
+
 export async function GET() {
   try {
-    const [repo, contents, requirementsText, commits] = await Promise.all([
+    const [repoResult, contentsResult, requirementsResult, commitsResult] = await Promise.allSettled([
       fetchJson<{
         name: string
         description: string | null
@@ -186,11 +227,16 @@ export async function GET() {
       fetchJson<Array<{ name: string; path: string; download_url?: string | null; size?: number | null }>>(
         `${GITHUB_API_BASE}/contents`,
       ),
-      fetchText(`${RAW_BASE}/requirements.txt`).catch(() => ""),
+      fetchText(`${RAW_BASE}/requirements.txt`).catch(() => FALLBACK_REQUIREMENTS_TEXT),
       fetchJson<Array<{ sha: string; html_url: string; commit: { message: string; author: { name?: string | null; date?: string | null } } }>>(
         `${GITHUB_API_BASE}/commits?per_page=1`,
-      ).catch(() => []),
+      ).catch(() => FALLBACK_COMMITS),
     ])
+
+    const repo = resolveResult(repoResult, FALLBACK_REPOSITORY, "repository metadata")
+    const contents = resolveResult(contentsResult, FALLBACK_CONTENTS, "repository contents")
+    const requirementsText = resolveResult(requirementsResult, FALLBACK_REQUIREMENTS_TEXT, "requirements.txt")
+    const commits = resolveResult(commitsResult, FALLBACK_COMMITS, "commit metadata")
 
     const scripts: TarteelMlScriptStatus[] = TARGET_SCRIPTS.map((script) => {
       const entry = contents.find((item) => item.name === script.name)
