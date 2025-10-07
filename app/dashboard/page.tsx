@@ -20,6 +20,7 @@ import { PremiumGate } from "@/components/premium-gate"
 import { QuranFlipBook } from "@/components/quran-flipbook"
 import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
 import { useUser } from "@/hooks/use-user"
+import { StudentWelcomeAudio } from "@/components/student/StudentWelcomeAudio"
 import { getDailySurahRecommendations } from "@/lib/daily-surah"
 import {
   BookOpen,
@@ -472,18 +473,19 @@ export default function DashboardPage() {
   return (
     <>
       <AppLayout>
-      <div className="p-6">
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-maroon-900 mb-2">Assalamu Alaikum, {firstName}</h2>
-          <p className="text-lg text-maroon-700">Continue your journey of Qur’anic excellence</p>
-          <div className="flex items-center mt-4">
-            <Badge className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0 px-3 py-1">
-              <Star className="w-3 h-3 mr-1" />
-              {stats.hasanat.toLocaleString()} Hasanat Points
-            </Badge>
+        <div className="p-6">
+          <StudentWelcomeAudio className="mb-6" />
+          {/* Welcome Section */}
+          <div className="mb-8">
+            <h2 className="text-3xl font-bold text-maroon-900 mb-2">Assalamu Alaikum, {firstName}</h2>
+            <p className="text-lg text-maroon-700">Continue your journey of Qur’anic excellence</p>
+            <div className="flex items-center mt-4">
+              <Badge className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0 px-3 py-1">
+                <Star className="w-3 h-3 mr-1" />
+                {stats.hasanat.toLocaleString()} Hasanat Points
+              </Badge>
+            </div>
           </div>
-        </div>
 
         {error && (
           <Alert className="mb-8 border-amber-200 bg-amber-50 text-amber-800">
@@ -1620,7 +1622,7 @@ export default function DashboardPage() {
             </Card>
           </div>
         </div>
-      </div>
+        </div>
       </AppLayout>
 
       {gamePanel && (
