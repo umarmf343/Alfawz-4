@@ -8,6 +8,17 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useUser } from "@/hooks/use-user"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
@@ -25,6 +36,9 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react"
+import { CelebrationModal } from "@/components/CelebrationModal"
+
+import surahDataset from "@/data/quran.json"
 
 const habitIconMap = {
   BookOpen,
@@ -41,10 +55,42 @@ const difficultyStyles = {
 
 const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
+type SurahDatasetEntry = {
+  name: string
+  name_translations: {
+    ar?: string
+    en?: string
+  }
+  number_of_ayah: number
+  number_of_surah: number
+}
+
+type SurahOption = {
+  number: number
+  englishName: string
+  arabicName: string
+  ayahCount: number
+}
+
+const SURAH_OPTIONS: SurahOption[] = (surahDataset as SurahDatasetEntry[]).map((surah) => ({
+  number: surah.number_of_surah,
+  englishName: surah.name_translations.en ?? surah.name,
+  arabicName: surah.name_translations.ar ?? surah.name,
+  ayahCount: surah.number_of_ayah,
+}))
+
 export default function HabitQuestPage() {
   const { habits, stats, perks, isPremium, completeHabit } = useUser()
   const { toast } = useToast()
   const [selectedHabitId, setSelectedHabitId] = useState<string>(habits[0]?.id ?? "")
+  const initialSurahAyahCount = SURAH_OPTIONS[0]?.ayahCount ?? 1
+  const [questDialogOpen, setQuestDialogOpen] = useState(false)
+  const [questSurahNumber, setQuestSurahNumber] = useState<number>(SURAH_OPTIONS[0]?.number ?? 1)
+  const [startAyah, setStartAyah] = useState<number>(1)
+  const [endAyah, setEndAyah] = useState<number>(initialSurahAyahCount > 1 ? 2 : 1)
+  const [celebrationOpen, setCelebrationOpen] = useState(false)
+  const [celebrationVerse, setCelebrationVerse] = useState<string | null>(null)
+  const [celebrationHabitTitle, setCelebrationHabitTitle] = useState<string>("")
 
   useEffect(() => {
     if (habits.length === 0) {
@@ -60,6 +106,10 @@ export default function HabitQuestPage() {
     () => habits.find((habit) => habit.id === selectedHabitId) ?? habits[0],
     [habits, selectedHabitId],
   )
+  const questSurah = useMemo(
+    () => SURAH_OPTIONS.find((entry) => entry.number === questSurahNumber) ?? SURAH_OPTIONS[0],
+    [questSurahNumber],
+  )
 
   const weeklyXpTotal = useMemo(() => stats.weeklyXP.reduce((total, value) => total + value, 0), [stats.weeklyXP])
   const selectedDifficulty = selectedHabit ? difficultyStyles[selectedHabit.difficulty] : difficultyStyles.medium
@@ -70,19 +120,78 @@ export default function HabitQuestPage() {
       })
     : "Not yet"
 
-  const handleCompleteHabit = () => {
-    if (!selectedHabit) return
-    const result = completeHabit(selectedHabit.id)
-    toast({
-      title: result.success ? "Habit completed!" : "Heads up",
-      description: result.message,
+  useEffect(() => {
+    if (!questSurah) return
+    setStartAyah(1)
+    setEndAyah(questSurah.ayahCount > 1 ? Math.min(questSurah.ayahCount, 2) : 1)
+  }, [questSurah])
+
+  const questVerseRange = useMemo(() => {
+    if (!questSurah) return ""
+    if (endAyah <= startAyah) {
+      return `${startAyah}`
+    }
+    return `${startAyah}-${endAyah}`
+  }, [endAyah, questSurah, startAyah])
+
+  const isQuestReady = Boolean(selectedHabit && questSurah && startAyah >= 1 && endAyah >= startAyah)
+
+  const handleStartAyahChange = (value: string) => {
+    if (!questSurah) return
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isNaN(parsed)) {
+      setStartAyah(1)
+      setEndAyah((prev) => Math.max(1, Math.min(prev, questSurah.ayahCount)))
+      return
+    }
+    const normalized = Math.min(Math.max(1, parsed), questSurah.ayahCount)
+    setStartAyah(normalized)
+    setEndAyah((prev) => {
+      const clampedPrev = Math.min(Math.max(1, prev), questSurah.ayahCount)
+      return Math.max(clampedPrev, normalized)
     })
   }
 
+  const handleEndAyahChange = (value: string) => {
+    if (!questSurah) return
+    const parsed = Number.parseInt(value, 10)
+    if (Number.isNaN(parsed)) {
+      setEndAyah(questSurah.ayahCount)
+      return
+    }
+    const normalized = Math.min(Math.max(1, parsed), questSurah.ayahCount)
+    setEndAyah(Math.max(normalized, startAyah))
+  }
+
+  const handleCompleteHabit = () => {
+    if (!selectedHabit) return
+    setQuestDialogOpen(true)
+  }
+
+  const handleQuestConfirmation = () => {
+    if (!selectedHabit || !questSurah) return
+    const result = completeHabit(selectedHabit.id)
+    toast({
+      title: result.success ? "Habit completed!" : "Heads up",
+      description: result.success
+        ? `${result.message} Logged for ${questSurah.englishName} ayah ${questVerseRange}.`
+        : result.message,
+    })
+    if (!result.success) {
+      return
+    }
+    const reference = `${questSurah.englishName} (${questSurah.arabicName}) • Ayah ${questVerseRange}`
+    setCelebrationHabitTitle(selectedHabit.title)
+    setCelebrationVerse(reference)
+    setQuestDialogOpen(false)
+    setCelebrationOpen(true)
+  }
+
   return (
-    <AppLayout>
-      <div className="p-6 space-y-8">
-        <header className="space-y-4">
+    <>
+      <AppLayout>
+        <div className="p-6 space-y-8">
+          <header className="space-y-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-3">
               <h1 className="text-3xl font-bold text-maroon-900">Habit Quest Arena</h1>
@@ -365,6 +474,106 @@ export default function HabitQuestPage() {
         </div>
       </div>
     </AppLayout>
+      <Dialog open={questDialogOpen} onOpenChange={setQuestDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Complete today's quest</DialogTitle>
+            <DialogDescription>
+              Select the surah and ayah range you recited to unlock today's rewards.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="quest-surah">Surah</Label>
+              <Select
+                value={questSurahNumber.toString()}
+                onValueChange={(value) => {
+                  const numericValue = Number.parseInt(value, 10)
+                  setQuestSurahNumber(Number.isNaN(numericValue) ? SURAH_OPTIONS[0]?.number ?? 1 : numericValue)
+                }}
+              >
+                <SelectTrigger id="quest-surah" className="w-full">
+                  <SelectValue placeholder="Select a surah" />
+                </SelectTrigger>
+                <SelectContent className="max-h-64">
+                  {SURAH_OPTIONS.map((surah) => (
+                    <SelectItem key={surah.number} value={surah.number.toString()}>
+                      {surah.number}. {surah.englishName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="quest-start-ayah">Start ayah</Label>
+                <Input
+                  id="quest-start-ayah"
+                  type="number"
+                  min={1}
+                  max={questSurah?.ayahCount ?? 1}
+                  value={startAyah}
+                  onChange={(event) => handleStartAyahChange(event.target.value)}
+                />
+                <p className="text-xs text-maroon-600">
+                  Begin from ayah between 1 and {questSurah?.ayahCount ?? 1}.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quest-end-ayah">End ayah</Label>
+                <Input
+                  id="quest-end-ayah"
+                  type="number"
+                  min={startAyah}
+                  max={questSurah?.ayahCount ?? startAyah}
+                  value={endAyah}
+                  onChange={(event) => handleEndAyahChange(event.target.value)}
+                />
+                <p className="text-xs text-maroon-600">
+                  Wrap up no later than ayah {questSurah?.ayahCount ?? startAyah}.
+                </p>
+              </div>
+            </div>
+            {questSurah && (
+              <p className="rounded-lg border border-maroon-100 bg-maroon-50 p-3 text-sm text-maroon-700">
+                Logging {questSurah.englishName} ({questSurah.arabicName}) • Ayah {questVerseRange}. This surah has
+                {" "}
+                {questSurah.ayahCount} ayah{questSurah.ayahCount === 1 ? "" : "s"}. Keep your range within these bounds to
+                earn today's reward.
+              </p>
+            )}
+          </div>
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setQuestDialogOpen(false)}
+              className="order-2 sm:order-1"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleQuestConfirmation}
+              disabled={!isQuestReady}
+              className="order-1 sm:order-2 bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Log completion
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <CelebrationModal
+        open={celebrationOpen}
+        onOpenChange={setCelebrationOpen}
+        mode="verse"
+        planTitle={celebrationHabitTitle || "Habit Quest"}
+        verseReference={celebrationVerse ?? undefined}
+        primaryActionLabel="Back to quests"
+        onPrimaryAction={() => setCelebrationOpen(false)}
+      />
+    </>
   )
 }
 
