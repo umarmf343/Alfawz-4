@@ -612,6 +612,10 @@ class QuranCloudAPI {
 // Export singleton instance
 export const quranAPI = new QuranCloudAPI()
 
+export function getOfflineSurahList(): Surah[] {
+  return fallbackSurahList.map((surah) => ({ ...surah }))
+}
+
 // Helper functions for common operations
 export async function getPopularSurahs(): Promise<Surah[]> {
   const allSurahs = await quranAPI.getSurahs()

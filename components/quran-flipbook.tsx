@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { BookOpen, Bookmark, ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { quranAPI, type Ayah, type Surah } from "@/lib/quran-api"
+import { getOfflineSurahList, quranAPI, type Ayah, type Surah } from "@/lib/quran-api"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -38,7 +38,7 @@ interface FocusedAyah {
 }
 
 export function QuranFlipBook({ initialSurahName, initialAyah, className }: QuranFlipBookProps) {
-  const [surahs, setSurahs] = useState<Surah[]>([])
+  const [surahs, setSurahs] = useState<Surah[]>(() => getOfflineSurahList())
   const [selectedSurah, setSelectedSurah] = useState<Surah | null>(null)
   const [pages, setPages] = useState<QuranPage[]>([])
   const [translationMap, setTranslationMap] = useState<Record<number, string>>({})
@@ -66,7 +66,9 @@ export function QuranFlipBook({ initialSurahName, initialAyah, className }: Qura
       try {
         const surahList = await quranAPI.getSurahs()
         if (!isMountedRef.current) return
-        setSurahs(surahList)
+        if (surahList.length > 0) {
+          setSurahs(surahList)
+        }
       } catch (error) {
         console.error("Failed to load surah list", error)
       }
