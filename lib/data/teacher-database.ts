@@ -2856,10 +2856,7 @@ export function recordAyahProgress(studentId: string, increment = 1): LearnerSta
   }
 
   const previousCompleted = record.dashboard.dailyTarget.completedAyahs
-  const nextCompleted = Math.min(
-    previousCompleted + normalizedIncrement,
-    record.dashboard.dailyTarget.targetAyahs,
-  )
+  const nextCompleted = previousCompleted + normalizedIncrement
   const actualIncrement = Math.max(0, nextCompleted - previousCompleted)
 
   record.dashboard.dailyTarget.completedAyahs = nextCompleted
