@@ -27,6 +27,7 @@ export interface SurahInfo {
 
 const verseTextMap = quranText as Record<string, string>
 const surahList = surahMeta as SurahMetadataSource[]
+const verseEntries = Object.entries(verseTextMap) as [VerseKey, string][]
 
 const surahMap = new Map<number, SurahInfo>(
   surahList.map((surah) => [
@@ -64,4 +65,28 @@ export function formatVerseReference(verseKey: string): string {
   const { surahNumber, ayahNumber } = parseVerseKey(verseKey)
   const surah = getSurahInfo(surahNumber)
   return `${surah?.arabicName ?? `سورة ${surahNumber}`} • ${ayahNumber}`
+}
+
+export interface QuranVerseEntry {
+  key: VerseKey
+  surahNumber: number
+  ayahNumber: number
+  text: string
+}
+
+let cachedVerseEntries: QuranVerseEntry[] | null = null
+
+export function getAllVerseEntries(): QuranVerseEntry[] {
+  if (!cachedVerseEntries) {
+    cachedVerseEntries = verseEntries.map(([key, text]) => {
+      const { surahNumber, ayahNumber } = parseVerseKey(key)
+      return {
+        key,
+        surahNumber,
+        ayahNumber,
+        text,
+      }
+    })
+  }
+  return cachedVerseEntries
 }
