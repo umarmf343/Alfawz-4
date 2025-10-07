@@ -30,6 +30,9 @@ import {
   recordDailySurahCompletion as persistDailySurahCompletion,
   type DailySurahCompletionInput,
   type DailySurahCompletionResult,
+  recordQuranReaderRecitation as persistQuranReaderRecitation,
+  type QuranReaderRecitationInput,
+  type QuranReaderRecitationResult,
 } from "@/lib/data/teacher-database"
 import { getActiveSession } from "@/lib/data/auth"
 
@@ -63,6 +66,7 @@ interface UserContextValue {
   completeRecitationAssignment: (taskId: string) => void
   reviewMemorizationTask: (review: MemorizationReviewInput) => void
   completeDailySurahRecitation: (completion: DailySurahCompletionInput) => DailySurahCompletionResult
+  recordQuranReaderProgress: (recitation: QuranReaderRecitationInput) => QuranReaderRecitationResult
 }
 
 const perksByPlan: Record<SubscriptionPlan, string[]> = {
@@ -354,6 +358,17 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     [applyLearnerState, studentId],
   )
 
+  const recordQuranReaderProgress = useCallback(
+    (recitation: QuranReaderRecitationInput) => {
+      const response = persistQuranReaderRecitation(studentId, recitation)
+      if (response.state) {
+        applyLearnerState(response.state)
+      }
+      return response.result
+    },
+    [applyLearnerState, studentId],
+  )
+
   const completeRecitationAssignment = useCallback(
     (taskId: string) => {
       const task = dashboard?.recitationTasks.find((entry) => entry.id === taskId)
@@ -451,6 +466,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       completeRecitationAssignment,
       reviewMemorizationTask,
       completeDailySurahRecitation,
+      recordQuranReaderProgress,
       upgradeToPremium,
       downgradeToFree,
     }),
@@ -477,6 +493,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       completeRecitationAssignment,
       reviewMemorizationTask,
       completeDailySurahRecitation,
+      recordQuranReaderProgress,
       upgradeToPremium,
       downgradeToFree,
     ],
