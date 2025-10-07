@@ -180,6 +180,8 @@ export async function GET() {
         pushed_at: string | null
         updated_at: string | null
         has_wiki: boolean
+        subscribers_count?: number
+        watchers?: number
       }>(`${GITHUB_API_BASE}`),
       fetchJson<Array<{ name: string; path: string; download_url?: string | null; size?: number | null }>>(
         `${GITHUB_API_BASE}/contents`,
@@ -208,7 +210,7 @@ export async function GET() {
         name: repo.name,
         description: repo.description,
         stars: repo.stargazers_count,
-        watchers: repo.watchers_count,
+        watchers: repo.subscribers_count ?? repo.watchers_count ?? repo.watchers,
         forks: repo.forks_count,
         openIssues: repo.open_issues_count,
         defaultBranch: repo.default_branch,
