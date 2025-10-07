@@ -1,5 +1,7 @@
 "use client"
 
+import { useMemo, useState } from "react"
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
@@ -23,8 +25,24 @@ import {
   ListChecks,
   Radar,
   Calendar,
+  GraduationCap,
+  UserPlus,
 } from "lucide-react"
-import { getAdminOverview } from "@/lib/data/teacher-database"
+import {
+  createMemorizationClass,
+  getAdminClassSummaries,
+  getAdminOverview,
+  getTeacherProfiles,
+  listLearners,
+} from "@/lib/data/teacher-database"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Checkbox } from "@/components/ui/checkbox"
+import type { CheckedState } from "@radix-ui/react-checkbox"
+import { useToast } from "@/hooks/use-toast"
 import { getTajweedCMSOverview } from "@/lib/data/tajweed-cms"
 import { getRecitationOpsOverview } from "@/lib/data/recitation-ops"
 import {
@@ -82,6 +100,84 @@ export default function AdminDashboard() {
   const { stats, recentActivity, userGrowth, gamification } = getAdminOverview()
   const tajweedOverview = getTajweedCMSOverview()
   const recitationOps = getRecitationOpsOverview()
+  const teacherDirectory = useMemo(() => getTeacherProfiles(), [])
+  const studentDirectory = useMemo(() => listLearners({ role: "student" }), [])
+  const initialClassSummaries = useMemo(() => getAdminClassSummaries(), [])
+  const [classSummaries, setClassSummaries] = useState(initialClassSummaries)
+  const [className, setClassName] = useState("")
+  const [teacherId, setTeacherId] = useState<string>(teacherDirectory[0]?.id ?? "")
+  const [schedule, setSchedule] = useState("")
+  const [description, setDescription] = useState("")
+  const [selectedStudents, setSelectedStudents] = useState<string[]>([])
+  const [isCreatingClass, setIsCreatingClass] = useState(false)
+  const [classCreationError, setClassCreationError] = useState<string | null>(null)
+  const { toast } = useToast()
+
+  const sortedClassSummaries = useMemo(
+    () =>
+      [...classSummaries].sort((a, b) => {
+        const teacherCompare = a.teacher.name.localeCompare(b.teacher.name)
+        if (teacherCompare !== 0) {
+          return teacherCompare
+        }
+        return a.class.name.localeCompare(b.class.name)
+      }),
+    [classSummaries],
+  )
+
+  function handleToggleStudent(studentId: string, checked: CheckedState) {
+    setSelectedStudents((current) => {
+      const next = new Set(current)
+      if (checked === true || checked === "indeterminate") {
+        next.add(studentId)
+      } else {
+        next.delete(studentId)
+      }
+      return Array.from(next)
+    })
+  }
+
+  function resetClassForm() {
+    setClassName("")
+    setSchedule("")
+    setDescription("")
+    setSelectedStudents([])
+    setTeacherId(teacherDirectory[0]?.id ?? "")
+  }
+
+  function handleCreateClass() {
+    if (!teacherId) {
+      setClassCreationError("Select an instructor for this class")
+      return
+    }
+    setIsCreatingClass(true)
+    setClassCreationError(null)
+    try {
+      const summary = createMemorizationClass({
+        name: className,
+        teacherId,
+        description,
+        schedule,
+        studentIds: selectedStudents,
+      })
+      setClassSummaries((current) => [...current, summary])
+      toast({
+        title: "Class created",
+        description: `${summary.class.name} is now managed by ${summary.teacher.name}.`,
+      })
+      resetClassForm()
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Failed to create class"
+      setClassCreationError(message)
+      toast({
+        title: "Class creation failed",
+        description: message,
+        variant: "destructive",
+      })
+    } finally {
+      setIsCreatingClass(false)
+    }
+  }
 
   const activeUserPercent =
     stats.totalUsers === 0 ? 0 : Math.round((stats.activeUsers / stats.totalUsers) * 100)
@@ -188,9 +284,10 @@ export default function AdminDashboard() {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-1 gap-2 md:grid-cols-3 xl:grid-cols-7">
+        <TabsList className="grid w-full grid-cols-1 gap-2 md:grid-cols-3 xl:grid-cols-8">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="users">Users</TabsTrigger>
+          <TabsTrigger value="classes">Classes</TabsTrigger>
           <TabsTrigger value="content">Content</TabsTrigger>
           <TabsTrigger value="payments">Payments</TabsTrigger>
           <TabsTrigger value="security">Security</TabsTrigger>
@@ -376,6 +473,228 @@ export default function AdminDashboard() {
                 </p>
               </CardContent>
             </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="classes" className="space-y-6">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,380px)_1fr]">
+            <Card className="border border-maroon-100 bg-cream-50/70">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-maroon-900">
+                  <UserPlus className="h-5 w-5" /> Create learning circle
+                </CardTitle>
+                <CardDescription className="text-sm text-maroon-700">
+                  Set up a new class, assign an instructor, and enrol learners across the platform.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="class-name" className="text-sm font-medium text-maroon-900">
+                    Class name
+                  </Label>
+                  <Input
+                    id="class-name"
+                    placeholder="eg. Weekend Hifz Circle"
+                    value={className}
+                    onChange={(event) => setClassName(event.target.value)}
+                    className="bg-white/90"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="class-schedule" className="text-sm font-medium text-maroon-900">
+                    Schedule
+                  </Label>
+                  <Input
+                    id="class-schedule"
+                    placeholder="eg. Fridays & Saturdays"
+                    value={schedule}
+                    onChange={(event) => setSchedule(event.target.value)}
+                    className="bg-white/90"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium text-maroon-900">Instructor</Label>
+                  <Select value={teacherId} onValueChange={(value) => setTeacherId(value)}>
+                    <SelectTrigger className="bg-white/90">
+                      <SelectValue placeholder="Select instructor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teacherDirectory.map((teacher) => (
+                        <SelectItem key={teacher.id} value={teacher.id}>
+                          {teacher.name} • {teacher.specialization}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="class-description" className="text-sm font-medium text-maroon-900">
+                    Description
+                  </Label>
+                  <Textarea
+                    id="class-description"
+                    placeholder="Share what this cohort will focus on to help teachers and parents align."
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    className="min-h-[96px] bg-white/90"
+                  />
+                </div>
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium text-maroon-900">Enrol learners</Label>
+                  <ScrollArea className="h-48 rounded-md border border-dashed border-maroon-200 bg-white/80 p-2">
+                    <div className="space-y-2">
+                      {studentDirectory.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No students available to enrol yet.</p>
+                      ) : (
+                        studentDirectory.map((student) => {
+                          const checked = selectedStudents.includes(student.id)
+                          return (
+                            <label
+                              key={student.id}
+                              className={`flex cursor-pointer items-center justify-between gap-3 rounded-md border border-transparent px-3 py-2 text-sm transition hover:border-maroon-200 hover:bg-maroon-50/70 ${
+                                checked ? "border-maroon-300 bg-maroon-50" : ""
+                              }`}
+                            >
+                              <div className="space-y-1">
+                                <p className="font-medium text-maroon-900">{student.name}</p>
+                                <p className="text-xs text-muted-foreground">{student.email}</p>
+                              </div>
+                              <Checkbox
+                                checked={checked}
+                                onCheckedChange={(state) => handleToggleStudent(student.id, state)}
+                                aria-label={`Toggle ${student.name}`}
+                              />
+                            </label>
+                          )
+                        })
+                      )}
+                    </div>
+                  </ScrollArea>
+                  {selectedStudents.length > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      {selectedStudents.length} learner{selectedStudents.length === 1 ? "" : "s"} selected.
+                    </p>
+                  ) : null}
+                </div>
+                {classCreationError ? (
+                  <p className="text-sm font-medium text-red-600">{classCreationError}</p>
+                ) : null}
+                <div className="flex items-center gap-2">
+                  <Button
+                    className="bg-maroon-600 text-white hover:bg-maroon-700"
+                    onClick={handleCreateClass}
+                    disabled={isCreatingClass}
+                  >
+                    {isCreatingClass ? "Creating..." : "Create class"}
+                  </Button>
+                  <Button variant="ghost" disabled={isCreatingClass} onClick={resetClassForm}>
+                    Reset
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-maroon-900">Managed cohorts</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Classes sync instantly with teacher and student dashboards for unified oversight.
+                  </p>
+                </div>
+                <Badge variant="secondary" className="gap-1">
+                  <GraduationCap className="h-4 w-4" /> {classSummaries.length}
+                </Badge>
+              </div>
+              {sortedClassSummaries.length === 0 ? (
+                <Card className="border-border/60">
+                  <CardContent className="py-10 text-center text-muted-foreground">
+                    No classes have been created yet. Use the form to launch your first cohort.
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="grid gap-4">
+                  {sortedClassSummaries.map((summary) => {
+                    const visibleStudents = summary.students.slice(0, 5)
+                    const remainingStudents = summary.students.length - visibleStudents.length
+                    return (
+                      <Card key={summary.class.id} className="border-border/60 bg-background/90">
+                        <CardHeader className="space-y-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <CardTitle className="text-xl font-semibold text-maroon-900">
+                                {summary.class.name}
+                              </CardTitle>
+                              <CardDescription className="text-sm text-muted-foreground">
+                                {summary.class.description ?? "No description provided yet."}
+                              </CardDescription>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {summary.class.schedule ? (
+                                <Badge variant="secondary" className="capitalize">
+                                  <Calendar className="mr-1 h-3.5 w-3.5" /> {summary.class.schedule}
+                                </Badge>
+                              ) : null}
+                              <Badge variant="outline" className="gap-1">
+                                <Users className="h-3.5 w-3.5" /> {summary.class.studentCount} learners
+                              </Badge>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm text-maroon-700">
+                            <span className="font-medium">{summary.teacher.name}</span>
+                            <Badge variant="outline" className="text-xs">
+                              {summary.teacher.specialization}
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {visibleStudents.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No learners enrolled yet.</p>
+                          ) : (
+                            <div className="grid gap-3 md:grid-cols-2">
+                              {visibleStudents.map((student) => (
+                                <div
+                                  key={student.id}
+                                  className="rounded-lg border border-border/60 bg-background/80 p-4 text-sm"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div>
+                                      <p className="font-medium text-maroon-900">{student.name}</p>
+                                      <p className="text-xs text-muted-foreground">{student.email}</p>
+                                    </div>
+                                    <Badge variant="secondary" className="text-xs">
+                                      {student.streak} day streak
+                                    </Badge>
+                                  </div>
+                                  <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
+                                    <div>
+                                      <p className="text-muted-foreground">Memorization</p>
+                                      <p className="font-semibold text-maroon-900">
+                                        {student.memorizationProgress}%
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-muted-foreground">Recitation</p>
+                                      <p className="font-semibold text-maroon-900">
+                                        {student.recitationProgress}%
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {remainingStudents > 0 ? (
+                            <p className="text-xs text-muted-foreground">
+                              +{remainingStudents} more learner{remainingStudents === 1 ? "" : "s"} in this class.
+                            </p>
+                          ) : null}
+                        </CardContent>
+                      </Card>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </TabsContent>
 
