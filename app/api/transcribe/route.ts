@@ -1,25 +1,11 @@
-import OpenAI from "openai"
 import { NextResponse } from "next/server"
 import { createLiveSessionSummary } from "@/lib/tajweed-analysis"
+import { TarteelTranscriptionError, transcribeWithTarteel } from "@/lib/tarteel-client"
 
-const DEFAULT_MODEL = process.env.WHISPER_MODEL ?? "whisper-1"
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
-
-const determineFileName = (file: File) => {
-  if (file.name && file.name !== "blob") {
-    return file.name
-  }
-
-  const extensionFromType = file.type?.split("/")[1]
-  if (extensionFromType) {
-    return `chunk.${extensionFromType}`
-  }
-
-  return "chunk.wav"
-}
 
 export async function POST(request: Request) {
   try {
@@ -49,47 +35,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Audio chunk too large" }, { status: 413 })
     }
 
-    const apiKey = process.env.OPENAI_API_KEY
-    if (!apiKey) {
+    const tarteelApiKey = process.env.TARTEEL_API_KEY?.trim()
+    if (!tarteelApiKey) {
       return NextResponse.json(
         {
           error:
-            "OpenAI API key is not configured. Set OPENAI_API_KEY in your environment to enable server-side Whisper.",
+            "Tarteel API key is not configured. Set TARTEEL_API_KEY in your environment to enable recitation transcription.",
         },
         { status: 503 },
       )
     }
 
-    const client = new OpenAI({
-      apiKey,
-      baseURL: process.env.OPENAI_BASE_URL ?? undefined,
-    })
-
-    const audioBuffer = await audioFile.arrayBuffer()
-    const normalizedFile = new File([new Uint8Array(audioBuffer)], determineFileName(audioFile), {
-      type: audioFile.type || "audio/wav",
-    })
-
     const inferenceStartedAt = Date.now()
-    const payload = await client.audio.transcriptions.create({
-      file: normalizedFile,
-      model: DEFAULT_MODEL,
-      language: "ar",
-      temperature: 0,
-      response_format: "json",
+    const baseUrl = process.env.TARTEEL_API_BASE_URL?.trim() ?? null
+    const { transcription, latencyMs } = await transcribeWithTarteel({
+      file: audioFile,
+      apiKey: tarteelApiKey,
+      baseUrl,
+      mode,
+      expectedText,
+      ayahId,
+      durationSeconds,
     })
 
-    const inferenceLatencyMs = Date.now() - inferenceStartedAt
-
-    const text =
-      payload.text ??
-      payload.segments?.map((segment) => segment.text).join(" ") ??
-      ""
-
-    const transcription = text.trim()
+    const inferenceLatencyMs = Number.isFinite(latencyMs) ? latencyMs : Date.now() - inferenceStartedAt
 
     if (mode === "live") {
-      return NextResponse.json({ transcription })
+      return NextResponse.json({ transcription, latencyMs: inferenceLatencyMs })
     }
 
     if (expectedText.trim().length > 0) {
@@ -97,15 +69,11 @@ export async function POST(request: Request) {
         durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : undefined,
         ayahId,
         analysis: {
-          engine: "nvidia",
-          latencyMs: Number.isFinite(inferenceLatencyMs) ? inferenceLatencyMs : null,
+          engine: "tarteel",
+          latencyMs: Number.isFinite(inferenceLatencyMs) ? Number(inferenceLatencyMs) : null,
           description:
-            "GPU-accelerated inference tuned with NVIDIA TensorRT to keep end-to-end recognition under 200ms.",
-          stack: [
-            "NVIDIA TensorRT streaming",
-            "CUDA 12 inference kernels",
-            "Tarteel tajwīd scorer",
-          ],
+            "Cloud-hosted Tarteel recitation engine with tajwīd-aware scoring tuned for sub-200ms response times.",
+          stack: ["Tarteel speech recognition", "tarteel-ml alignment", "Tajwīd scoring service"],
         },
       })
 
@@ -116,20 +84,19 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("/api/transcribe error", error)
 
-    const status = error instanceof OpenAI.APIError ? error.status ?? 500 : 500
-    if (error instanceof OpenAI.APIError) {
+    if (error instanceof TarteelTranscriptionError) {
       return NextResponse.json(
         {
-          error: "Whisper API call failed",
-          details: error.error,
+          error: "Tarteel API call failed",
+          details: error.payload,
         },
-        { status },
+        { status: error.status },
       )
     }
 
     return NextResponse.json(
       { error: "Failed to transcribe audio" },
-      { status },
+      { status: 500 },
     )
   }
 }

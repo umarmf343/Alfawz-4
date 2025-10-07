@@ -32,11 +32,11 @@ export interface LiveRecitationResult {
 export interface UseLiveRecitationOptions {
   /**
    * Duration for each recorded audio chunk in milliseconds.
-   * Whisper performs best with 3-5 second segments for near real-time feedback.
+   * Tarteel performs best with 3-5 second segments for near real-time feedback.
    */
   chunkDurationMs?: number
   /**
-   * Optional override to provide a custom transcription implementation, e.g. client-side Whisper.
+   * Optional override to provide a custom transcription implementation, e.g. a mock or offline recogniser.
    */
   transcribe?: (audio: Blob) => Promise<string>
 }
@@ -49,7 +49,7 @@ interface AlignmentResult {
 const DEFAULT_CHUNK_DURATION = 4000
 
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
-  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY to enable live recitation feedback."
+  "AI transcription isn't configured on this server yet. Add a TARTEEL_API_KEY to enable live recitation feedback."
 
 /**
  * Align transcribed words with expected verse using a Levenshtein-based dynamic programming approach.

@@ -105,7 +105,7 @@ export function MobileRecitationClient({
             <p className="text-xs text-muted-foreground">
               {!isLiveAnalysisSupported
                 ? unavailableMessage ||
-                  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY and refresh."
+                  "AI transcription isn't configured on this server yet. Add a TARTEEL_API_KEY and refresh."
                 : isLiveAnalysisActive
                   ? "Speak clearly and maintain a steady pace."
                   : "Tap the button to begin tajweed analysis."}

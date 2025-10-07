@@ -58,7 +58,7 @@ export default function StudentReaderPage() {
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-slate-300">
                 Practice your recitation verse-by-verse. Click <strong>Start Live Analysis</strong> to receive instant feedback on
-                pronunciation accuracy powered by Whisper.
+                pronunciation accuracy powered by Tarteel.
               </p>
             </div>
             <Badge variant="outline" className="border-emerald-500 text-emerald-600 dark:text-emerald-400">
@@ -112,7 +112,7 @@ export default function StudentReaderPage() {
               <ul className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
                 <li className="flex items-start gap-2">
                   <span className="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-500" aria-hidden />
-                  Whisper transcribes short audio bursts (~4s) from your microphone and compares them with the expected āyah.
+                  Tarteel transcribes short audio bursts (~4s) from your microphone and compares them with the expected āyah.
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="mt-1 h-2.5 w-2.5 rounded-full bg-emerald-500" aria-hidden />

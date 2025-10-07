@@ -217,7 +217,7 @@ export function QuranReader({
               <div className="flex items-center space-x-2">
                 <Label className="text-sm font-medium text-maroon-800">Surah:</Label>
                 <Select
-                  value={currentSurah?.number.toString()}
+                  value={currentSurah ? currentSurah.number.toString() : ""}
                   onValueChange={(value) => loadSurah(Number.parseInt(value))}
                 >
                   <SelectTrigger className="w-48 bg-white/80">

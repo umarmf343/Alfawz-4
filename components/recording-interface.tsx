@@ -16,7 +16,7 @@ import {
 import { createBrowserVoiceEngine, BrowserVoiceEngine } from "@/lib/voice/browser-voice-engine"
 
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
-  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY and refresh to enable AI feedback."
+  "AI transcription isn't configured on this server yet. Add a TARTEEL_API_KEY and refresh to enable AI feedback."
 
 interface RecordingInterfaceProps {
   expectedText: string
@@ -381,8 +381,17 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     return `${Math.round(latency)} ms`
   }
 
-  const getEngineLabel = (engine: LiveSessionSummary["analysis"]["engine"]) =>
-    engine === "nvidia" ? "NVIDIA GPU pipeline" : "On-device AI"
+  const getEngineLabel = (engine: LiveSessionSummary["analysis"]["engine"]) => {
+    if (engine === "tarteel") {
+      return "Tarteel recitation engine"
+    }
+
+    if (engine === "nvidia") {
+      return "NVIDIA GPU pipeline"
+    }
+
+    return "On-device AI"
+  }
 
   const getCategoryLabel = (category: MistakeCategory) =>
     MISTAKE_CATEGORY_META[category]?.label ?? category

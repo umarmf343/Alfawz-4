@@ -67,7 +67,7 @@ export type TajweedMetricScores = {
 }
 
 export type LiveAnalysisProfile = {
-  engine: "nvidia" | "on-device"
+  engine: "tarteel" | "nvidia" | "on-device"
   latencyMs: number | null
   description: string
   stack: string[]
@@ -504,20 +504,29 @@ export const createLiveSessionSummary = (
     count: categoryCounts[category] ?? 0,
   })).filter((entry) => entry.count > 0)
 
-  const analysisEngine = options.analysis?.engine ?? "nvidia"
-  const defaultStack =
-    analysisEngine === "nvidia"
-      ? ["NVIDIA TensorRT streaming", "CUDA-optimised Whisper", "GPU-powered tajwīd scoring"]
-      : ["Browser speech APIs", "Device microphone", "Client-side tajwīd heuristics"]
+  const analysisEngine = options.analysis?.engine ?? "tarteel"
+  const defaultStack = (() => {
+    if (analysisEngine === "tarteel") {
+      return ["Tarteel speech recognition", "tarteel-ml alignment", "Tajwīd scoring service"]
+    }
+
+    if (analysisEngine === "nvidia") {
+      return ["NVIDIA TensorRT streaming", "CUDA-optimised Whisper", "GPU-powered tajwīd scoring"]
+    }
+
+    return ["Browser speech APIs", "Device microphone", "Client-side tajwīd heuristics"]
+  })()
 
   const analysis: LiveAnalysisProfile = {
     engine: analysisEngine,
     latencyMs: options.analysis?.latencyMs ?? null,
     description:
       options.analysis?.description ??
-      (analysisEngine === "nvidia"
-        ? "GPU-accelerated inference tuned for <200ms latency with tajwīd-aware scoring."
-        : "On-device recognition using browser speech services for rapid feedback."),
+      analysisEngine === "tarteel"
+        ? "Cloud-hosted Tarteel recitation engine with tajwīd-aware scoring tuned for sub-200ms response times."
+        : analysisEngine === "nvidia"
+          ? "GPU-accelerated inference tuned for <200ms latency with tajwīd-aware scoring."
+          : "On-device recognition using browser speech services for rapid feedback.",
     stack: options.analysis?.stack ?? defaultStack,
   }
 

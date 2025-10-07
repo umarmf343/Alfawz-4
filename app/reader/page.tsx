@@ -178,7 +178,7 @@ const RECITER_AUDIO_SLUGS = {
 type ReciterKey = keyof typeof RECITER_AUDIO_SLUGS
 
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
-  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY and refresh to enable live analysis."
+  "AI transcription isn't configured on this server yet. Add a TARTEEL_API_KEY and refresh to enable live analysis."
 
 const DEFAULT_ANALYSIS_PROMPT = "Start the live analysis to receive tajweed feedback in real time."
 
@@ -454,8 +454,17 @@ export default function QuranReaderPage() {
     return `${Math.round(latency)} ms`
   }
 
-  const getInferenceEngineLabel = (engine: LiveSessionSummary["analysis"]["engine"]) =>
-    engine === "nvidia" ? "NVIDIA GPU pipeline" : "On-device AI"
+  const getInferenceEngineLabel = (engine: LiveSessionSummary["analysis"]["engine"]) => {
+    if (engine === "tarteel") {
+      return "Tarteel recitation engine"
+    }
+
+    if (engine === "nvidia") {
+      return "NVIDIA GPU pipeline"
+    }
+
+    return "On-device AI"
+  }
 
   const getMistakeCategoryLabel = (category: MistakeCategory) =>
     MISTAKE_CATEGORY_META[category]?.label ?? category
@@ -1035,7 +1044,7 @@ export default function QuranReaderPage() {
       setIsProcessingLiveChunk(false)
       setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
       setAnalysisMessage(
-        "Live analysis requires server-side transcription. Add an OPENAI_API_KEY and reload to continue.",
+        "Live analysis requires server-side transcription. Add a TARTEEL_API_KEY and reload to continue.",
       )
       return
     }
@@ -1067,7 +1076,7 @@ export default function QuranReaderPage() {
             shouldFinalizeRef.current = false
             setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
             setAnalysisMessage(
-              "Live analysis requires server-side transcription. Add an OPENAI_API_KEY and reload to continue.",
+              "Live analysis requires server-side transcription. Add a TARTEEL_API_KEY and reload to continue.",
             )
 
             if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
@@ -1386,7 +1395,7 @@ export default function QuranReaderPage() {
     if (!isLiveAnalysisSupported) {
       setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
       setAnalysisMessage(
-        "Live analysis requires server-side transcription. Add an OPENAI_API_KEY and reload to continue.",
+        "Live analysis requires server-side transcription. Add a TARTEEL_API_KEY and reload to continue.",
       )
       return
     }
@@ -1480,7 +1489,7 @@ export default function QuranReaderPage() {
     if (!isLiveAnalysisSupported) {
       setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
       setAnalysisMessage(
-        "Live analysis requires server-side transcription. Add an OPENAI_API_KEY and reload to continue.",
+        "Live analysis requires server-side transcription. Add a TARTEEL_API_KEY and reload to continue.",
       )
       return
     }

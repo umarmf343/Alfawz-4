@@ -60,7 +60,7 @@ const ARABIC_DIACRITICS = /[\u064B-\u065F\u0670]/g
 const ARABIC_TATWEEL = /\u0640/g
 const NON_ARABIC = /[^\u0621-\u064A\s]/g
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
-  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY to enable live tajweed analysis."
+  "AI transcription isn't configured on this server yet. Add a TARTEEL_API_KEY to enable live tajweed analysis."
 const STREAM_CHUNK_TARGET_MS = 2500
 
 function normalizeArabic(input: string): string {
@@ -1154,7 +1154,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-gray-300 bg-white/70 p-4 text-sm text-gray-600">
-                    Whisper is compiling the detailed tajweed summary for this session.
+                    Tarteel is compiling the detailed tajweed summary for this session.
                   </div>
                 )}
               </div>

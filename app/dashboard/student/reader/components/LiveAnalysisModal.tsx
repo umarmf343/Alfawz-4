@@ -163,7 +163,7 @@ export function LiveAnalysisModal({
           </DialogTitle>
           <DialogDescription>
             Recite the current āyah clearly into your microphone. We will highlight any mispronunciations in
-            real time using Whisper-powered analysis.
+            real time using Tarteel-powered analysis.
           </DialogDescription>
         </DialogHeader>
 
@@ -304,7 +304,7 @@ export function LiveAnalysisModal({
                 </p>
               ) : (
                 <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-                  Powered by the Web Speech API for instant hints while the full Whisper analysis catches up.
+                  Powered by the Web Speech API for instant hints while the full Tarteel analysis catches up.
                 </p>
               )}
             </section>
@@ -331,7 +331,7 @@ export function LiveAnalysisModal({
               analysis happens live during the session.
             </p>
             <p>
-              For the best accuracy, recite in a quiet space and keep your device close. Whisper Small/Tiny models support Arabic
+              For the best accuracy, recite in a quiet space and keep your device close. The cloud Tarteel pipeline supports Arabic
               phonetics but may require a few seconds to stabilise.
             </p>
           </section>

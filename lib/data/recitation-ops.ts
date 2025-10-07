@@ -95,7 +95,7 @@ export function getRecitationOpsOverview(): RecitationOpsOverview {
         id: "vocab",
         title: "Alphabet & Ayah Vocabulary",
         description:
-          "Generates canonical symbol sets so Whisper timestamps align with tajwīd rule evaluations for each ayah.",
+          "Generates canonical symbol sets so Tarteel timestamps align with tajwīd rule evaluations for each ayah.",
         owner: "Nurideen Musa",
         status: "amber",
         completion: 64,
@@ -178,7 +178,7 @@ export function getRecitationOpsOverview(): RecitationOpsOverview {
     monitors: [
       {
         id: "latency",
-        title: "Average Whisper Latency",
+        title: "Average Tarteel Latency",
         metric: "78s",
         target: "≤ 90s",
         status: "success",
