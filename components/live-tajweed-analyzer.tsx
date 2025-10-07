@@ -10,6 +10,7 @@ import { Loader2, Mic, Square, RotateCcw, AlertCircle, Sparkles } from "lucide-r
 
 import type { RecitationVerseRecord } from "@/lib/data/teacher-database"
 import { cn } from "@/lib/utils"
+import { useSpeechRecognition, type SpeechRecognitionResultPayload } from "@/hooks/useSpeechRecognition"
 
 interface LiveTajweedAnalyzerProps {
   surah: string
@@ -143,6 +144,7 @@ function buildHint(expected: string, heard: string, severity: IssueDescriptor["s
 
 export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAnalyzerProps) {
   const [transcript, setTranscript] = useState("")
+  const [interimTranscript, setInterimTranscript] = useState("")
   const [recognizedTokens, setRecognizedTokens] = useState<string[]>([])
   const [isListening, setIsListening] = useState(false)
   const [hasActivated, setHasActivated] = useState(false)
@@ -151,6 +153,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
   const [isProcessingChunk, setIsProcessingChunk] = useState(false)
   const [isFinalizing, setIsFinalizing] = useState(false)
   const [finalSummary, setFinalSummary] = useState<LiveSummary | null>(null)
+  const [speechRecognitionError, setSpeechRecognitionError] = useState<string | null>(null)
 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -161,6 +164,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
   const isProcessingRef = useRef(false)
   const recorderMimeTypeRef = useRef("audio/webm")
   const shouldFinalizeRef = useRef(false)
+  const stopSpeechRecognitionRef = useRef<() => void>(() => {})
 
   const expectedTokens = useMemo(() => buildTokens(verses), [verses])
   const expectedFullText = useMemo(() => verses.map((verse) => verse.arabic).join(" "), [verses])
@@ -184,6 +188,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     chunkQueueRef.current = []
     allChunksRef.current = []
     setTranscript("")
+    setInterimTranscript("")
     setRecognizedTokens([])
     setFinalSummary(null)
     setHasActivated(false)
@@ -194,6 +199,8 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
     }
+    stopSpeechRecognitionRef.current?.()
+    setInterimTranscript("")
   }, [])
 
   useEffect(() => {
@@ -247,6 +254,48 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     setRecognizedTokens([...recognitionHistoryRef.current])
     setTranscript(displayHistoryRef.current.join(" "))
   }, [])
+
+  const handleSpeechRecognitionResult = useCallback(
+    ({ transcript: speechTranscript, isFinal }: SpeechRecognitionResultPayload) => {
+      if (isFinal) {
+        updateTranscriptFromChunk(speechTranscript)
+        setInterimTranscript("")
+      } else {
+        setInterimTranscript(speechTranscript)
+      }
+    },
+    [updateTranscriptFromChunk],
+  )
+
+  const handleSpeechRecognitionError = useCallback((message: string) => {
+    setSpeechRecognitionError(message)
+  }, [])
+
+  const {
+    start: startSpeechRecognition,
+    stop: stopSpeechRecognition,
+    isSupported: isSpeechRecognitionSupported,
+    partialTranscript: speechPartialTranscript,
+  } = useSpeechRecognition({
+    lang: "ar-SA",
+    interimResults: true,
+    continuous: true,
+    onResult: handleSpeechRecognitionResult,
+    onError: handleSpeechRecognitionError,
+  })
+
+  stopSpeechRecognitionRef.current = stopSpeechRecognition
+
+  useEffect(() => {
+    if (!isSpeechRecognitionSupported) {
+      return
+    }
+    if (speechPartialTranscript) {
+      setInterimTranscript(speechPartialTranscript)
+    } else {
+      setInterimTranscript("")
+    }
+  }, [isSpeechRecognitionSupported, speechPartialTranscript])
 
   const processQueue = useCallback(async () => {
     if (isProcessingRef.current) {
@@ -398,6 +447,15 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
       recorder.onstart = () => {
         shouldFinalizeRef.current = false
         setIsListening(true)
+        if (isSpeechRecognitionSupported) {
+          setSpeechRecognitionError(null)
+          void startSpeechRecognition().catch((caught) => {
+            console.error("Speech recognition failed to start", caught)
+            setSpeechRecognitionError(
+              "Browser speech recognition could not start. Live feedback will rely on server transcription only.",
+            )
+          })
+        }
       }
 
       recorder.ondataavailable = (event) => {
@@ -438,7 +496,16 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
       setError("Could not access the microphone. Check your permissions and try again.")
       cleanupStream()
     }
-  }, [cleanupStream, expectedTokens.length, finalizeAnalysis, isListening, isSupported, processQueue])
+  }, [
+    cleanupStream,
+    expectedTokens.length,
+    finalizeAnalysis,
+    isListening,
+    isSpeechRecognitionSupported,
+    isSupported,
+    processQueue,
+    startSpeechRecognition,
+  ])
 
   const stopListening = useCallback(() => {
     if (!recorderRef.current) {
@@ -462,8 +529,10 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     allChunksRef.current = []
     setRecognizedTokens([])
     setTranscript("")
+    setInterimTranscript("")
     setFinalSummary(null)
     setError(null)
+    setSpeechRecognitionError(null)
     if (!isListening) {
       setHasActivated(false)
     }
@@ -744,12 +813,26 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
               </div>
             )}
 
-            {transcript && (
+            {(transcript || interimTranscript || speechRecognitionError) && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-gray-600">Recognizer transcript</p>
                 <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm" dir="rtl">
-                  {transcript}
+                  {transcript ? (
+                    <span>{transcript}</span>
+                  ) : (
+                    <span className="text-gray-400">No recognised words yet.</span>
+                  )}
+                  {interimTranscript && (
+                    <span className="ml-2 text-maroon-400">{interimTranscript}</span>
+                  )}
                 </div>
+                {speechRecognitionError ? (
+                  <p className="text-xs text-red-500">{speechRecognitionError}</p>
+                ) : !isSpeechRecognitionSupported ? (
+                  <p className="text-xs text-gray-500">
+                    Browser speech recognition is unavailable. We&apos;ll rely on server-side processing for live feedback.
+                  </p>
+                ) : null}
               </div>
             )}
 
