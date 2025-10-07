@@ -106,7 +106,7 @@ On first load the platform seeds a rich learner profile so every dashboard view 
 - **Habits in progress:**
   - *Daily Recitation Quest* (medium) – level 3, streak 6, progress 40%, rewards 60 XP / 45 hasanat per completion.
   - *Memorization Review* (hard) – level 2, streak 4, progress 60%, rewards 75 XP / 60 hasanat.
-  - *Reflection Journal* (easy) – level 2, streak 3, progress 10%, rewards 40 XP / 30 hasanat.
+  - *Qur'an Word & Ayah Insight* (easy) – level 2, streak 3, progress 10%, rewards 40 XP / 30 hasanat.
 - **Dashboard snapshot:** Daily target of 10 ayahs (4 already completed today), last read at Surah Al-Baqarah ayah 156, featured habit set to Daily Recitation, and active goals such as completing Surah Al-Mulk and memorising five new ayahs.
 - **Instructor context:**
   - `teacher_001` – Ustadh Kareem (Tajweed lead).
@@ -119,7 +119,7 @@ Use this reference when exploring or extending the UI so you know which default 
 
 Navigate to `/habits` from the sidebar to experience the gamified flow:
 
-- Choose among curated quests (recitation, memorization review, reflection journal).
+- Choose among curated quests (recitation, memorization review, Qur'an word & ayah insight).
 - View detailed quest dashboards, daily targets, and streak history.
 - Click **“Complete today’s quest”** to trigger `completeHabit` – XP, hasanat, and streaks update live and a toast celebrates the action.
 - Weekly progress cards visualize completion momentum for the selected habit.

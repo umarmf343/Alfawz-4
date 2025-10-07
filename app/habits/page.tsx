@@ -19,7 +19,6 @@ import {
   CalendarDays,
   Crown,
   Flame,
-  Pen,
   ShieldCheck,
   Sparkles,
   Target,
@@ -29,7 +28,7 @@ import {
 const habitIconMap = {
   BookOpen,
   Brain,
-  Pen,
+  Sparkles,
   Target,
 }
 
@@ -40,6 +39,21 @@ const difficultyStyles = {
 } as const
 
 const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+const todaysWord = {
+  arabic: "سَكِينَة",
+  transliteration: "sakīnah",
+  meaning: "Tranquility and reassurance that Allah places in the hearts of believers.",
+  note: "Notice how sakīnah descends when the Prophet ﷺ and the companions face difficulty, grounding them in calm faith.",
+  reference: "At-Tawbah 9:26",
+}
+
+const todaysVerse = {
+  reference: "Ash-Sharh 94:5-6",
+  arabicText: "فَإِنَّ مَعَ الْعُسْرِ يُسْرًا • إِنَّ مَعَ الْعُسْرِ يُسْرًا",
+  translation: "Indeed, with hardship comes ease. Certainly, with hardship comes ease.",
+  insight: "Pair today’s word with this promise—Allah’s tranquility settles in even when the trial feels heavy.",
+}
 
 export default function HabitQuestPage() {
   const { habits, stats, perks, isPremium, completeHabit } = useUser()
@@ -74,9 +88,38 @@ export default function HabitQuestPage() {
     if (!selectedHabit) return
     const result = completeHabit(selectedHabit.id)
     toast({
-      title: result.success ? "Habit completed!" : "Heads up",
+      title: result.success ? "Masha Allah! 🌟" : "Heads up",
       description: result.message,
     })
+    if (result.success) {
+      void import("canvas-confetti").then(({ default: confetti }) => {
+        confetti({
+          particleCount: 120,
+          spread: 70,
+          startVelocity: 45,
+          scalar: 0.9,
+          origin: { y: 0.8 },
+        })
+        confetti({
+          particleCount: 80,
+          spread: 60,
+          startVelocity: 35,
+          ticks: 200,
+          scalar: 0.7,
+          decay: 0.92,
+          origin: { x: 0.2, y: 0.8 },
+        })
+        confetti({
+          particleCount: 80,
+          spread: 60,
+          startVelocity: 35,
+          ticks: 200,
+          scalar: 0.7,
+          decay: 0.92,
+          origin: { x: 0.8, y: 0.8 },
+        })
+      })
+    }
   }
 
   return (
@@ -300,6 +343,37 @@ export default function HabitQuestPage() {
           </div>
 
           <div className="space-y-6">
+            <Card className="shadow-lg border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-emerald-100">
+              <CardHeader>
+                <CardTitle className="text-xl flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-emerald-600" />
+                  Daily Qur'an Word & Ayah
+                </CardTitle>
+                <CardDescription>
+                  Learn a fresh vocabulary gem and anchor it with an ayah meaning every day.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5 text-sm text-maroon-700">
+                <div className="rounded-lg border border-emerald-200 bg-white p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-emerald-600">Today's Word</p>
+                  <div className="mt-2 flex items-baseline justify-between gap-4">
+                    <span className="text-3xl font-semibold text-maroon-900">{todaysWord.arabic}</span>
+                    <span className="text-xs font-medium text-emerald-700">{todaysWord.reference}</span>
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-maroon-900">{todaysWord.transliteration}</p>
+                  <p className="mt-2">{todaysWord.meaning}</p>
+                  <p className="mt-3 text-xs text-emerald-700">{todaysWord.note}</p>
+                </div>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 shadow-sm">
+                  <p className="text-xs uppercase tracking-wide text-amber-700">Today's Ayah Insight</p>
+                  <p className="mt-2 text-lg font-semibold text-maroon-900">{todaysVerse.reference}</p>
+                  <p className="mt-2 text-base text-maroon-800">{todaysVerse.arabicText}</p>
+                  <p className="mt-3 text-sm text-maroon-700">{todaysVerse.translation}</p>
+                  <p className="mt-3 text-xs text-amber-700">{todaysVerse.insight}</p>
+                </div>
+              </CardContent>
+            </Card>
+
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="text-xl">Reward Track</CardTitle>

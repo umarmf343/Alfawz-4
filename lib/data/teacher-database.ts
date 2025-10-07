@@ -760,9 +760,9 @@ database.learners["user_001"] = {
       weeklyProgress: [90, 70, 40, 80, 30, 0, 0],
     },
     {
-      id: "reflection-journal",
-      title: "Reflection Journal",
-      description: "Write a reflection about today's recitation in your journal.",
+      id: "quran-word-ayah-insight",
+      title: "Qur'an Word & Ayah Insight",
+      description: "Learn one new Qur'anic word and study the meaning of one ayah each day.",
       difficulty: "easy",
       streak: 3,
       bestStreak: 8,
@@ -771,8 +771,8 @@ database.learners["user_001"] = {
       progress: 10,
       xpReward: 40,
       hasanatReward: 30,
-      dailyTarget: "1 entry",
-      icon: "Pen",
+      dailyTarget: "1 word + 1 ayah reflection",
+      icon: "Sparkles",
       lastCompletedAt: yesterdayKey,
       weeklyProgress: [70, 40, 20, 60, 10, 0, 0],
     },
@@ -2189,7 +2189,10 @@ export function completeHabitQuest(studentId: string, habitId: string): HabitCom
   applyGamificationEvent(record, { type: "habit", habitId })
 
   return {
-    result: { success: true, message: "Great job! Habit completed for today." },
+    result: {
+      success: true,
+      message: "Masha Allah! You’ve unlocked today’s reward for staying consistent.",
+    },
     state: cloneLearnerState(record),
   }
 }
