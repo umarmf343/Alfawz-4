@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 
-import { MUSHAF_FONT_SOURCES, resolveMushafFontUrl } from "@/lib/mushaf-fonts"
+import { MUSHAF_FONT_SOURCES, MUSHAF_FONTS_AVAILABLE, resolveMushafFontUrl } from "@/lib/mushaf-fonts"
 
 export type MushafFontStatus = "idle" | "loading" | "ready" | "error"
 
@@ -10,9 +10,25 @@ export function useMushafFontLoader(enabled: boolean): { status: MushafFontStatu
   const [status, setStatus] = useState<MushafFontStatus>("idle")
   const [error, setError] = useState<string | null>(null)
 
-  const shouldAttemptLoad = useMemo(() => enabled && typeof window !== "undefined" && "fonts" in document, [enabled])
+  const shouldAttemptLoad = useMemo(() => {
+    return enabled && MUSHAF_FONTS_AVAILABLE && typeof window !== "undefined" && "fonts" in document
+  }, [enabled])
 
   useEffect(() => {
+    if (!enabled) {
+      setStatus("idle")
+      setError(null)
+      return
+    }
+
+    if (!MUSHAF_FONTS_AVAILABLE) {
+      setStatus("error")
+      setError(
+        "Mushaf font assets are not installed on this server yet. Run `npm run fonts:mushaf` and convert the TTX exports to WOFF/WOFF2.",
+      )
+      return
+    }
+
     if (!shouldAttemptLoad) {
       return
     }
@@ -58,7 +74,7 @@ export function useMushafFontLoader(enabled: boolean): { status: MushafFontStatu
     return () => {
       isCancelled = true
     }
-  }, [shouldAttemptLoad])
+  }, [enabled, shouldAttemptLoad])
 
   return { status, isReady: status === "ready", error }
 }
