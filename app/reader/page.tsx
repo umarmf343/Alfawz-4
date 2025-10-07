@@ -1492,7 +1492,7 @@ export default function QuranReaderPage() {
         )}
         <div className="grid lg:grid-cols-4 gap-8">
           {/* Main Reader */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-3 space-y-6">
             <Card className="border-border/50 shadow-lg">
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">
@@ -1994,126 +1994,174 @@ export default function QuranReaderPage() {
                 </div>
               </CardContent>
             </Card>
+
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Card className="border-border/50">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-lg">Progress</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <div className="flex justify-between text-sm mb-2">
+                      <span>Surah Progress</span>
+                      <span>{Math.round(((currentAyah + 1) / Math.max(totalAyahs, 1)) * 100)}%</span>
+                    </div>
+                    <Progress value={((currentAyah + 1) / Math.max(totalAyahs, 1)) * 100} className="h-2" />
+                  </div>
+
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Today’s Goal</span>
+                      <span className="text-primary font-medium">
+                        {dailyTargetGoal > 0 ? `${dailyTargetGoal} Ayahs` : "No target"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Completed</span>
+                      <span className="text-primary font-medium">{dailyTargetCompleted} Ayahs</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Remaining</span>
+                      <span className={dailyGoalMet ? "text-emerald-600 font-medium" : "text-primary font-medium"}>
+                        {remainingAyahs}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Recited this session</span>
+                      <span className="text-accent font-medium">{sessionRecited}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 pt-2">
+                    <Progress value={dailyTargetPercent} className="h-2" />
+                    <p className="text-xs text-muted-foreground text-right">
+                      {dailyTargetPercent}% of today’s goal
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="border-border/50 overflow-hidden">
+                <CardHeader className="pb-0">
+                  <div className="rounded-xl bg-gradient-to-r from-maroon-600 to-maroon-700 p-5 text-white shadow-inner">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide">
+                          <Headphones className="h-3.5 w-3.5" /> Exclusive Audio Studio
+                        </div>
+                        <CardTitle className="text-xl font-semibold text-white">
+                          {GWANI_RECITER_NAME} Recitation
+                        </CardTitle>
+                        <p className="text-sm text-white/80">
+                          Stream the full mushaf recorded live in Kano and follow along as you recite.
+                        </p>
+                      </div>
+                      <Disc3 className="h-10 w-10 text-white/70" />
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-5 pt-5">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">Choose Surah to Stream</label>
+                    <Select
+                      value={gwaniSelectedSurah.toString()}
+                      onValueChange={(value) => {
+                        const surahNumber = Number.parseInt(value)
+                        if (!Number.isNaN(surahNumber)) {
+                          setGwaniSelectedSurah(surahNumber)
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Select Surah" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {surahList.map((surah) => (
+                          <SelectItem key={`gwani-${surah.number}`} value={surah.number.toString()}>
+                            {surah.number}. {surah.englishName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Currently preparing <span className="font-medium text-foreground">{gwaniSurahDetails.englishName}</span>{" "}
+                      ({gwaniSurahDetails.name}).
+                    </p>
+                  </div>
+
+                  <div className="space-y-4 rounded-xl border border-border/70 bg-muted/40 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Button
+                          onClick={handleGwaniPlayPause}
+                          size="icon"
+                          className="h-12 w-12 rounded-full bg-gradient-to-r from-maroon-600 to-maroon-700 text-white shadow-lg"
+                        >
+                          {isGwaniPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
+                        </Button>
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{gwaniSurahDetails.englishName}</p>
+                          <p className="text-xs text-muted-foreground">{GWANI_RECITER_NAME}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                        <Clock3 className="h-4 w-4" />
+                        {isGwaniLoading
+                          ? "Buffering…"
+                          : `${formatTimeDisplay(gwaniCurrentTime)} / ${formatTimeDisplay(gwaniDuration)}`}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <Slider
+                        value={[Number.isFinite(gwaniCurrentTime) ? gwaniCurrentTime : 0]}
+                        max={Number.isFinite(gwaniDuration) && gwaniDuration > 0 ? gwaniDuration : 0}
+                        min={0}
+                        step={1}
+                        onValueChange={handleGwaniProgressChange}
+                        disabled={!Number.isFinite(gwaniDuration) || gwaniDuration <= 0}
+                      />
+                      <Progress value={gwaniProgressPercent} className="h-1.5" />
+                    </div>
+
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-3">
+                        <Volume2 className="h-4 w-4 text-muted-foreground" />
+                        <Slider
+                          value={gwaniVolume}
+                          onValueChange={setGwaniVolume}
+                          min={0}
+                          max={100}
+                          step={1}
+                          className="w-40"
+                        />
+                      </div>
+                      <Button variant="outline" size="sm" className="bg-transparent" onClick={handleSyncReaderWithGwani}>
+                        Sync reader to this surah
+                      </Button>
+                    </div>
+                  </div>
+
+                  {gwaniError && (
+                    <Alert variant="destructive" className="border-destructive/30 bg-destructive/10 text-destructive">
+                      <div className="flex items-start gap-2">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription className="text-xs leading-relaxed">{gwaniError}</AlertDescription>
+                      </div>
+                    </Alert>
+                  )}
+
+                  <div className="rounded-lg border border-dashed border-border/60 bg-background/80 p-3 text-xs text-muted-foreground">
+                    Streamed from the public archive in partnership with the Gwani Online Institute. Perfect for memorisation circles
+                    and home revision.
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
 
           {/* Sidebar Controls */}
           <div className="space-y-6">
-            <Card className="border-border/50 overflow-hidden">
-              <CardHeader className="pb-0">
-                <div className="rounded-xl bg-gradient-to-r from-maroon-600 to-maroon-700 p-5 text-white shadow-inner">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide">
-                        <Headphones className="h-3.5 w-3.5" /> Exclusive Audio Studio
-                      </div>
-                      <CardTitle className="text-xl font-semibold text-white">
-                        {GWANI_RECITER_NAME} Recitation
-                      </CardTitle>
-                      <p className="text-sm text-white/80">
-                        Stream the full mushaf recorded live in Kano and follow along as you recite.
-                      </p>
-                    </div>
-                    <Disc3 className="h-10 w-10 text-white/70" />
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-5 pt-5">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-muted-foreground">Choose Surah to Stream</label>
-                  <Select
-                    value={gwaniSelectedSurah.toString()}
-                    onValueChange={(value) => {
-                      const surahNumber = Number.parseInt(value)
-                      if (!Number.isNaN(surahNumber)) {
-                        setGwaniSelectedSurah(surahNumber)
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select Surah" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-64">
-                      {surahList.map((surah) => (
-                        <SelectItem key={`gwani-${surah.number}`} value={surah.number.toString()}>
-                          {surah.number}. {surah.englishName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Currently preparing <span className="font-medium text-foreground">{gwaniSurahDetails.englishName}</span>{" "}
-                    ({gwaniSurahDetails.name}).
-                  </p>
-                </div>
-
-                <div className="space-y-4 rounded-xl border border-border/70 bg-muted/40 p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <Button
-                        onClick={handleGwaniPlayPause}
-                        size="icon"
-                        className="h-12 w-12 rounded-full bg-gradient-to-r from-maroon-600 to-maroon-700 text-white shadow-lg"
-                      >
-                        {isGwaniPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
-                      </Button>
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">{gwaniSurahDetails.englishName}</p>
-                        <p className="text-xs text-muted-foreground">{GWANI_RECITER_NAME}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                      <Clock3 className="h-4 w-4" />
-                      {isGwaniLoading
-                        ? "Buffering…"
-                        : `${formatTimeDisplay(gwaniCurrentTime)} / ${formatTimeDisplay(gwaniDuration)}`}
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <Slider
-                      value={[Number.isFinite(gwaniCurrentTime) ? gwaniCurrentTime : 0]}
-                      max={Number.isFinite(gwaniDuration) && gwaniDuration > 0 ? gwaniDuration : 0}
-                      min={0}
-                      step={1}
-                      onValueChange={handleGwaniProgressChange}
-                      disabled={!Number.isFinite(gwaniDuration) || gwaniDuration <= 0}
-                    />
-                    <Progress value={gwaniProgressPercent} className="h-1.5" />
-                  </div>
-
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-3">
-                      <Volume2 className="h-4 w-4 text-muted-foreground" />
-                      <Slider
-                        value={gwaniVolume}
-                        onValueChange={setGwaniVolume}
-                        min={0}
-                        max={100}
-                        step={1}
-                        className="w-40"
-                      />
-                    </div>
-                    <Button variant="outline" size="sm" className="bg-transparent" onClick={handleSyncReaderWithGwani}>
-                      Sync reader to this surah
-                    </Button>
-                  </div>
-                </div>
-
-                {gwaniError && (
-                  <Alert variant="destructive" className="border-destructive/30 bg-destructive/10 text-destructive">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription className="text-xs leading-relaxed">{gwaniError}</AlertDescription>
-                    </div>
-                  </Alert>
-                )}
-
-                <div className="rounded-lg border border-dashed border-border/60 bg-background/80 p-3 text-xs text-muted-foreground">
-                  Streamed from the public archive in partnership with the Gwani Online Institute. Perfect for memorisation circles
-                  and home revision.
-                </div>
-              </CardContent>
-            </Card>
             <Card className="border-border/50">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg">Reader Panel</CardTitle>
@@ -2265,52 +2313,6 @@ export default function QuranReaderPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Progress Tracking */}
-            <Card className="border-border/50">
-              <CardHeader className="pb-4">
-                <CardTitle className="text-lg">Progress</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <div className="flex justify-between text-sm mb-2">
-                    <span>Surah Progress</span>
-                    <span>{Math.round(((currentAyah + 1) / Math.max(totalAyahs, 1)) * 100)}%</span>
-                  </div>
-                  <Progress value={((currentAyah + 1) / Math.max(totalAyahs, 1)) * 100} className="h-2" />
-                </div>
-
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Today’s Goal</span>
-                    <span className="text-primary font-medium">
-                      {dailyTargetGoal > 0 ? `${dailyTargetGoal} Ayahs` : "No target"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Completed</span>
-                    <span className="text-primary font-medium">{dailyTargetCompleted} Ayahs</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Remaining</span>
-                    <span className={dailyGoalMet ? "text-emerald-600 font-medium" : "text-primary font-medium"}>
-                      {remainingAyahs}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Recited this session</span>
-                    <span className="text-accent font-medium">{sessionRecited}</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2 pt-2">
-                  <Progress value={dailyTargetPercent} className="h-2" />
-                  <p className="text-xs text-muted-foreground text-right">
-                    {dailyTargetPercent}% of today’s goal
-                  </p>
                 </div>
               </CardContent>
             </Card>
