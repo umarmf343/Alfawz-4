@@ -157,22 +157,34 @@ export function RecitationLab() {
     recognition.continuous = true
     recognition.interimResults = true
     recognition.onerror = (event) => {
-      console.warn("Speech recognition error", event)
+      if (!event) {
+        return
+      }
 
-      if (event.error === "no-speech" || event.error === "aborted") {
+      const errorCode = event.error
+
+      if (errorCode === "no-speech" || errorCode === "aborted") {
         // These errors occur naturally when the user is quiet for a while. When streaming
         // we silently restart recognition to keep transcripts flowing without surfacing
         // a confusing error state to the user.
         return
       }
 
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      console.warn("Speech recognition error", event)
+
+      if (errorCode === "not-allowed" || errorCode === "service-not-allowed") {
         setPermissionState("denied")
         setError("Microphone access is blocked. Enable audio permissions to continue capturing transcripts.")
         return
       }
 
-      setError(`Speech recognition error: ${event.error || "unknown"}`)
+      if (errorCode === "network") {
+        setError("Speech recognition service is currently unreachable. We'll keep recording so you can export audio later.")
+        return
+      }
+
+      const description = errorCode ? `Speech recognition error: ${errorCode}` : "Speech recognition encountered an unknown error."
+      setError(event.message ? `${description} – ${event.message}` : description)
     }
     recognition.onend = () => {
       if (!shouldRestartRecognitionRef.current) {

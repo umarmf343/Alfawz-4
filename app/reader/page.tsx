@@ -169,6 +169,8 @@ type ReciterKey = keyof typeof RECITER_AUDIO_SLUGS
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
   "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY and refresh to enable live analysis."
 
+const DEFAULT_ANALYSIS_PROMPT = "Start the live analysis to receive tajweed feedback in real time."
+
 const TRANSCRIPTION_AVAILABLE = process.env.NEXT_PUBLIC_TRANSCRIPTION_ENABLED === "true"
 
 type TajweedMetric = {
@@ -248,11 +250,9 @@ export default function QuranReaderPage() {
       description: "Echo on heavy letters",
     },
   ])
-  const isLiveAnalysisSupported = TRANSCRIPTION_AVAILABLE
+  const [isLiveAnalysisSupported, setIsLiveAnalysisSupported] = useState<boolean>(() => TRANSCRIPTION_AVAILABLE)
   const [analysisMessage, setAnalysisMessage] = useState(
-    isLiveAnalysisSupported
-      ? "Start the live analysis to receive tajweed feedback in real time."
-      : TRANSCRIPTION_UNAVAILABLE_MESSAGE,
+    TRANSCRIPTION_AVAILABLE ? DEFAULT_ANALYSIS_PROMPT : TRANSCRIPTION_UNAVAILABLE_MESSAGE,
   )
   const [isAnalysisStarted, setIsAnalysisStarted] = useState(false)
   const [liveTranscription, setLiveTranscription] = useState("")
@@ -264,6 +264,53 @@ export default function QuranReaderPage() {
   const { status: mushafFontStatus, isReady: areMushafFontsReady, error: mushafFontError } = useMushafFontLoader(
     useMushafTypography && isMushafTypographySupported,
   )
+
+  useEffect(() => {
+    let isMounted = true
+
+    const verifyTranscriptionAvailability = async () => {
+      try {
+        const response = await fetch("/api/transcribe/status", { cache: "no-store" })
+        if (!response.ok) {
+          throw new Error(`Unexpected status: ${response.status}`)
+        }
+
+        const payload = (await response.json()) as { enabled: boolean; reason?: string }
+        if (!isMounted) {
+          return
+        }
+
+        if (!payload.enabled) {
+          const message = payload.reason ?? TRANSCRIPTION_UNAVAILABLE_MESSAGE
+          setIsLiveAnalysisSupported(false)
+          setAnalysisMessage(message)
+          setLiveAnalysisError(message)
+          return
+        }
+
+        setIsLiveAnalysisSupported(true)
+        setLiveAnalysisError((previous) => (previous === TRANSCRIPTION_UNAVAILABLE_MESSAGE ? null : previous))
+        setAnalysisMessage((previous) =>
+          previous === TRANSCRIPTION_UNAVAILABLE_MESSAGE ? DEFAULT_ANALYSIS_PROMPT : previous,
+        )
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+
+        console.warn("Failed to verify transcription availability", error)
+        setIsLiveAnalysisSupported(false)
+        setAnalysisMessage(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+        setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+      }
+    }
+
+    void verifyTranscriptionAvailability()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   useEffect(() => {
     let isMounted = true
