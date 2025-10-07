@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Trash2, Play, Pause, Upload, Save } from "lucide-react"
+import { Trash2, Play, Pause, Save, Mic } from "lucide-react"
 
 interface Hotspot {
   id: string
@@ -108,6 +108,11 @@ export function HotspotEditor({ imageUrl, hotspots, onHotspotsChange, mode }: Ho
   }
 
   const startRecording = async () => {
+    if (!selectedHotspot) {
+      console.warn("Select a hotspot before recording audio")
+      return
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mediaRecorder = new MediaRecorder(stream)
@@ -357,6 +362,12 @@ export function HotspotEditor({ imageUrl, hotspots, onHotspotsChange, mode }: Ho
                             className={
                               isRecording ? "bg-red-600 hover:bg-red-700" : "bg-maroon-600 hover:bg-maroon-700"
                             }
+                            disabled={!selectedHotspot}
+                            title={
+                              selectedHotspot
+                                ? undefined
+                                : "Select a hotspot from the list before recording voice notes"
+                            }
                           >
                             {isRecording ? (
                               <>
@@ -365,7 +376,7 @@ export function HotspotEditor({ imageUrl, hotspots, onHotspotsChange, mode }: Ho
                               </>
                             ) : (
                               <>
-                                <Upload className="w-4 h-4 mr-1" />
+                                <Mic className="w-4 h-4 mr-1" />
                                 Record Audio
                               </>
                             )}
