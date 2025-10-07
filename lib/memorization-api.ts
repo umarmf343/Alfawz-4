@@ -59,6 +59,7 @@ export interface StudentMemorizationPlanContextDTO {
   progress: StudentPlanProgressDTO
   classes: MemorizationClassSummary[]
   teacher?: TeacherSummaryDTO
+  isActive: boolean
 }
 
 export interface CreatePersonalPlanPayload {

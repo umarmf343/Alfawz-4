@@ -1,9 +1,6 @@
 import { redirect } from "next/navigation"
 import { getActiveSession } from "@/lib/data/auth"
-import {
-  getStudentActiveMemorizationPlanId,
-  listStudentMemorizationPlans,
-} from "@/lib/data/teacher-database"
+import { listStudentMemorizationPlans } from "@/lib/data/teacher-database"
 import { StudentMemorizationDashboard } from "@/components/student/StudentMemorizationDashboard"
 import { formatVerseReference } from "@/lib/quran-data"
 
@@ -34,7 +31,8 @@ export default function StudentMemorizationPage() {
   const nudgePlan = assignedPlans.find((plan) => buildNudgeMessage(plan))
   const nudgeMessage = nudgePlan ? buildNudgeMessage(nudgePlan) : undefined
 
-  const activePlanId = getStudentActiveMemorizationPlanId(session.userId)
+  const activePlanId =
+    assignedPlans.find((context) => context.isActive)?.plan.id ?? assignedPlans[0]?.plan.id
 
   return (
     <div className="min-h-screen bg-amber-50/70 py-12">
@@ -48,6 +46,7 @@ export default function StudentMemorizationPage() {
               return { ...rest }
             }),
             teacher: context.teacher,
+            isActive: context.isActive,
           }))}
           nudgeMessage={nudgeMessage}
           initialActivePlanId={activePlanId}

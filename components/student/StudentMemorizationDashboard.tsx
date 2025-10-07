@@ -243,8 +243,10 @@ export function StudentMemorizationDashboard({
         try {
           const planContext = await createPersonalMemorizationPlan(payload)
           setPlans((prev) => {
-            const next = prev.filter((entry) => entry.plan.id !== planContext.plan.id)
-            return [planContext, ...next]
+            const next = prev
+              .filter((entry) => entry.plan.id !== planContext.plan.id)
+              .map((entry) => ({ ...entry, isActive: false }))
+            return [{ ...planContext, isActive: true }, ...next]
           })
           setActivePlanId(planContext.plan.id)
           toast({
@@ -270,8 +272,10 @@ export function StudentMemorizationDashboard({
       const { plan } = await setActiveMemorizationPlan(planId)
       setActivePlanId(plan.plan.id)
       setPlans((prev) => {
-        const remaining = prev.filter((entry) => entry.plan.id !== plan.plan.id)
-        return [plan, ...remaining]
+        const remaining = prev
+          .filter((entry) => entry.plan.id !== plan.plan.id)
+          .map((entry) => ({ ...entry, isActive: false }))
+        return [{ ...plan, isActive: true }, ...remaining]
       })
       toast({ title: "Focus updated", description: "This plan is now your primary habit." })
     } catch (error) {
