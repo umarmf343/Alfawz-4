@@ -10,6 +10,8 @@ import { Loader2, Mic, Square, RotateCcw, AlertCircle, Sparkles } from "lucide-r
 
 import type { RecitationVerseRecord } from "@/lib/data/teacher-database"
 import { cn } from "@/lib/utils"
+import { useMicrophoneStream } from "@/hooks/useMicrophoneStream"
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition"
 
 interface LiveTajweedAnalyzerProps {
   surah: string
@@ -144,16 +146,12 @@ function buildHint(expected: string, heard: string, severity: IssueDescriptor["s
 export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAnalyzerProps) {
   const [transcript, setTranscript] = useState("")
   const [recognizedTokens, setRecognizedTokens] = useState<string[]>([])
-  const [isListening, setIsListening] = useState(false)
   const [hasActivated, setHasActivated] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [isSupported, setIsSupported] = useState(true)
   const [isProcessingChunk, setIsProcessingChunk] = useState(false)
   const [isFinalizing, setIsFinalizing] = useState(false)
   const [finalSummary, setFinalSummary] = useState<LiveSummary | null>(null)
 
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
   const chunkQueueRef = useRef<Blob[]>([])
   const allChunksRef = useRef<Blob[]>([])
   const recognitionHistoryRef = useRef<string[]>([])
@@ -161,6 +159,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
   const isProcessingRef = useRef(false)
   const recorderMimeTypeRef = useRef("audio/webm")
   const shouldFinalizeRef = useRef(false)
+  const microphoneStopRef = useRef<() => Promise<void>>(() => Promise.resolve())
 
   const expectedTokens = useMemo(() => buildTokens(verses), [verses])
   const expectedFullText = useMemo(() => verses.map((verse) => verse.arabic).join(" "), [verses])
@@ -168,15 +167,6 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     () => verses.map((verse) => `${verse.ayah}:${verse.arabic}`).join("|"),
     [verses],
   )
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return
-    }
-    const hasRecorder = typeof window.MediaRecorder !== "undefined"
-    const hasMicrophone = !!navigator.mediaDevices?.getUserMedia
-    setIsSupported(hasRecorder && hasMicrophone)
-  }, [])
 
   useEffect(() => {
     recognitionHistoryRef.current = []
@@ -188,27 +178,6 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     setFinalSummary(null)
     setHasActivated(false)
   }, [versesFingerprint])
-
-  const cleanupStream = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
-      streamRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      shouldFinalizeRef.current = false
-      if (recorderRef.current && recorderRef.current.state !== "inactive") {
-        try {
-          recorderRef.current.stop()
-        } catch (caught) {
-          console.error("Failed to stop recorder on cleanup", caught)
-        }
-      }
-      cleanupStream()
-    }
-  }, [cleanupStream])
 
   const updateTranscriptFromChunk = useCallback((chunkText: string) => {
     const rawTokens = chunkText.split(/\s+/).filter(Boolean)
@@ -277,14 +246,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
         chunkQueueRef.current = []
         isProcessingRef.current = false
         setIsProcessingChunk(false)
-        if (recorderRef.current && recorderRef.current.state !== "inactive") {
-          try {
-            recorderRef.current.stop()
-          } catch (caught) {
-            console.error("Failed to stop recorder when transcription unavailable", caught)
-          }
-        }
-        cleanupStream()
+        void microphoneStopRef.current()
         return
       }
 
@@ -354,6 +316,119 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     [expectedFullText, updateTranscriptFromChunk],
   )
 
+  const handleMicrophoneChunk = useCallback(
+    (blob: Blob) => {
+      chunkQueueRef.current.push(blob)
+      allChunksRef.current.push(blob)
+      if (chunkQueueRef.current.length > 4) {
+        chunkQueueRef.current.splice(0, chunkQueueRef.current.length - 4)
+      }
+      void processQueue()
+    },
+    [processQueue],
+  )
+
+  const {
+    start: startSpeech,
+    stop: stopSpeech,
+    reset: resetSpeech,
+    status: speechStatus,
+    error: speechError,
+    isSupported: isSpeechSupported,
+    partialTranscript: speechPartial,
+  } = useSpeechRecognition({
+    language: "ar-SA",
+    onFinalResult: updateTranscriptFromChunk,
+    onError: (message) => {
+      setError((prev) => prev ?? message)
+    },
+  })
+
+  const handleMicrophoneStop = useCallback(
+    ({ error: stopError }: { error?: string }) => {
+      if (stopError) {
+        setError((prev) => prev ?? stopError)
+      }
+      void stopSpeech().catch(() => undefined)
+      setIsProcessingChunk(false)
+      const shouldFinalize = shouldFinalizeRef.current
+      shouldFinalizeRef.current = false
+      if (shouldFinalize && allChunksRef.current.length > 0) {
+        const finalBlob = new Blob(allChunksRef.current, {
+          type: recorderMimeTypeRef.current || "audio/webm",
+        })
+        void finalizeAnalysis(finalBlob)
+      }
+    },
+    [finalizeAnalysis, stopSpeech],
+  )
+
+  const {
+    start: startMicrophone,
+    stop: stopMicrophone,
+    status: microphoneStatus,
+    permission: microphonePermission,
+    error: microphoneError,
+    isSupported: microphoneSupported,
+    mimeType: microphoneMimeType,
+    volume: microphoneVolume,
+  } = useMicrophoneStream({
+    chunkDurationMs: 3200,
+    preferredMimeType: "audio/webm;codecs=opus",
+    audioConstraints: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      sampleRate: 44100,
+    },
+    onChunk: handleMicrophoneChunk,
+    onStop: handleMicrophoneStop,
+  })
+
+  const isListening = microphoneStatus === "recording"
+  const isSupported = microphoneSupported
+
+  useEffect(() => {
+    microphoneStopRef.current = stopMicrophone
+  }, [stopMicrophone])
+
+  useEffect(() => {
+    if (microphoneMimeType) {
+      recorderMimeTypeRef.current = microphoneMimeType
+    }
+  }, [microphoneMimeType])
+
+  useEffect(() => {
+    if (microphoneError) {
+      setError((prev) => prev ?? microphoneError)
+    }
+  }, [microphoneError])
+
+  useEffect(() => {
+    if (speechError) {
+      setError((prev) => prev ?? speechError)
+    }
+  }, [speechError])
+
+  useEffect(() => {
+    if (microphonePermission === "denied") {
+      setError((prev) =>
+        prev ?? "Microphone permission denied. Please enable access and try again.",
+      )
+    }
+  }, [microphonePermission])
+
+  useEffect(() => {
+    resetSpeech()
+  }, [resetSpeech, versesFingerprint])
+
+  useEffect(() => {
+    return () => {
+      shouldFinalizeRef.current = false
+      void stopMicrophone()
+      void stopSpeech()
+    }
+  }, [stopMicrophone, stopSpeech])
+
   const startListening = useCallback(async () => {
     if (isListening) {
       return
@@ -369,91 +444,53 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
       return
     }
 
+    chunkQueueRef.current = []
+    allChunksRef.current = []
+    recognitionHistoryRef.current = []
+    displayHistoryRef.current = []
+    setRecognizedTokens([])
+    setTranscript("")
+    setFinalSummary(null)
+    setError(null)
+    shouldFinalizeRef.current = false
+    resetSpeech()
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 44100,
-        },
-      })
-
-      streamRef.current = stream
-      const recorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      })
-
-      recorderMimeTypeRef.current = recorder.mimeType || "audio/webm"
-      recorderRef.current = recorder
-      chunkQueueRef.current = []
-      allChunksRef.current = []
-      recognitionHistoryRef.current = []
-      displayHistoryRef.current = []
-      setRecognizedTokens([])
-      setTranscript("")
-      setFinalSummary(null)
-      setError(null)
       setHasActivated(true)
-
-      recorder.onstart = () => {
-        shouldFinalizeRef.current = false
-        setIsListening(true)
+      await startMicrophone()
+      if (isSpeechSupported) {
+        await startSpeech().catch((caught) => {
+          console.error("Speech recognition start failed", caught)
+        })
       }
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunkQueueRef.current.push(event.data)
-          allChunksRef.current.push(event.data)
-          if (chunkQueueRef.current.length > 4) {
-            chunkQueueRef.current.splice(0, chunkQueueRef.current.length - 4)
-          }
-          void processQueue()
-        }
-      }
-
-      recorder.onstop = () => {
-        setIsListening(false)
-        cleanupStream()
-        recorderRef.current = null
-        const shouldFinalize = shouldFinalizeRef.current
-        shouldFinalizeRef.current = false
-        if (shouldFinalize && allChunksRef.current.length > 0) {
-          const finalBlob = new Blob(allChunksRef.current, {
-            type: recorderMimeTypeRef.current || "audio/webm",
-          })
-          void finalizeAnalysis(finalBlob)
-        }
-      }
-
-      recorder.onerror = (event) => {
-        console.error("Recorder error", event)
-        setError("Live analysis encountered a recording error. Try restarting the session.")
-        setIsListening(false)
-        cleanupStream()
-      }
-
-      recorder.start(4000)
     } catch (caught) {
       console.error("Unable to access microphone for live analysis", caught)
-      setError("Could not access the microphone. Check your permissions and try again.")
-      cleanupStream()
+      const fallbackMessage =
+        caught instanceof Error && caught.name === "NotAllowedError"
+          ? "Microphone permission denied. Please enable access and try again."
+          : caught instanceof Error
+            ? caught.message
+            : "Could not access the microphone. Check your permissions and try again."
+      setHasActivated(false)
+      setError(fallbackMessage)
     }
-  }, [cleanupStream, expectedTokens.length, finalizeAnalysis, isListening, isSupported, processQueue])
+  }, [
+    expectedTokens.length,
+    isListening,
+    isSpeechSupported,
+    isSupported,
+    resetSpeech,
+    startMicrophone,
+    startSpeech,
+  ])
 
   const stopListening = useCallback(() => {
-    if (!recorderRef.current) {
-      return
-    }
     shouldFinalizeRef.current = true
-    try {
-      if (recorderRef.current.state !== "inactive") {
-        recorderRef.current.stop()
-      }
-    } catch (caught) {
+    void stopSpeech()
+    void stopMicrophone().catch((caught) => {
       console.error("Unable to stop live recorder", caught)
-      cleanupStream()
-    }
-  }, [cleanupStream])
+    })
+  }, [stopMicrophone, stopSpeech])
 
   const resetAnalysis = () => {
     recognitionHistoryRef.current = []
@@ -464,6 +501,8 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     setTranscript("")
     setFinalSummary(null)
     setError(null)
+    resetSpeech()
+    shouldFinalizeRef.current = false
     if (!isListening) {
       setHasActivated(false)
     }
@@ -567,6 +606,26 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     upcoming: "text-gray-500 border border-dashed border-gray-300",
   }
 
+  const microphoneLevel = Math.min(100, Math.round(microphoneVolume * 140))
+  const speechStatusLabel =
+    speechStatus === "listening"
+      ? "Listening"
+      : speechStatus === "initialising"
+        ? "Starting"
+        : speechStatus === "stopping"
+          ? "Stopping"
+          : speechStatus === "error"
+            ? "Error"
+            : "Idle"
+  const speechStatusTone =
+    speechStatus === "error"
+      ? "border-red-300 text-red-600"
+      : speechStatus === "listening"
+        ? "border-emerald-300 text-emerald-600"
+        : speechStatus === "initialising"
+          ? "border-amber-300 text-amber-600"
+          : "border-slate-300 text-slate-600"
+
   return (
     <Card className="border-maroon-100 shadow-sm">
       <CardHeader className="space-y-1.5">
@@ -592,8 +651,8 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
             <AlertCircle className="w-4 h-4" />
             <AlertTitle className="text-sm font-semibold">Browser not supported</AlertTitle>
             <AlertDescription className="text-xs text-muted-foreground">
-              Your browser does not support the MediaRecorder API required for live tajweed analysis. Please use a modern Chrome
-              or Edge browser.
+              Your browser does not provide the real-time microphone streaming APIs required for live tajweed analysis. Please
+              try the latest version of Chrome, Edge, or another Chromium-based browser.
             </AlertDescription>
           </Alert>
         ) : (
@@ -625,6 +684,35 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                   {isListening ? "Stop" : "Begin Analysis"}
                 </Button>
               </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 text-xs text-gray-600">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-gray-600">Input level</span>
+                <div className="relative h-2 w-28 overflow-hidden rounded-full bg-emerald-100">
+                  <div
+                    className={cn(
+                      "absolute inset-y-0 left-0 rounded-full transition-all",
+                      microphoneLevel > 80 ? "bg-emerald-600" : "bg-emerald-500",
+                    )}
+                    style={{ width: `${microphoneLevel}%` }}
+                  />
+                </div>
+                <span className="text-[10px] font-semibold text-emerald-600">{microphoneLevel}%</span>
+              </div>
+              {isSpeechSupported ? (
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-600">Recognizer</span>
+                  <Badge variant="outline" className={cn("text-[10px] px-2 py-0.5", speechStatusTone)}>
+                    {speechStatusLabel}
+                  </Badge>
+                </div>
+              ) : (
+                <span className="flex items-center gap-1 text-[10px] text-amber-600">
+                  <AlertCircle className="h-3 w-3" /> Browser speech recognition unavailable — falling back to Whisper-only
+                  feedback.
+                </span>
+              )}
             </div>
 
             {error && (
@@ -744,11 +832,14 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
               </div>
             )}
 
-            {transcript && (
+            {(transcript || speechPartial) && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-gray-600">Recognizer transcript</p>
                 <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm" dir="rtl">
-                  {transcript}
+                  {transcript ? <span>{transcript}</span> : null}
+                  {speechPartial ? (
+                    <span className="ml-2 text-slate-400 italic">{speechPartial}</span>
+                  ) : null}
                 </div>
               </div>
             )}

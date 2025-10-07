@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useMicrophoneStream } from "@/hooks/useMicrophoneStream"
 
 export type LiveRecitationStatus =
   | "idle"
@@ -348,27 +349,11 @@ export function useLiveRecitation(
   const [feedback, setFeedback] = useState<WordFeedback[]>([])
   const [extras, setExtras] = useState<ExtraWordFeedback[]>([])
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
   const queueRef = useRef<Promise<void>>(Promise.resolve())
   const mountedRef = useRef<boolean>(false)
+  const microphoneActiveRef = useRef(false)
 
   const expectedVerseMemo = useMemo(() => expectedVerse, [expectedVerse])
-
-  const stopRecordingInternal = useCallback(() => {
-    const recorder = mediaRecorderRef.current
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop()
-    }
-    mediaRecorderRef.current = null
-
-    const stream = streamRef.current
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop())
-    }
-    streamRef.current = null
-    setStatus((prev) => (prev === "error" ? prev : "idle"))
-  }, [])
 
   const performTranscription = useCallback(
     async (audioBlob: Blob) => {
@@ -415,7 +400,7 @@ export function useLiveRecitation(
         const alignment = alignWords(expectedVerseMemo, transcription)
         setFeedback(alignment.feedback)
         setExtras(alignment.extras)
-        setStatus(mediaRecorderRef.current ? "listening" : "idle")
+        setStatus(microphoneActiveRef.current ? "listening" : "idle")
         setError(null)
       } catch (err) {
         console.error("Live recitation chunk processing failed", err)
@@ -437,72 +422,98 @@ export function useLiveRecitation(
     [processChunk],
   )
 
+  const {
+    start: startMicrophone,
+    stop: stopMicrophone,
+    status: microphoneStatus,
+    permission: microphonePermission,
+    error: microphoneError,
+    isSupported: microphoneSupported,
+  } = useMicrophoneStream({
+    chunkDurationMs,
+    audioConstraints: {
+      channelCount: 1,
+      sampleRate: 44100,
+      noiseSuppression: true,
+      echoCancellation: true,
+    },
+    onChunk: enqueueChunk,
+  })
+
+  useEffect(() => {
+    microphoneActiveRef.current = microphoneStatus === "recording"
+    if (microphoneStatus === "recording") {
+      setStatus((prev) => (prev === "processing" ? prev : "listening"))
+    } else if (microphoneStatus === "requesting-permission") {
+      setStatus("requesting-permission")
+    } else if (microphoneStatus === "error") {
+      setStatus("error")
+    } else if (microphoneStatus === "idle") {
+      setStatus((prev) => {
+        if (prev === "processing" || prev === "error" || prev === "permission-denied") {
+          return prev
+        }
+        return "idle"
+      })
+    }
+  }, [microphoneStatus])
+
+  useEffect(() => {
+    if (microphonePermission === "granted") {
+      setPermission("granted")
+    } else if (microphonePermission === "denied") {
+      setPermission("denied")
+      setStatus((prev) => {
+        if (prev === "processing" || prev === "error") {
+          return prev
+        }
+        return "permission-denied"
+      })
+    } else {
+      setPermission("unknown")
+    }
+  }, [microphonePermission])
+
+  useEffect(() => {
+    if (microphoneError) {
+      setError(microphoneError)
+      setStatus("error")
+    }
+  }, [microphoneError])
+
   const start = useCallback(async () => {
     if (typeof window === "undefined") {
       return
     }
-    if (mediaRecorderRef.current) {
+    if (!microphoneSupported) {
+      setError("Microphone is not supported in this browser")
+      setStatus("error")
       return
     }
+
+    queueRef.current = Promise.resolve()
     setError(null)
     setStatus("requesting-permission")
 
     try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Microphone is not supported in this browser")
-      }
-      if (typeof MediaRecorder === "undefined") {
-        throw new Error("MediaRecorder API is not available in this environment")
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate: 44100,
-          noiseSuppression: true,
-          echoCancellation: true,
-        },
-      })
-
-      const recorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      })
-
-      recorder.addEventListener("dataavailable", (event) => {
-        if (event.data && event.data.size > 0) {
-          enqueueChunk(event.data)
-        }
-      })
-
-      recorder.addEventListener("error", (event) => {
-        console.error("MediaRecorder error", event)
-        setStatus("error")
-        setError("Recording failed. Please try again.")
-      })
-
-      recorder.addEventListener("stop", () => {
-        setStatus((prev) => (prev === "error" ? prev : "idle"))
-      })
-
-      mediaRecorderRef.current = recorder
-      streamRef.current = stream
-      setPermission("granted")
-      setStatus("listening")
-      recorder.start(chunkDurationMs)
+      await startMicrophone()
     } catch (err) {
       console.error("Unable to access microphone", err)
-      setPermission("denied")
       const message =
-        err instanceof Error && err.message.includes("not supported")
-          ? err.message
-          : "Microphone permission denied. Please enable access to continue."
+        err instanceof Error && err.name === "NotAllowedError"
+          ? "Microphone permission denied. Please enable access to continue."
+          : err instanceof Error
+            ? err.message
+            : "Unable to access the microphone"
+      setPermission("denied")
       setStatus("permission-denied")
       setError(message)
     }
-  }, [chunkDurationMs, enqueueChunk])
+  }, [microphoneSupported, startMicrophone])
 
   const stop = useCallback(() => {
-    stopRecordingInternal()
-  }, [stopRecordingInternal])
+    void stopMicrophone()
+  }, [stopMicrophone])
 
   const reset = useCallback(() => {
     setResults([])
@@ -510,15 +521,16 @@ export function useLiveRecitation(
     setExtras([])
     setError(null)
     setStatus("idle")
+    queueRef.current = Promise.resolve()
   }, [])
 
   useEffect(() => {
     mountedRef.current = true
     return () => {
       mountedRef.current = false
-      stopRecordingInternal()
+      void stopMicrophone()
     }
-  }, [stopRecordingInternal])
+  }, [stopMicrophone])
 
   useEffect(() => {
     reset()
