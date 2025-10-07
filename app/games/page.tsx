@@ -2,12 +2,24 @@
 
 import Link from "next/link"
 import { useMemo } from "react"
-import { Sparkles, Zap, Shield, Target, Gamepad2, Trophy, Users, Medal, Crown } from "lucide-react"
+import {
+  BookOpenCheck,
+  Lightbulb,
+  Sparkles,
+  Zap,
+  Shield,
+  Target,
+  Gamepad2,
+  Trophy,
+  Users,
+  Medal,
+  Crown,
+} from "lucide-react"
 
 import AppLayout from "@/components/app-layout"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useUser } from "@/hooks/use-user"
@@ -80,6 +92,81 @@ export default function GamesHubPage() {
             Season {gamePanel?.season.level ?? 1}
           </Badge>
         </header>
+
+        <section className="grid gap-4 lg:grid-cols-[3fr,2fr]">
+          <Card className="border-0 bg-gradient-to-br from-maroon-700 via-maroon-600 to-emerald-600 text-white shadow-xl">
+            <CardHeader className="space-y-3">
+              <Badge className="w-fit bg-white/15 text-white border-white/30">New Seasonal Drop</Badge>
+              <CardTitle className="text-2xl font-semibold flex items-center gap-2">
+                <BookOpenCheck className="h-5 w-5" /> Tafsir Trivia Quest
+              </CardTitle>
+              <CardDescription className="text-white/80">
+                Sprint through foundations, context, and real-world application with a fully interactive tafsir trivia game.
+                Stack streak multipliers, unlock scholar insights, and record reflections as you master each ayah.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2 text-sm text-white/90">
+                <p className="font-semibold uppercase tracking-wide text-white/70">Power-ups</p>
+                <ul className="space-y-1">
+                  <li>• Tafsir gem lifeline with scholar quotes.</li>
+                  <li>• Reflection pause for bonus hasanat streaks.</li>
+                  <li>• Option filter that clears tricky distractors.</li>
+                </ul>
+              </div>
+              <div className="space-y-2 text-sm text-white/90">
+                <p className="font-semibold uppercase tracking-wide text-white/70">Earned rewards</p>
+                <ul className="space-y-1">
+                  <li>• Knowledge score &amp; combo multipliers.</li>
+                  <li>• Guided journal log for every verse.</li>
+                  <li>• Habit quest recommendations post-game.</li>
+                </ul>
+              </div>
+            </CardContent>
+            <CardFooter className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-white/80">
+                Crafted for tafsir nights, halaqah warm-ups, and competitive family study sessions.
+              </p>
+              <Button
+                asChild
+                className="bg-white text-maroon-700 hover:bg-emerald-100 border-0 font-semibold"
+              >
+                <Link href="/games/tafsir-trivia">Launch Tafsir Trivia</Link>
+              </Button>
+            </CardFooter>
+          </Card>
+          <Card className="border-maroon-100 shadow-lg">
+            <CardHeader className="space-y-2">
+              <CardTitle className="flex items-center gap-2 text-maroon-900">
+                <Lightbulb className="h-5 w-5 text-amber-500" /> Design brainstorm
+              </CardTitle>
+              <CardDescription className="text-gray-600">
+                Highlighting the learning science powering the new tafsir mini-game.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-gray-700">
+              <div className="rounded-lg border border-maroon-100 bg-maroon-50/60 p-3">
+                <p className="font-semibold text-maroon-800">Immersive flow</p>
+                <p className="text-gray-600">
+                  Three thematic rounds move students from literal meaning to lived transformation, mirroring a halaqah lesson
+                  arc.
+                </p>
+              </div>
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+                <p className="font-semibold text-emerald-700">Meaningful lifelines</p>
+                <p className="text-gray-600">
+                  Support tools reward reflection rather than guessing—consult tafsir, journal, then commit to an answer.
+                </p>
+              </div>
+              <div className="rounded-lg border border-amber-100 bg-amber-50/60 p-3">
+                <p className="font-semibold text-amber-700">Actionable outcomes</p>
+                <p className="text-gray-600">
+                  Every question concludes with a prompt and follow-up quest suggestion so insights convert into habits.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
 
         {gamePanel && (
           <Card className="bg-gradient-to-br from-maroon-600 to-maroon-700 text-white border-0 shadow-xl">
