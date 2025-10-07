@@ -1,6 +1,9 @@
 // Al-Quran Cloud API Integration
 // Provides access to authentic Quranic text, translations, and audio
 
+import localQuranText from "@/data/quran-uthmani.json"
+import localSurahMeta from "@/data/quran.json"
+
 export interface Surah {
   number: number
   name: string
@@ -51,6 +54,104 @@ export interface QuranEdition {
   type: "quran" | "translation" | "transliteration"
 }
 
+type LocalSurahMetadata = {
+  name: string
+  name_translations: Record<string, string>
+  number_of_ayah: number
+  number_of_surah: number
+  place: string
+  type: string
+  recitation?: string
+}
+
+const ESTIMATED_AYAH_PER_PAGE = 10
+const verseTextFallback = localQuranText as Record<string, string>
+const localSurahMetadata = localSurahMeta as LocalSurahMetadata[]
+
+const fallbackSurahContent = new Map<
+  number,
+  { surah: Surah; ayahs: Ayah[]; recitation?: string }
+>()
+
+const fallbackSurahList: Surah[] = []
+
+let ayahSequenceOffset = 0
+let pageSequenceOffset = 1
+
+for (const surah of localSurahMetadata) {
+  const englishTranslation = surah.name_translations?.en ?? surah.name
+  const normalizedType = surah.type?.toLowerCase().includes("mak") ? "Meccan" : "Medinan"
+
+  const normalizedSurah: Surah = {
+    number: surah.number_of_surah,
+    name: surah.name,
+    englishName: surah.name,
+    englishNameTranslation: englishTranslation,
+    numberOfAyahs: surah.number_of_ayah,
+    revelationType: normalizedType,
+  }
+
+  const estimatedPages = Math.max(1, Math.ceil(surah.number_of_ayah / ESTIMATED_AYAH_PER_PAGE))
+
+  const ayahs: Ayah[] = Array.from({ length: surah.number_of_ayah }, (_, index) => {
+    const ayahNumber = index + 1
+    const verseKey = `${surah.number_of_surah}:${ayahNumber}`
+    const text = verseTextFallback[verseKey] ?? ""
+
+    return {
+      number: ayahSequenceOffset + ayahNumber,
+      text,
+      numberInSurah: ayahNumber,
+      juz: 0,
+      manzil: 0,
+      page: pageSequenceOffset + Math.floor(index / ESTIMATED_AYAH_PER_PAGE),
+      ruku: 0,
+      hizbQuarter: 0,
+      sajda: undefined,
+    }
+  })
+
+  fallbackSurahContent.set(surah.number_of_surah, {
+    surah: normalizedSurah,
+    ayahs,
+    recitation: surah.recitation,
+  })
+
+  fallbackSurahList.push(normalizedSurah)
+
+  ayahSequenceOffset += surah.number_of_ayah
+  pageSequenceOffset += estimatedPages
+}
+
+const fallbackReciters: Reciter[] = [
+  {
+    id: 1,
+    name: "Mishary Rashid Alafasy",
+    englishName: "Mishary Rashid Alafasy",
+    format: "audio",
+    bitrate: "128kbps",
+  },
+]
+
+const fallbackEditions: QuranEdition[] = [
+  {
+    identifier: "quran-uthmani",
+    language: "ar",
+    name: "Mushaf al-Madina",
+    englishName: "Uthmani Script",
+    format: "text",
+    type: "quran",
+  },
+  {
+    identifier: "en.sahih",
+    language: "en",
+    name: "Saheeh International",
+    englishName: "Saheeh International",
+    format: "text",
+    type: "translation",
+  },
+]
+
 class QuranCloudAPI {
   private baseUrl = "https://api.alquran.cloud/v1"
   private cache = new Map<string, any>()
@@ -84,7 +185,8 @@ class QuranCloudAPI {
       throw new Error("Failed to fetch surahs")
     } catch (error) {
       console.error("Error fetching surahs:", error)
-      return []
+      this.setCache(cacheKey, fallbackSurahList)
+      return fallbackSurahList
     }
   }
 
@@ -129,6 +231,11 @@ class QuranCloudAPI {
       throw new Error("Failed to fetch surah")
     } catch (error) {
       console.error("Error fetching surah:", error)
+      const fallback = fallbackSurahContent.get(surahNumber)
+      if (fallback) {
+        this.setCache(cacheKey, fallback)
+        return fallback
+      }
       return null
     }
   }
@@ -183,7 +290,31 @@ class QuranCloudAPI {
       throw new Error("Failed to fetch ayah")
     } catch (error) {
       console.error("Error fetching ayah:", error)
-      return null
+      const fallbackSurah = fallbackSurahContent.get(surahNumber)
+      if (!fallbackSurah) {
+        return null
+      }
+
+      const ayah = fallbackSurah.ayahs[ayahNumber - 1]
+      if (!ayah) {
+        return null
+      }
+
+      const translations = editions
+        .filter((edition) => edition !== "quran-uthmani")
+        .map((edition) => ({
+          text: "Translation unavailable in offline mode.",
+          language: edition.split(".")[0] ?? "en",
+          translator: "Offline placeholder",
+        }))
+
+      const fallbackResult = {
+        arabic: ayah,
+        translations,
+      }
+
+      this.setCache(cacheKey, fallbackResult)
+      return fallbackResult
     }
   }
 
@@ -214,7 +345,8 @@ class QuranCloudAPI {
       throw new Error("Failed to fetch reciters")
     } catch (error) {
       console.error("Error fetching reciters:", error)
-      return []
+      this.setCache(cacheKey, fallbackReciters)
+      return fallbackReciters
     }
   }
 
@@ -243,6 +375,16 @@ class QuranCloudAPI {
       throw new Error("Failed to fetch audio")
     } catch (error) {
       console.error("Error fetching audio:", error)
+      const fallback = fallbackSurahContent.get(surahNumber)
+      if (fallback?.recitation) {
+        const audioSegments: AudioSegment[] = [
+          {
+            url: fallback.recitation,
+          },
+        ]
+        this.setCache(cacheKey, audioSegments)
+        return audioSegments
+      }
       return []
     }
   }
@@ -275,7 +417,8 @@ class QuranCloudAPI {
       throw new Error("Failed to fetch editions")
     } catch (error) {
       console.error("Error fetching editions:", error)
-      return []
+      this.setCache(cacheKey, fallbackEditions)
+      return fallbackEditions
     }
   }
 
@@ -335,7 +478,52 @@ class QuranCloudAPI {
       throw new Error("Failed to search ayahs")
     } catch (error) {
       console.error("Error searching ayahs:", error)
-      return []
+      const trimmedQuery = query.trim()
+      if (!trimmedQuery) {
+        return []
+      }
+
+      const results: {
+        ayah: Ayah
+        surah: Surah
+        matches: string[]
+      }[] = []
+
+      for (const [key, text] of Object.entries(verseTextFallback)) {
+        if (language !== "ar") {
+          continue
+        }
+
+        if (!text.includes(trimmedQuery)) {
+          continue
+        }
+
+        const [surahKey, ayahKey] = key.split(":")
+        const surahNumberFromKey = Number.parseInt(surahKey ?? "0", 10)
+        const ayahNumberFromKey = Number.parseInt(ayahKey ?? "0", 10)
+
+        if (!Number.isFinite(surahNumberFromKey) || !Number.isFinite(ayahNumberFromKey)) {
+          continue
+        }
+
+        if (surah && surah !== surahNumberFromKey) {
+          continue
+        }
+
+        const fallbackSurah = fallbackSurahContent.get(surahNumberFromKey)
+        const ayah = fallbackSurah?.ayahs[ayahNumberFromKey - 1]
+        if (!fallbackSurah || !ayah) {
+          continue
+        }
+
+        results.push({
+          ayah,
+          surah: fallbackSurah.surah,
+          matches: [trimmedQuery],
+        })
+      }
+
+      return results
     }
   }
 
@@ -362,7 +550,27 @@ class QuranCloudAPI {
       }
     } catch (error) {
       console.error("Error fetching random ayah:", error)
-      return null
+      const fallbackSurahIndex = Math.floor(Math.random() * fallbackSurahList.length)
+      const fallbackSurah = fallbackSurahList[fallbackSurahIndex]
+      if (!fallbackSurah) {
+        return null
+      }
+
+      const fallbackSurahContentEntry = fallbackSurahContent.get(fallbackSurah.number)
+      if (!fallbackSurahContentEntry) {
+        return null
+      }
+
+      const randomAyahIndex = Math.floor(Math.random() * fallbackSurahContentEntry.ayahs.length)
+      const ayah = fallbackSurahContentEntry.ayahs[randomAyahIndex]
+      if (!ayah) {
+        return null
+      }
+
+      return {
+        ayah,
+        surah: fallbackSurahContentEntry.surah,
+      }
     }
   }
 
