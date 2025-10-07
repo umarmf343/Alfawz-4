@@ -32,6 +32,14 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { quranAPI, type Surah as QuranSurah, type Ayah as QuranAyah } from "@/lib/quran-api"
+import {
+  annotateTajweedMistakes,
+  analyzeMistakes,
+  calculateTajweedMetricScores,
+  removeDiacritics,
+  type LiveMistake,
+  type LiveSessionSummary,
+} from "@/lib/tajweed-analysis"
 
 const FALLBACK_AUDIO_BASE = "https://cdn.islamic.network/quran/audio/128/ar.alafasy"
 
@@ -154,6 +162,9 @@ const RECITER_AUDIO_SLUGS = {
 
 type ReciterKey = keyof typeof RECITER_AUDIO_SLUGS
 
+const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
+  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY and refresh to enable live analysis."
+
 type TajweedMetric = {
   id: string
   label: string
@@ -162,283 +173,6 @@ type TajweedMetric = {
   description: string
 }
 
-type LiveMistake = {
-  index: number
-  type: "missing" | "extra" | "substitution"
-  word?: string
-  correct?: string
-  normalizedWord?: string
-  normalizedCorrect?: string
-  tajweedError?: string
-  tajweedRules?: string[]
-}
-
-type LiveSessionSummary = {
-  transcription: string
-  expectedText: string
-  feedback: {
-    overallScore: number
-    accuracy: number
-    timingScore: number
-    fluencyScore: number
-    feedback: string
-    errors: { type: string; message: string; expected?: string; transcribed?: string }[]
-  }
-  hasanatPoints: number
-  arabicLetterCount: number
-  words?: { start: number; end: number; word: string }[]
-  duration?: number
-  ayahId?: string
-}
-
-const removeDiacritics = (text: string) => text.replace(/[\u064B-\u0652\u0670\u0640]/g, "")
-
-const sanitizeWord = (word: string) =>
-  removeDiacritics(word)
-    .replace(/[.,،!?؛:()\[\]{}«»\-]/g, "")
-    .trim()
-
-const tokenizeWords = (text: string) =>
-  (text.match(/\S+/g) ?? [])
-    .map((raw) => ({ raw, sanitized: sanitizeWord(raw) }))
-    .filter((token) => token.sanitized.length > 0)
-
-const analyzeMistakes = (transcribedText: string, correctText: string): LiveMistake[] => {
-  if (!transcribedText || !correctText) {
-    return []
-  }
-
-  const transcribedWords = tokenizeWords(transcribedText)
-  const correctWords = tokenizeWords(correctText)
-  const mistakes: LiveMistake[] = []
-  const maxLength = Math.max(transcribedWords.length, correctWords.length)
-
-  for (let index = 0; index < maxLength; index += 1) {
-    const spoken = transcribedWords[index]
-    const expected = correctWords[index]
-
-    if (!spoken && expected) {
-      mistakes.push({
-        index,
-        type: "missing",
-        correct: expected.raw,
-        normalizedCorrect: expected.sanitized,
-      })
-    } else if (spoken && !expected) {
-      mistakes.push({
-        index,
-        type: "extra",
-        word: spoken.raw,
-        normalizedWord: spoken.sanitized,
-      })
-    } else if (
-      spoken &&
-      expected &&
-      spoken.sanitized &&
-      expected.sanitized &&
-      spoken.sanitized !== expected.sanitized
-    ) {
-      mistakes.push({
-        index,
-        type: "substitution",
-        word: spoken.raw,
-        correct: expected.raw,
-        normalizedWord: spoken.sanitized,
-        normalizedCorrect: expected.sanitized,
-      })
-    }
-  }
-
-  return mistakes
-}
-
-const MAKHRAJ_GROUPS: Record<string, string[]> = {
-  throat: ["ء", "ه", "ع", "ح", "غ", "خ"],
-  tongueTip: ["ت", "د", "ط", "ث", "ذ", "ظ", "ص", "ز", "س", "ن", "ر", "ل"],
-  tongueMiddle: ["ج", "ش", "ي"],
-  tongueBack: ["ق", "ك"],
-  lips: ["ب", "م", "ف", "و"],
-  nasal: ["ن", "م"],
-}
-
-const HEAVY_LETTERS = new Set(["ص", "ض", "ط", "ظ", "ق", "غ", "خ"])
-const QALQALAH_LETTERS = new Set(["ق", "ط", "ب", "ج", "د"])
-const MADD_LETTERS = new Set(["ا", "و", "ي", "ى", "آ"])
-
-const getMakhrajGroup = (letter: string) =>
-  Object.entries(MAKHRAJ_GROUPS).find(([, letters]) => letters.includes(letter))?.[0] ?? null
-
-const findFirstLetterDifference = (spoken: string, correct: string) => {
-  const spokenLetters = Array.from(spoken)
-  const correctLetters = Array.from(correct)
-
-  for (let i = 0; i < Math.max(spokenLetters.length, correctLetters.length); i += 1) {
-    const spokenLetter = spokenLetters[i]
-    const correctLetter = correctLetters[i]
-    if (!spokenLetter || !correctLetter) {
-      if (!spokenLetter && correctLetter) {
-        return { spokenLetter: "", correctLetter }
-      }
-      if (spokenLetter && !correctLetter) {
-        return { spokenLetter, correctLetter: "" }
-      }
-      continue
-    }
-
-    if (spokenLetter !== correctLetter) {
-      return { spokenLetter, correctLetter }
-    }
-  }
-
-  return null
-}
-
-const needsMadd = (word: string) => {
-  const normalized = removeDiacritics(word)
-  if (!normalized) {
-    return false
-  }
-
-  return Array.from(normalized).some((letter, index, array) => {
-    if (!MADD_LETTERS.has(letter)) {
-      return false
-    }
-
-    const previous = array[index - 1]
-    return Boolean(previous)
-  })
-}
-
-const detectGhunnahRequirement = (word: string) => /\u0646\u0651|\u0645\u0651/.test(word)
-
-const annotateTajweedMistakes = (mistakes: LiveMistake[]): LiveMistake[] => {
-  return mistakes.map((mistake) => {
-    const detectedRules: string[] = []
-    const spoken = mistake.word ?? ""
-    const correct = mistake.correct ?? ""
-    const normalizedSpoken = mistake.normalizedWord ?? (spoken ? sanitizeWord(spoken) : "")
-    const normalizedCorrect = mistake.normalizedCorrect ?? (correct ? sanitizeWord(correct) : "")
-
-    if (mistake.type === "missing" && correct) {
-      if (needsMadd(correct)) {
-        detectedRules.push("Madd: Maintain elongation on the long vowel that was skipped.")
-      }
-      if (detectGhunnahRequirement(correct)) {
-        detectedRules.push("Ghunnah: Sustain nasalization on مّ or نّ in the omitted word.")
-      }
-    }
-
-    if (mistake.type === "substitution" && normalizedCorrect) {
-      const difference = findFirstLetterDifference(normalizedSpoken, normalizedCorrect)
-      if (difference?.correctLetter) {
-        const correctGroup = getMakhrajGroup(difference.correctLetter)
-        const spokenGroup = difference.spokenLetter ? getMakhrajGroup(difference.spokenLetter) : null
-
-        if (correctGroup && correctGroup !== spokenGroup) {
-          detectedRules.push(`Makhraj: Articulate the letter from the ${correctGroup.replace(/([A-Z])/g, " $1").toLowerCase()} area.`)
-        }
-
-        if (HEAVY_LETTERS.has(difference.correctLetter)) {
-          detectedRules.push(`Tafkhim: Keep the letter "${difference.correctLetter}" heavy during pronunciation.`)
-        }
-
-        if (QALQALAH_LETTERS.has(difference.correctLetter)) {
-          detectedRules.push(`Qalqalah: Add the echo/bounce when pronouncing "${difference.correctLetter}".`)
-        }
-      }
-
-      if (needsMadd(correct) && normalizedSpoken.length < normalizedCorrect.length) {
-        detectedRules.push("Madd: Preserve the required elongation for long vowels.")
-      }
-
-      if (detectGhunnahRequirement(correct) && !detectGhunnahRequirement(spoken)) {
-        detectedRules.push("Ghunnah: Maintain the nasal sound on doubled م or ن.")
-      }
-    }
-
-    if (mistake.type === "extra" && normalizedSpoken) {
-      const firstExtraLetter = Array.from(normalizedSpoken)[0]
-      if (firstExtraLetter && HEAVY_LETTERS.has(firstExtraLetter)) {
-        detectedRules.push("Tafkhim: Ensure added letters do not introduce unnecessary heavy sounds.")
-      }
-    }
-
-    return {
-      ...mistake,
-      tajweedRules: detectedRules,
-      tajweedError: detectedRules.length > 0 ? detectedRules.join(" ") : undefined,
-    }
-  })
-}
-
-const calculateTajweedMetricScores = (mistakes: LiveMistake[], expectedText: string) => {
-  if (!expectedText) {
-    return {
-      makharij: 100,
-      madd: 100,
-      ghunnah: 100,
-      qalqalah: 100,
-    }
-  }
-
-  const totalWords = Math.max(1, tokenizeWords(expectedText).length)
-
-  const issueCounters = {
-    makharij: 0,
-    madd: 0,
-    ghunnah: 0,
-    qalqalah: 0,
-  }
-
-  mistakes.forEach((mistake) => {
-    const rules = mistake.tajweedRules ?? []
-    const counted = {
-      makharij: false,
-      madd: false,
-      ghunnah: false,
-      qalqalah: false,
-    }
-
-    rules.forEach((rule) => {
-      const normalizedRule = rule.toLowerCase()
-      if (!counted.makharij && (normalizedRule.includes("makhraj") || normalizedRule.includes("tafkhim"))) {
-        issueCounters.makharij += 1
-        counted.makharij = true
-      }
-      if (!counted.madd && normalizedRule.includes("madd")) {
-        issueCounters.madd += 1
-        counted.madd = true
-      }
-      if (!counted.ghunnah && normalizedRule.includes("ghunnah")) {
-        issueCounters.ghunnah += 1
-        counted.ghunnah = true
-      }
-      if (!counted.qalqalah && normalizedRule.includes("qalqalah")) {
-        issueCounters.qalqalah += 1
-        counted.qalqalah = true
-      }
-    })
-
-    if (rules.length === 0 && mistake.type === "substitution") {
-      issueCounters.makharij += 0.5
-    }
-    if (mistake.type === "missing") {
-      issueCounters.madd += 0.5
-    }
-  })
-
-  const scoreFromIssues = (issues: number) => {
-    const penalty = (issues / totalWords) * 100
-    return Math.max(45, Math.round(100 - penalty))
-  }
-
-  return {
-    makharij: scoreFromIssues(issueCounters.makharij),
-    madd: scoreFromIssues(issueCounters.madd),
-    ghunnah: scoreFromIssues(issueCounters.ghunnah),
-    qalqalah: scoreFromIssues(issueCounters.qalqalah),
-  }
-}
 
 export default function QuranReaderPage() {
   const { dashboard, incrementDailyTarget, submitRecitationResult } = useUser()
@@ -798,6 +532,28 @@ export default function QuranReaderPage() {
             body: formData,
           })
 
+          if (response.status === 503) {
+            chunkQueueRef.current = []
+            sessionChunksRef.current = []
+            shouldFinalizeRef.current = false
+            setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+            setAnalysisMessage(
+              "Live analysis requires server-side transcription. Add an OPENAI_API_KEY and reload to continue.",
+            )
+
+            if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+              try {
+                mediaRecorderRef.current.stop()
+              } catch (stopError) {
+                console.error("Failed to stop recorder after unavailable transcription service", stopError)
+              }
+            }
+
+            setIsRecording(false)
+            setIsAnalysisStarted(false)
+            break
+          }
+
           if (!response.ok) {
             throw new Error(`Live analysis request failed: ${response.status}`)
           }
@@ -840,7 +596,14 @@ export default function QuranReaderPage() {
           setLiveAnalysisError(null)
         } catch (error) {
           console.error("Live analysis processing error", error)
-          setLiveAnalysisError("We couldn't process the latest recitation. Please try again.")
+          if (
+            error instanceof Error &&
+            error.message.toLowerCase().includes("503")
+          ) {
+            setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+          } else {
+            setLiveAnalysisError("We couldn't process the latest recitation. Please try again.")
+          }
         }
       }
     } finally {
@@ -876,6 +639,15 @@ export default function QuranReaderPage() {
           method: "POST",
           body: formData,
         })
+
+        if (response.status === 503) {
+          setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+          setAnalysisMessage(
+            "Live analysis stopped because the AI transcription service is not configured on this server.",
+          )
+          shouldFinalizeRef.current = false
+          return
+        }
 
         if (!response.ok) {
           throw new Error(`Final transcription failed: ${response.status}`)

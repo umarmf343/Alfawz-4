@@ -56,6 +56,8 @@ type LiveSummary = {
 const ARABIC_DIACRITICS = /[\u064B-\u065F\u0670]/g
 const ARABIC_TATWEEL = /\u0640/g
 const NON_ARABIC = /[^\u0621-\u064A\s]/g
+const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
+  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY to enable live tajweed analysis."
 
 function normalizeArabic(input: string): string {
   return input
@@ -270,6 +272,22 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
         body: formData,
       })
 
+      if (response.status === 503) {
+        setError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+        chunkQueueRef.current = []
+        isProcessingRef.current = false
+        setIsProcessingChunk(false)
+        if (recorderRef.current && recorderRef.current.state !== "inactive") {
+          try {
+            recorderRef.current.stop()
+          } catch (caught) {
+            console.error("Failed to stop recorder when transcription unavailable", caught)
+          }
+        }
+        cleanupStream()
+        return
+      }
+
       if (!response.ok) {
         throw new Error(`Live transcription failed with status ${response.status}`)
       }
@@ -310,6 +328,11 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
           method: "POST",
           body: formData,
         })
+
+        if (response.status === 503) {
+          setError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+          return
+        }
 
         if (!response.ok) {
           throw new Error(`Failed to finalise analysis: ${response.status}`)

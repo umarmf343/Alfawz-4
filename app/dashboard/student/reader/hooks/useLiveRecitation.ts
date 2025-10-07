@@ -45,6 +45,9 @@ interface AlignmentResult {
 
 const DEFAULT_CHUNK_DURATION = 4000
 
+const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
+  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY to enable live recitation feedback."
+
 /**
  * Align transcribed words with expected verse using a Levenshtein-based dynamic programming approach.
  */
@@ -381,16 +384,21 @@ export function useLiveRecitation(
         body: formData,
       })
 
+      if (response.status === 503) {
+        throw new Error(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+      }
+
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}))
         throw new Error(payload.error ?? "Failed to transcribe audio chunk")
       }
 
-      const payload = (await response.json()) as { text?: string }
-      if (!payload.text) {
+      const payload = (await response.json()) as { text?: string; transcription?: string }
+      const transcription = payload.transcription ?? payload.text
+      if (!transcription) {
         throw new Error("No transcription returned from server")
       }
-      return payload.text
+      return transcription
     },
     [transcribe],
   )
@@ -412,7 +420,11 @@ export function useLiveRecitation(
       } catch (err) {
         console.error("Live recitation chunk processing failed", err)
         setStatus("error")
-        setError(err instanceof Error ? err.message : "Unknown transcription error")
+        if (err instanceof Error && err.message === TRANSCRIPTION_UNAVAILABLE_MESSAGE) {
+          setError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+        } else {
+          setError(err instanceof Error ? err.message : "Unknown transcription error")
+        }
       }
     },
     [performTranscription, expectedVerseMemo],

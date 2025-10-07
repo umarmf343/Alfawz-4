@@ -14,6 +14,9 @@ interface RecordingInterfaceProps {
   onTranscriptionComplete?: (result: any) => void
 }
 
+const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
+  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY and refresh to enable AI feedback."
+
 export function RecordingInterface({ expectedText, ayahId, onTranscriptionComplete }: RecordingInterfaceProps) {
   const [isRecording, setIsRecording] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -165,6 +168,11 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
         body: formData,
       })
 
+      if (response.status === 503) {
+        alert(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+        return
+      }
+
       if (!response.ok) {
         throw new Error("Transcription failed")
       }
@@ -174,7 +182,11 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
       onTranscriptionComplete?.(result)
     } catch (error) {
       console.error("Transcription error:", error)
-      alert("Failed to transcribe audio. Please try again.")
+      alert(
+        error instanceof Error && error.message.includes("OpenAI")
+          ? TRANSCRIPTION_UNAVAILABLE_MESSAGE
+          : "Failed to transcribe audio. Please try again.",
+      )
     } finally {
       setIsTranscribing(false)
     }
