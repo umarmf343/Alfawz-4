@@ -28,6 +28,7 @@ export interface UseSpeechRecognitionResult {
   start: () => Promise<void>
   stop: () => void
   abort: () => void
+  reset: () => void
   isSupported: boolean
   isListening: boolean
   error: string | null
@@ -159,6 +160,12 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}):
     recognitionRef.current?.abort()
   }, [])
 
+  const reset = useCallback(() => {
+    setPartialTranscript("")
+    setFinalTranscript("")
+    setError(null)
+  }, [])
+
   useEffect(() => () => {
     recognitionRef.current?.stop()
     recognitionRef.current = null
@@ -168,6 +175,7 @@ export function useSpeechRecognition(options: UseSpeechRecognitionOptions = {}):
     start,
     stop,
     abort,
+    reset,
     isSupported: recognitionConstructor != null,
     isListening,
     error,

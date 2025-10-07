@@ -21,6 +21,7 @@ import { QuranFlipBook } from "@/components/quran-flipbook"
 import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
 import { useUser } from "@/hooks/use-user"
 import { StudentWelcomeAudio } from "@/components/student/StudentWelcomeAudio"
+import { VoiceRecognitionWidget } from "@/components/student/VoiceRecognitionWidget"
 import { getDailySurahRecommendations } from "@/lib/daily-surah"
 import {
   BookOpen,
@@ -484,6 +485,9 @@ export default function DashboardPage() {
                 <Star className="w-3 h-3 mr-1" />
                 {stats.hasanat.toLocaleString()} Hasanat Points
               </Badge>
+            </div>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <VoiceRecognitionWidget />
             </div>
           </div>
 
