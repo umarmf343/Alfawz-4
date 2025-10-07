@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useMemo } from "react"
-import { Sparkles, Zap, Shield, Target, Gamepad2, Trophy } from "lucide-react"
+import { Sparkles, Zap, Shield, Target, Gamepad2, Trophy, Users, Medal, Crown } from "lucide-react"
 
 import AppLayout from "@/components/app-layout"
 import { Badge } from "@/components/ui/badge"
@@ -18,6 +18,50 @@ export default function GamesHubPage() {
 
   const tasks = useMemo(() => gamePanel?.tasks ?? [], [gamePanel?.tasks])
   const boosts = useMemo(() => gamePanel?.boosts ?? [], [gamePanel?.boosts])
+  const multiplayerArenas = useMemo(
+    () => [
+      {
+        id: "recitation-rumble",
+        title: "Recitation Rumble",
+        focus: "Fluency & melody challenges",
+        className: "Level 3A • Ustadha Maryam",
+        schedule: "Thursdays • 5:00 PM",
+        reward: "Golden Qira'at Crest",
+        leaderboard: [
+          { name: "Amina", score: 980 },
+          { name: "Yusuf", score: 925 },
+          { name: "Fatimah", score: 910 },
+        ],
+      },
+      {
+        id: "memory-marathon",
+        title: "Memory Marathon",
+        focus: "Hifdh speed rounds",
+        className: "Level 4B • Ustadh Hamza",
+        schedule: "Saturdays • 10:30 AM",
+        reward: "Golden Hifdh Laurel",
+        leaderboard: [
+          { name: "Zakariya", score: 1020 },
+          { name: "Maryam", score: 990 },
+          { name: "Bilal", score: 955 },
+        ],
+      },
+      {
+        id: "tafsir-trials",
+        title: "Tafsir Trials",
+        focus: "Reflection & application quests",
+        className: "Level 2C • Ustadha Layla",
+        schedule: "Wednesdays • 4:15 PM",
+        reward: "Golden Insight Medal",
+        leaderboard: [
+          { name: "Huda", score: 870 },
+          { name: "Khalid", score: 845 },
+          { name: "Salma", score: 820 },
+        ],
+      },
+    ],
+    [],
+  )
 
   return (
     <AppLayout>
@@ -154,6 +198,60 @@ export default function GamesHubPage() {
                 </CardContent>
               </Card>
             )}
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <h2 className="text-2xl font-semibold text-maroon-900 flex items-center gap-2">
+              <Users className="h-5 w-5 text-maroon-600" /> Multiplayer arenas
+            </h2>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <Crown className="h-4 w-4 text-yellow-500" />
+              Winners unlock exclusive gold badges and leaderboard glory.
+            </div>
+          </div>
+          <Separator />
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+            {multiplayerArenas.map((arena) => (
+              <Card key={arena.id} className="border-maroon-100 shadow-md flex flex-col">
+                <CardHeader className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="outline" className="bg-maroon-50 text-maroon-700 border-maroon-200">
+                      {arena.focus}
+                    </Badge>
+                    <Badge className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-0 flex items-center gap-1">
+                      <Medal className="h-3.5 w-3.5" />
+                      Gold Reward
+                    </Badge>
+                  </div>
+                  <CardTitle className="text-xl text-maroon-900">{arena.title}</CardTitle>
+                  <CardDescription className="text-gray-600 space-y-1">
+                    <p>{arena.className}</p>
+                    <p>{arena.schedule}</p>
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 flex-1 flex flex-col">
+                  <div>
+                    <h3 className="text-sm font-semibold text-maroon-800">Leaderboard Standings</h3>
+                    <ol className="mt-2 space-y-2 text-sm text-gray-700">
+                      {arena.leaderboard.map((entry, index) => (
+                        <li key={entry.name} className="flex items-center justify-between rounded-md bg-maroon-50 px-3 py-2">
+                          <span className="flex items-center gap-2">
+                            <span className="text-maroon-500 font-semibold">#{index + 1}</span>
+                            {entry.name}
+                          </span>
+                          <span className="font-semibold text-maroon-700">{entry.score} pts</span>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                  <div className="mt-auto text-sm text-gray-600">
+                    Champion Reward: <span className="font-semibold text-maroon-700">{arena.reward}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </section>
 
