@@ -84,6 +84,7 @@ export function RecitationLab() {
   const startTimeRef = useRef<number | null>(null)
   const sessionChunksRef = useRef<Blob[]>([])
   const rafRef = useRef<number | null>(null)
+  const shouldRestartRecognitionRef = useRef(false)
 
   useEffect(() => {
     const recognizer = getSpeechRecognition()
@@ -117,6 +118,7 @@ export function RecitationLab() {
   }, [isRecording])
 
   const resetSession = useCallback(() => {
+    shouldRestartRecognitionRef.current = false
     mediaRecorderRef.current?.stop()
     recognitionRef.current?.stop()
     audioStreamRef.current?.getTracks().forEach((track) => track.stop())
@@ -156,7 +158,37 @@ export function RecitationLab() {
     recognition.interimResults = true
     recognition.onerror = (event) => {
       console.warn("Speech recognition error", event)
-      setError(`Speech recognition error: ${event.error}`)
+
+      if (event.error === "no-speech" || event.error === "aborted") {
+        // These errors occur naturally when the user is quiet for a while. When streaming
+        // we silently restart recognition to keep transcripts flowing without surfacing
+        // a confusing error state to the user.
+        return
+      }
+
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setPermissionState("denied")
+        setError("Microphone access is blocked. Enable audio permissions to continue capturing transcripts.")
+        return
+      }
+
+      setError(`Speech recognition error: ${event.error || "unknown"}`)
+    }
+    recognition.onend = () => {
+      if (!shouldRestartRecognitionRef.current) {
+        return
+      }
+      window.setTimeout(() => {
+        if (!shouldRestartRecognitionRef.current) {
+          return
+        }
+        try {
+          recognition.start()
+        } catch (restartError) {
+          console.error("Failed to restart speech recognition", restartError)
+          setError("Speech recognition stopped unexpectedly. Try restarting the capture session.")
+        }
+      }, 250)
     }
     recognition.onresult = (event) => {
       for (let i = event.results.length - 1; i >= 0; i -= 1) {
@@ -201,6 +233,7 @@ export function RecitationLab() {
       const recognition = setupSpeechRecognition()
       if (recognition) {
         recognitionRef.current = recognition
+        shouldRestartRecognitionRef.current = true
         recognition.start()
       }
 
@@ -215,6 +248,7 @@ export function RecitationLab() {
   }, [handlePermission, resetSession, setupSpeechRecognition])
 
   const stopRecording = useCallback(() => {
+    shouldRestartRecognitionRef.current = false
     mediaRecorderRef.current?.stop()
     recognitionRef.current?.stop()
     audioStreamRef.current?.getTracks().forEach((track) => track.stop())
