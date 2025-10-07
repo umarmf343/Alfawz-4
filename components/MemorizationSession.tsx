@@ -19,6 +19,33 @@ import { formatVerseReference, getVerseText } from "@/lib/quran-data"
 
 const amiri = Amiri({ subsets: ["arabic"], weight: ["400", "700"], variable: "--font-amiri" })
 
+function formatCadenceLabel(cadence: string): string {
+  switch (cadence) {
+    case "daily":
+      return "Daily rhythm"
+    case "weekday":
+      return "Weekday flow"
+    case "weekend":
+      return "Weekend immersion"
+    case "alternate":
+      return "Alternate day pacing"
+    default:
+      return cadence.charAt(0).toUpperCase() + cadence.slice(1)
+  }
+}
+
+function formatReminderTime(value: string): string {
+  const [hoursPart, minutesPart] = value.split(":")
+  const hours = Number.parseInt(hoursPart ?? "", 10)
+  const minutes = Number.parseInt(minutesPart ?? "", 10)
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return value
+  }
+  const date = new Date()
+  date.setHours(hours, minutes, 0, 0)
+  return new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(date)
+}
+
 interface MemorizationSessionProps {
   plan: MemorizationPlanDTO
   initialProgress: StudentPlanProgressDTO
@@ -144,6 +171,20 @@ export function MemorizationSession({ plan, initialProgress, classes, teacherNam
   }, [handleRepeat])
 
   const isPlanComplete = Boolean(progress.completedAt)
+  const personalPlanSettings = plan.personalPlanSettings
+  const isPersonalPlan = Boolean(plan.createdByStudentId)
+  const checkInLabel = personalPlanSettings
+    ? personalPlanSettings.checkInDays
+        .map((day) => day.charAt(0).toUpperCase() + day.slice(1))
+        .join(" • ")
+    : undefined
+  const cadenceLabel = personalPlanSettings ? formatCadenceLabel(personalPlanSettings.cadence) : undefined
+  const reminderLabel = personalPlanSettings?.reminderTime
+    ? formatReminderTime(personalPlanSettings.reminderTime)
+    : undefined
+  const startDateLabel = personalPlanSettings?.startDate
+    ? new Date(personalPlanSettings.startDate).toLocaleDateString()
+    : undefined
   const verseNumber = hasVerses ? Math.min(progress.currentVerseIndex + 1, totalVerses) : 0
   const repetitionsRemaining = Math.max(REPETITION_TARGET - progress.repetitionsDone, 0)
 
@@ -165,13 +206,21 @@ export function MemorizationSession({ plan, initialProgress, classes, teacherNam
         <header className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-3xl font-semibold text-maroon-900">{plan.title}</h1>
-            <Badge className="bg-emerald-700 text-white">Memorization Plan</Badge>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="bg-emerald-700 text-white">Memorization Plan</Badge>
+              {isPersonalPlan && (
+                <Badge className="bg-amber-200 text-amber-900">Self-paced focus</Badge>
+              )}
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-4 text-sm text-maroon-700">
             {teacherName && (
               <span>
                 Guided by <span className="font-medium text-emerald-700">{teacherName}</span>
               </span>
+            )}
+            {!teacherName && isPersonalPlan && (
+              <span>Self-guided journey</span>
             )}
             {classes.length > 0 && (
               <span>
@@ -271,6 +320,51 @@ export function MemorizationSession({ plan, initialProgress, classes, teacherNam
             </>
           )}
         </section>
+
+        {personalPlanSettings && (
+          <section className="rounded-3xl border border-emerald-100 bg-white/85 p-6 shadow-inner">
+            <h2 className="text-base font-semibold text-emerald-900">Habit blueprint</h2>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {cadenceLabel && (
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-emerald-600">Cadence</p>
+                  <p className="text-sm text-maroon-800">{cadenceLabel}</p>
+                </div>
+              )}
+              {checkInLabel && (
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-emerald-600">Check-in days</p>
+                  <p className="text-sm text-maroon-800">{checkInLabel}</p>
+                </div>
+              )}
+              {(personalPlanSettings.habitCue || reminderLabel) && (
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-emerald-600">Anchor cue</p>
+                  <p className="text-sm text-maroon-800">
+                    {personalPlanSettings.habitCue ? personalPlanSettings.habitCue : "Bring the verse to life after your chosen moment."}
+                  </p>
+                </div>
+              )}
+              {reminderLabel && (
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-emerald-600">Gentle reminder</p>
+                  <p className="text-sm text-maroon-800">{reminderLabel}</p>
+                </div>
+              )}
+              {startDateLabel && (
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-emerald-600">Journey began</p>
+                  <p className="text-sm text-maroon-800">{startDateLabel}</p>
+                </div>
+              )}
+            </div>
+            {personalPlanSettings.intention && (
+              <p className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm italic text-emerald-900">
+                “{personalPlanSettings.intention}”
+              </p>
+            )}
+          </section>
+        )}
 
         {plan.notes && (
           <section className="rounded-3xl border border-emerald-100 bg-emerald-50/50 p-6 text-sm text-emerald-800 shadow-inner">
