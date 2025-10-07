@@ -160,10 +160,10 @@ export function DailySurahRecitationExperience({ detail }: DailySurahRecitationE
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="rounded-xl border border-maroon-100 bg-cream-50 p-3 text-sm text-maroon-700">
-                Focus intention: renew sincerity before starting and end with du'a for steadfastness.
+                Focus intention: renew sincerity before starting and end with du’a for steadfastness.
               </div>
               <ScrollArea className="h-64 rounded-xl border border-gray-100 bg-white p-4">
-                <ol className="space-y-3 text-right font-[\"Scheherazade\"] text-lg leading-relaxed text-maroon-900">
+                <ol className='space-y-3 text-right font-["Scheherazade"] text-lg leading-relaxed text-maroon-900'>
                   {section.verses.map((verse) => (
                     <li key={verse.key} className="space-y-1">
                       <p>{verse.text}</p>
