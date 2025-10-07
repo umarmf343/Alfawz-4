@@ -103,6 +103,19 @@ export function useMemorizationProgress({
     if (isAdvancing) {
       return
     }
+    if (progress.completedAt) {
+      setVerseCelebrationOpen(false)
+      return
+    }
+    if (progress.repetitionsDone < REPETITION_TARGET) {
+      toast({
+        title: "Keep repeating",
+        description: `Complete ${REPETITION_TARGET} repetitions before advancing.`,
+        variant: "default",
+      })
+      setVerseCelebrationOpen(false)
+      return
+    }
     setIsAdvancing(true)
     try {
       const updated = await advanceMemorizationVerse(plan.id)
