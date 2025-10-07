@@ -20,6 +20,17 @@ export interface MemorizationPlanDTO {
   classIds: string[]
   createdAt: string
   notes?: string
+  createdByStudentId?: string
+  personalPlanSettings?: PersonalPlanSettingsDTO
+}
+
+export interface PersonalPlanSettingsDTO {
+  intention?: string
+  habitCue?: string
+  cadence: string
+  reminderTime?: string
+  checkInDays: string[]
+  startDate: string
 }
 
 export interface TeacherSummaryDTO {
@@ -50,6 +61,18 @@ export interface StudentMemorizationPlanContextDTO {
   teacher?: TeacherSummaryDTO
 }
 
+export interface CreatePersonalPlanPayload {
+  title: string
+  verseKeys: string[]
+  cadence: string
+  intention?: string
+  habitCue?: string
+  reminderTime?: string
+  checkInDays?: string[]
+  startDate?: string
+  notes?: string
+}
+
 async function parseResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") ?? ""
   const isJson = contentType.includes("application/json")
@@ -67,14 +90,22 @@ async function parseResponse<T>(response: Response): Promise<T> {
   return (await response.json()) as T
 }
 
-export async function fetchStudentMemorizationPlans(): Promise<StudentMemorizationPlanContextDTO[]> {
+export interface StudentMemorizationPlansResult {
+  plans: StudentMemorizationPlanContextDTO[]
+  activePlanId?: string
+}
+
+export async function fetchStudentMemorizationPlans(): Promise<StudentMemorizationPlansResult> {
   const response = await fetch("/api/student/memorization-plans", {
     method: "GET",
     headers: { "Content-Type": "application/json" },
     cache: "no-store",
   })
-  const data = await parseResponse<{ plans: StudentMemorizationPlanContextDTO[] }>(response)
-  return data.plans
+  const data = await parseResponse<{
+    plans: StudentMemorizationPlanContextDTO[]
+    activePlanId?: string
+  }>(response)
+  return { plans: data.plans, activePlanId: data.activePlanId }
 }
 
 export async function fetchMemorizationPlanContext(planId: string): Promise<StudentMemorizationPlanContextDTO> {
@@ -105,4 +136,26 @@ export async function advanceMemorizationVerse(planId: string): Promise<StudentP
   })
   const data = await parseResponse<{ progress: StudentPlanProgressDTO }>(response)
   return data.progress
+}
+
+export async function createPersonalMemorizationPlan(
+  payload: CreatePersonalPlanPayload,
+): Promise<StudentMemorizationPlanContextDTO> {
+  const response = await fetch("/api/student/memorization-plans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  const data = await parseResponse<{ plan: StudentMemorizationPlanContextDTO }>(response)
+  return data.plan
+}
+
+export async function setActiveMemorizationPlan(planId: string): Promise<{ plan: StudentMemorizationPlanContextDTO }> {
+  const response = await fetch("/api/student/memorization-plans", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ planId }),
+  })
+  const data = await parseResponse<{ plan: StudentMemorizationPlanContextDTO }>(response)
+  return data
 }

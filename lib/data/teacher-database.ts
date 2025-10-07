@@ -442,6 +442,7 @@ export interface CompletedGameTaskLog {
 interface LearnerMeta {
   lastHabitActivityDate: string | null
   completedGameTasks: CompletedGameTaskLog[]
+  activeMemorizationPlanId?: string
 }
 
 export interface ClassRecord {
@@ -453,6 +454,15 @@ export interface ClassRecord {
   studentIds: string[]
 }
 
+export interface PersonalPlanSettings {
+  intention?: string
+  habitCue?: string
+  cadence: string
+  reminderTime?: string
+  checkInDays: string[]
+  startDate: string
+}
+
 export interface MemorizationPlanRecord {
   id: string
   title: string
@@ -461,6 +471,8 @@ export interface MemorizationPlanRecord {
   classIds: string[]
   createdAt: string
   notes?: string
+  createdByStudentId?: string
+  personalPlanSettings?: PersonalPlanSettings
 }
 
 export interface TeacherClassSummary {
@@ -533,6 +545,18 @@ export interface UpdateTeacherPlanInput {
   title?: string
   verseKeys?: string[]
   classIds?: string[]
+  notes?: string
+}
+
+export interface CreatePersonalMemorizationPlanInput {
+  title: string
+  verseKeys: string[]
+  intention?: string
+  habitCue?: string
+  cadence: string
+  reminderTime?: string
+  checkInDays?: string[]
+  startDate?: string
   notes?: string
 }
 
@@ -1613,6 +1637,7 @@ database.learners["user_001"] = {
         teacherId: "teacher_002",
       },
     ],
+    activeMemorizationPlanId: "plan_ikhlas_kursi",
   },
 }
 
@@ -1696,6 +1721,62 @@ function getClassIdsForStudent(studentId: string): string[] {
 
 function getClassRecord(classId: string): ClassRecord | undefined {
   return database.classes.find((classRecord) => classRecord.id === classId)
+}
+
+const WEEKDAY_KEYS = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+]
+
+function normalizeCheckInDays(days?: string[]): string[] {
+  if (!days || days.length === 0) {
+    return []
+  }
+  const normalized = days
+    .map((day) => day.trim().toLowerCase())
+    .filter((day) => WEEKDAY_KEYS.includes(day))
+  return Array.from(new Set(normalized))
+}
+
+function buildDefaultCheckInDays(cadence: string): string[] {
+  switch (cadence) {
+    case "daily":
+      return [...WEEKDAY_KEYS]
+    case "weekday":
+      return WEEKDAY_KEYS.slice(0, 5)
+    case "weekend":
+      return WEEKDAY_KEYS.slice(5)
+    case "alternate":
+      return ["monday", "wednesday", "friday"]
+    default:
+      return WEEKDAY_KEYS.slice(0, 5)
+  }
+}
+
+function ensurePersonalMemorizationClass(studentId: string): ClassRecord {
+  const classId = `self_memorization_${studentId}`
+  let classRecord = getClassRecord(classId)
+  if (!classRecord) {
+    classRecord = {
+      id: classId,
+      name: "Personal Hifz Circle",
+      description: "Self-paced memorization focus created by the learner",
+      teacherId: studentId,
+      schedule: "Self-paced",
+      studentIds: [studentId],
+    }
+    database.classes.push(classRecord)
+    return classRecord
+  }
+  if (!classRecord.studentIds.includes(studentId)) {
+    classRecord.studentIds.push(studentId)
+  }
+  return classRecord
 }
 
 function findMemorizationPlan(planId: string): MemorizationPlanRecord | undefined {
@@ -1823,6 +1904,9 @@ function clonePlan(plan: MemorizationPlanRecord): MemorizationPlanRecord {
     ...plan,
     verseKeys: [...plan.verseKeys],
     classIds: [...plan.classIds],
+    personalPlanSettings: plan.personalPlanSettings
+      ? { ...plan.personalPlanSettings, checkInDays: [...plan.personalPlanSettings.checkInDays] }
+      : undefined,
   }
 }
 
@@ -2223,6 +2307,84 @@ export function createTeacherMemorizationPlan(
 
   recordPlanCreation(teacherId)
   return buildPlanSummary(plan)
+}
+
+export function createPersonalMemorizationPlan(
+  studentId: string,
+  input: CreatePersonalMemorizationPlanInput,
+): StudentMemorizationPlanContext {
+  const learner = getLearnerRecord(studentId)
+  if (!learner) {
+    throw new Error("Learner not found")
+  }
+
+  const title = input.title.trim()
+  if (!title) {
+    throw new Error("Plan title is required")
+  }
+
+  const cadence = input.cadence.trim().toLowerCase()
+  if (!cadence) {
+    throw new Error("Select a memorization cadence")
+  }
+
+  const normalizedKeys = input.verseKeys.map((key) => normalizeVerseKey(key))
+  const validation = validateVerseKeys(normalizedKeys)
+  if (validation.validKeys.length === 0) {
+    throw new Error("Please choose at least one valid verse")
+  }
+  if (validation.issues.length > 0) {
+    const invalidList = validation.issues.map((issue) => issue.key).join(", ")
+    throw new Error(`Invalid verse references: ${invalidList}`)
+  }
+
+  assertPlanCreationLimit(studentId)
+
+  const classRecord = ensurePersonalMemorizationClass(studentId)
+  const nowIso = iso(new Date())
+  const checkInDays = normalizeCheckInDays(input.checkInDays)
+  const personalPlanSettings: PersonalPlanSettings = {
+    intention: input.intention?.trim() || undefined,
+    habitCue: input.habitCue?.trim() || undefined,
+    cadence,
+    reminderTime: input.reminderTime?.trim() || undefined,
+    checkInDays: checkInDays.length > 0 ? checkInDays : buildDefaultCheckInDays(cadence),
+    startDate: (() => {
+      if (!input.startDate) return nowIso
+      const date = new Date(input.startDate)
+      return Number.isNaN(date.getTime()) ? nowIso : iso(date)
+    })(),
+  }
+
+  const plan: MemorizationPlanRecord = {
+    id: generatePlanId(),
+    title,
+    verseKeys: [...validation.validKeys],
+    teacherId: studentId,
+    classIds: [classRecord.id],
+    createdAt: nowIso,
+    notes: input.notes ? input.notes.trim() || undefined : undefined,
+    createdByStudentId: studentId,
+    personalPlanSettings,
+  }
+
+  if (!classRecord.studentIds.includes(studentId)) {
+    classRecord.studentIds.push(studentId)
+  }
+
+  database.memorizationPlans.unshift(plan)
+
+  const progress = ensureProgressRecordForPlan(studentId, plan)
+  learner.meta.activeMemorizationPlanId = plan.id
+
+  recordPlanCreation(studentId)
+
+  return {
+    plan: clonePlan(plan),
+    progress: cloneProgressRecord(progress),
+    classes: [cloneTeacherClassSummary(classRecord)],
+    teacher: undefined,
+  }
 }
 
 export function updateTeacherMemorizationPlan(
@@ -2661,6 +2823,29 @@ export function listStudentMemorizationPlans(
       teacher: teacher ? { ...teacher } : undefined,
     }
   })
+}
+
+export function getStudentActiveMemorizationPlanId(studentId: string): string | undefined {
+  const learner = getLearnerRecord(studentId)
+  return learner?.meta.activeMemorizationPlanId ?? undefined
+}
+
+export function setStudentActiveMemorizationPlan(
+  studentId: string,
+  planId: string,
+): StudentMemorizationPlanContext {
+  const learner = getLearnerRecord(studentId)
+  if (!learner) {
+    throw new Error("Learner not found")
+  }
+
+  const context = getStudentMemorizationPlanContext(studentId, planId)
+  if (!context) {
+    throw new Error("Memorization plan not found")
+  }
+
+  learner.meta.activeMemorizationPlanId = planId
+  return context
 }
 
 export function getStudentMemorizationPlanContext(
