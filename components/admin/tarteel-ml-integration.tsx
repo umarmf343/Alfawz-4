@@ -181,14 +181,15 @@ export function TarteelMlIntegrationPanel() {
     const load = async () => {
       try {
         const response = await fetch("/api/integrations/tarteel-ml")
+        const payload = (await response.json()) as TarteelMlIntegrationPayload | TarteelMlIntegrationError
+
         if (!response.ok) {
-          const payload = (await response.json()) as TarteelMlIntegrationError
-          throw new Error(payload.error ?? "Failed to load integration data")
+          const message = "error" in payload ? payload.error : "Failed to load integration data"
+          throw new Error(message)
         }
 
-        const payload = (await response.json()) as TarteelMlIntegrationPayload
         if (isMounted) {
-          setState({ status: "success", data: payload })
+          setState({ status: "success", data: payload as TarteelMlIntegrationPayload })
         }
       } catch (error) {
         console.error("Failed to fetch tarteel-ml integration", error)
