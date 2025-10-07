@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useRef } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -13,68 +13,150 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BookOpen, Users, ImageIcon, Plus, ArrowLeft, Save, Send, Target } from "lucide-react"
 import Link from "next/link"
 import { HotspotEditor } from "@/components/hotspot-editor"
-
-interface Hotspot {
+import { useToast } from "@/hooks/use-toast"
+import {
+  getTeacherClasses,
+  saveTeacherAssignmentDraft,
+  publishTeacherAssignment,
+  type AssignmentHotspotRecord,
+} from "@/lib/data/teacher-database"
+import { listSurahs } from "@/lib/quran-data"
+interface ClassOption {
   id: string
-  x: number
-  y: number
-  width: number
-  height: number
-  title: string
-  description: string
-  audioUrl?: string
+  name: string
 }
 
+type Hotspot = AssignmentHotspotRecord
+
 export default function CreateAssignmentPage() {
+  const { toast } = useToast()
   const [activeTab, setActiveTab] = useState("basic")
+  const [assignmentId, setAssignmentId] = useState<string | null>(null)
   const [assignmentData, setAssignmentData] = useState({
     title: "",
     description: "",
-    class: "",
+    classId: "",
     dueDate: "",
     dueTime: "",
-    surah: "",
+    surahNumber: "",
     ayahRange: "",
-    assignmentType: "",
+    assignmentType: "recitation",
     instructions: "",
   })
 
   const [hotspots, setHotspots] = useState<Hotspot[]>([])
   const [selectedImage, setSelectedImage] = useState<string | null>("/arabic-calligraphy-with-quranic-verses.jpg")
-  const [isAddingHotspot, setIsAddingHotspot] = useState(false)
-  const imageRef = useRef<HTMLDivElement>(null)
+  const [availableClasses, setAvailableClasses] = useState<ClassOption[]>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [pendingAction, setPendingAction] = useState<"save" | "publish" | null>(null)
+  const [surahOptions] = useState(() => listSurahs())
 
-  const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isAddingHotspot || !imageRef.current) return
-
-    const rect = imageRef.current.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
-
-    const newHotspot: Hotspot = {
-      id: Date.now().toString(),
-      x,
-      y,
-      width: 0,
-      height: 0,
-      title: "New Hotspot",
-      description: "Click to edit this hotspot",
-    }
-
-    setHotspots([...hotspots, newHotspot])
-    setIsAddingHotspot(false)
-  }
-
-  const removeHotspot = (id: string) => {
-    setHotspots(hotspots.filter((h) => h.id !== id))
-  }
+  useEffect(() => {
+    const classes = getTeacherClasses("teacher_001").map((classRecord) => ({
+      id: classRecord.id,
+      name: classRecord.name,
+    }))
+    setAvailableClasses(classes)
+  }, [])
 
   const handleSubmit = (action: "save" | "publish") => {
-    console.log("Assignment data:", assignmentData)
-    console.log("Hotspots:", hotspots)
-    console.log("Action:", action)
-    // In real app, this would save to database
-    alert(`Assignment ${action === "save" ? "saved as draft" : "published"} successfully!`)
+    if (isSubmitting) {
+      return
+    }
+
+    const trimmedTitle = assignmentData.title.trim()
+    const trimmedDescription = assignmentData.description.trim()
+    const trimmedAyahRange = assignmentData.ayahRange.trim()
+    const trimmedInstructions = assignmentData.instructions.trim()
+
+    if (!trimmedTitle) {
+      toast({ title: "Assignment title is required", variant: "destructive" })
+      return
+    }
+
+    if (!assignmentData.classId) {
+      toast({ title: "Please select a class", variant: "destructive" })
+      return
+    }
+
+    if (!assignmentData.surahNumber) {
+      toast({ title: "Please choose a Surah", variant: "destructive" })
+      return
+    }
+
+    if (!trimmedAyahRange) {
+      toast({ title: "Specify an ayah range", variant: "destructive" })
+      return
+    }
+
+    if (!assignmentData.dueDate) {
+      toast({ title: "Select a due date", variant: "destructive" })
+      return
+    }
+
+    const surahNumber = Number.parseInt(assignmentData.surahNumber, 10)
+    if (!Number.isFinite(surahNumber) || surahNumber <= 0) {
+      toast({ title: "Invalid Surah selection", variant: "destructive" })
+      return
+    }
+
+    const dueTime = assignmentData.dueTime && assignmentData.dueTime.trim() ? assignmentData.dueTime : "23:59"
+    const dueAtCandidate = new Date(`${assignmentData.dueDate}T${dueTime}`)
+    if (Number.isNaN(dueAtCandidate.getTime())) {
+      toast({ title: "Unable to parse due date", variant: "destructive" })
+      return
+    }
+
+    setPendingAction(action)
+    setIsSubmitting(true)
+    try {
+      const payload = {
+        assignmentId: assignmentId ?? undefined,
+        classIds: [assignmentData.classId],
+        title: trimmedTitle,
+        description: trimmedDescription,
+        instructions: trimmedInstructions,
+        surahNumber,
+        ayahRange: trimmedAyahRange,
+        assignmentType: assignmentData.assignmentType || "recitation",
+        dueAt: dueAtCandidate.toISOString(),
+        imageUrl: selectedImage,
+        hotspots,
+      }
+
+      const result =
+        action === "save"
+          ? saveTeacherAssignmentDraft("teacher_001", payload)
+          : publishTeacherAssignment("teacher_001", payload)
+
+      setAssignmentId(result.assignment.id)
+
+      if (action === "save") {
+        toast({
+          title: "Draft saved",
+          description: "Your assignment draft has been stored. You can continue refining the details anytime.",
+        })
+      } else {
+        const assignedCount = result.assignedStudentIds.length
+        toast({
+          title: "Assignment published",
+          description:
+            assignedCount > 0
+              ? `Sent to ${assignedCount} student${assignedCount === 1 ? "" : "s"} in the selected class.`
+              : "The assignment is live, but no students are currently linked to the chosen class.",
+        })
+      }
+    } catch (error) {
+      const description = error instanceof Error ? error.message : "An unexpected error occurred"
+      toast({
+        title: action === "save" ? "Unable to save draft" : "Unable to publish assignment",
+        description,
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+      setPendingAction(null)
+    }
   }
 
   return (
@@ -101,13 +183,22 @@ export default function CreateAssignmentPage() {
             </div>
 
             <div className="flex items-center space-x-3">
-              <Button variant="outline" onClick={() => handleSubmit("save")} className="bg-transparent">
+              <Button
+                variant="outline"
+                onClick={() => handleSubmit("save")}
+                className="bg-transparent"
+                disabled={isSubmitting}
+              >
                 <Save className="w-4 h-4 mr-2" />
-                Save Draft
+                {pendingAction === "save" ? "Saving…" : "Save Draft"}
               </Button>
-              <Button onClick={() => handleSubmit("publish")} className="gradient-maroon text-white border-0">
+              <Button
+                onClick={() => handleSubmit("publish")}
+                className="gradient-maroon text-white border-0"
+                disabled={isSubmitting}
+              >
                 <Send className="w-4 h-4 mr-2" />
-                Publish Assignment
+                {pendingAction === "publish" ? "Publishing…" : "Publish Assignment"}
               </Button>
             </div>
           </div>
@@ -144,19 +235,24 @@ export default function CreateAssignmentPage() {
                   <div className="space-y-2">
                     <Label htmlFor="class">Select Class</Label>
                     <Select
-                      value={assignmentData.class}
-                      onValueChange={(value) => setAssignmentData((prev) => ({ ...prev, class: value }))}
+                      value={assignmentData.classId}
+                      onValueChange={(value) => setAssignmentData((prev) => ({ ...prev, classId: value }))}
                     >
                       <SelectTrigger className="h-11">
-                        <SelectValue placeholder="Choose a class" />
+                        <SelectValue placeholder={availableClasses.length ? "Choose a class" : "No classes available"} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="beginner-a">Beginner Class A</SelectItem>
-                        <SelectItem value="beginner-b">Beginner Class B</SelectItem>
-                        <SelectItem value="intermediate-a">Intermediate Class A</SelectItem>
-                        <SelectItem value="intermediate-b">Intermediate Class B</SelectItem>
-                        <SelectItem value="advanced-a">Advanced Class A</SelectItem>
-                        <SelectItem value="advanced-b">Advanced Class B</SelectItem>
+                        {availableClasses.length > 0 ? (
+                          availableClasses.map((classOption) => (
+                            <SelectItem key={classOption.id} value={classOption.id}>
+                              {classOption.name}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value="no-class" disabled>
+                            No classes available
+                          </SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -220,21 +316,18 @@ export default function CreateAssignmentPage() {
                   <div className="space-y-2">
                     <Label htmlFor="surah">Surah</Label>
                     <Select
-                      value={assignmentData.surah}
-                      onValueChange={(value) => setAssignmentData((prev) => ({ ...prev, surah: value }))}
+                      value={assignmentData.surahNumber}
+                      onValueChange={(value) => setAssignmentData((prev) => ({ ...prev, surahNumber: value }))}
                     >
                       <SelectTrigger className="h-11">
                         <SelectValue placeholder="Select Surah" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="al-fatiha">Al-Fatiha (The Opening)</SelectItem>
-                        <SelectItem value="al-baqarah">Al-Baqarah (The Cow)</SelectItem>
-                        <SelectItem value="al-imran">Al-Imran (The Family of Imran)</SelectItem>
-                        <SelectItem value="an-nisa">An-Nisa (The Women)</SelectItem>
-                        <SelectItem value="al-maidah">Al-Maidah (The Table)</SelectItem>
-                        <SelectItem value="al-ikhlas">Al-Ikhlas (The Sincerity)</SelectItem>
-                        <SelectItem value="al-falaq">Al-Falaq (The Daybreak)</SelectItem>
-                        <SelectItem value="an-nas">An-Nas (The Mankind)</SelectItem>
+                        {surahOptions.map((surah) => (
+                          <SelectItem key={surah.number} value={String(surah.number)}>
+                            {surah.englishName} ({surah.arabicName})
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>

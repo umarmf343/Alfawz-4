@@ -1,3 +1,5 @@
+import { getSurahInfo, getVerseText } from "@/lib/quran-data"
+
 export type TeacherRole = "head" | "assistant"
 
 export interface TeacherProfile {
@@ -109,6 +111,67 @@ export interface RecitationTaskRecord {
   submittedAt?: string
   reviewedAt?: string
   reviewNotes?: string
+}
+
+export interface AssignmentHotspotRecord {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+  title: string
+  description: string
+  audioUrl?: string
+}
+
+export type TeacherAssignmentStatus = "draft" | "published" | "archived"
+
+export interface TeacherAssignmentRecord {
+  id: string
+  teacherId: string
+  classIds: string[]
+  title: string
+  description: string
+  instructions: string
+  surahNumber: number
+  surahName: string
+  ayahRange: string
+  assignmentType: string
+  imageUrl?: string | null
+  hotspots: AssignmentHotspotRecord[]
+  createdAt: string
+  updatedAt: string
+  dueAt: string
+  status: TeacherAssignmentStatus
+}
+
+export interface AssignmentSubmissionRecord {
+  assignmentId: string
+  studentId: string
+  status: RecitationTaskStatus
+  submittedAt?: string
+  reviewedAt?: string
+  score?: number
+  notes?: string
+}
+
+export interface AssignmentUpsertInput {
+  assignmentId?: string
+  classIds: string[]
+  title: string
+  description: string
+  instructions: string
+  surahNumber: number
+  ayahRange: string
+  assignmentType: string
+  dueAt: string
+  imageUrl?: string | null
+  hotspots: AssignmentHotspotRecord[]
+}
+
+export interface AssignmentUpsertResult {
+  assignment: TeacherAssignmentRecord
+  assignedStudentIds: string[]
 }
 
 export interface RecitationSessionRecord {
@@ -431,6 +494,8 @@ interface TeacherDatabaseSchema {
   memorizationPlans: MemorizationPlanRecord[]
   studentMemorizationProgress: StudentMemorizationProgressRecord[]
   memorizationCompletions: MemorizationCompletionLogEntry[]
+  assignments: TeacherAssignmentRecord[]
+  assignmentSubmissions: AssignmentSubmissionRecord[]
 }
 
 const now = new Date()
@@ -511,6 +576,8 @@ const database: TeacherDatabaseSchema = {
     },
   ],
   memorizationCompletions: [],
+  assignments: [],
+  assignmentSubmissions: [],
 }
 
 const rolePrefixes: Record<UserRole, string> = {
@@ -1506,6 +1573,282 @@ function ensureProgressRecordsForStudent(studentId: string) {
   })
 }
 
+function normalizeAyahRange(range: string): string {
+  const normalized = range.replace(/\s/g, "")
+  if (!normalized) {
+    return ""
+  }
+  const [startPart, endPart] = normalized.split("-")
+  const start = Number.parseInt(startPart, 10)
+  if (!Number.isFinite(start) || start <= 0) {
+    throw new Error("Invalid ayah range: start verse is required")
+  }
+  if (!endPart) {
+    return `${start}`
+  }
+  const end = Number.parseInt(endPart, 10)
+  if (!Number.isFinite(end) || end < start) {
+    return `${start}`
+  }
+  return `${start}-${end}`
+}
+
+function parseAyahRangeBounds(range: string): { start: number; end: number } {
+  const normalized = normalizeAyahRange(range)
+  if (!normalized) {
+    throw new Error("Ayah range cannot be empty")
+  }
+  const [startPart, endPart] = normalized.split("-")
+  const start = Number.parseInt(startPart, 10)
+  const end = endPart ? Number.parseInt(endPart, 10) : start
+  if (!Number.isFinite(start) || start <= 0) {
+    throw new Error("Invalid ayah range: unable to parse start verse")
+  }
+  if (!Number.isFinite(end) || end < start) {
+    return { start, end: start }
+  }
+  return { start, end }
+}
+
+const assignmentTargetAccuracyByType: Record<string, number> = {
+  memorization: 95,
+  recitation: 90,
+  tajweed: 92,
+  comprehension: 85,
+  mixed: 88,
+}
+
+function determineTargetAccuracy(assignmentType: string): number {
+  return assignmentTargetAccuracyByType[assignmentType] ?? 90
+}
+
+function buildRecitationVerses(
+  surahNumber: number,
+  start: number,
+  end: number,
+): RecitationVerseRecord[] {
+  const surahInfo = getSurahInfo(surahNumber)
+  const englishName = surahInfo?.englishName ?? `Surah ${surahNumber}`
+  const verses: RecitationVerseRecord[] = []
+  for (let ayah = start; ayah <= end; ayah += 1) {
+    const verseKey = `${surahNumber}:${ayah}`
+    const arabic = getVerseText(verseKey)
+    if (!arabic) {
+      throw new Error(`Unable to locate verse text for ${verseKey}`)
+    }
+    verses.push({
+      ayah,
+      arabic,
+      translation: `Translation coming soon for ${englishName} ayah ${ayah}.`,
+    })
+  }
+  return verses
+}
+
+function getStudentIdsForClasses(classIds: string[]): string[] {
+  const unique = new Set<string>()
+  classIds.forEach((classId) => {
+    const classRecord = getClassRecord(classId)
+    classRecord?.studentIds.forEach((studentId) => unique.add(studentId))
+  })
+  return Array.from(unique)
+}
+
+function ensureAssignmentSubmissionRecord(
+  studentId: string,
+  assignmentId: string,
+): AssignmentSubmissionRecord {
+  const existing = database.assignmentSubmissions.find(
+    (entry) => entry.assignmentId === assignmentId && entry.studentId === studentId,
+  )
+  if (existing) {
+    return existing
+  }
+  const record: AssignmentSubmissionRecord = {
+    assignmentId,
+    studentId,
+    status: "assigned",
+  }
+  database.assignmentSubmissions.push(record)
+  return record
+}
+
+function removeAssignmentSubmission(studentId: string, assignmentId: string) {
+  const index = database.assignmentSubmissions.findIndex(
+    (entry) => entry.assignmentId === assignmentId && entry.studentId === studentId,
+  )
+  if (index >= 0) {
+    database.assignmentSubmissions.splice(index, 1)
+  }
+}
+
+function removeRecitationTask(studentId: string, taskId: string) {
+  const record = getLearnerRecord(studentId)
+  if (!record) {
+    return
+  }
+  record.dashboard.recitationTasks = record.dashboard.recitationTasks.filter((task) => task.id !== taskId)
+}
+
+function assignRecitationTaskToStudent(
+  studentId: string,
+  assignment: TeacherAssignmentRecord,
+  verses: RecitationVerseRecord[],
+  targetAccuracy: number,
+) {
+  const record = getLearnerRecord(studentId)
+  if (!record) {
+    return
+  }
+
+  const task: RecitationTaskRecord = {
+    id: assignment.id,
+    surah: assignment.surahName,
+    ayahRange: assignment.ayahRange,
+    dueDate: assignment.dueAt,
+    status: "assigned",
+    targetAccuracy,
+    teacherId: assignment.teacherId,
+    notes: assignment.instructions || assignment.description,
+    assignedAt: assignment.createdAt,
+    focusAreas: assignment.assignmentType ? [assignment.assignmentType] : undefined,
+    verses,
+  }
+
+  const existingIndex = record.dashboard.recitationTasks.findIndex((entry) => entry.id === task.id)
+  if (existingIndex >= 0) {
+    record.dashboard.recitationTasks[existingIndex] = task
+  } else {
+    record.dashboard.recitationTasks.unshift(task)
+  }
+
+  const submission = ensureAssignmentSubmissionRecord(studentId, assignment.id)
+  submission.status = "assigned"
+  submission.submittedAt = undefined
+  submission.reviewedAt = undefined
+  submission.score = undefined
+  submission.notes = undefined
+}
+
+function cloneAssignment(record: TeacherAssignmentRecord): TeacherAssignmentRecord {
+  return {
+    ...record,
+    classIds: [...record.classIds],
+    hotspots: record.hotspots.map((hotspot) => ({ ...hotspot })),
+  }
+}
+
+function updateAssignmentSubmission(
+  studentId: string,
+  assignmentId: string,
+  updates: Partial<AssignmentSubmissionRecord>,
+) : AssignmentSubmissionRecord {
+  const submission = ensureAssignmentSubmissionRecord(studentId, assignmentId)
+  Object.assign(submission, updates)
+  return submission
+}
+
+function upsertAssignmentRecord(
+  teacherId: string,
+  input: AssignmentUpsertInput,
+  status: TeacherAssignmentStatus,
+): AssignmentUpsertResult {
+  const surahInfo = getSurahInfo(input.surahNumber)
+  if (!surahInfo) {
+    throw new Error("Invalid surah selection")
+  }
+
+  const { start, end } = parseAyahRangeBounds(input.ayahRange)
+  if (start > surahInfo.ayahCount || end > surahInfo.ayahCount) {
+    throw new Error("Ayah range exceeds the selected surah length")
+  }
+
+  const dueAtDate = new Date(input.dueAt)
+  if (Number.isNaN(dueAtDate.getTime())) {
+    throw new Error("Due date is not a valid date")
+  }
+
+  if (status === "published" && input.classIds.length === 0) {
+    throw new Error("Select at least one class before publishing the assignment")
+  }
+
+  const normalizedRange = normalizeAyahRange(input.ayahRange)
+  const nowIso = iso(new Date())
+  const existing = input.assignmentId
+    ? database.assignments.find((assignment) => assignment.id === input.assignmentId)
+    : undefined
+  const assignmentId = existing?.id ?? input.assignmentId ?? `assignment_${Date.now()}`
+  const createdAt = existing?.createdAt ?? nowIso
+
+  if (!existing) {
+    database.assignments.push({
+      id: assignmentId,
+      teacherId,
+      classIds: [],
+      title: input.title,
+      description: input.description,
+      instructions: input.instructions,
+      surahNumber: input.surahNumber,
+      surahName: surahInfo.englishName,
+      ayahRange: normalizedRange,
+      assignmentType: input.assignmentType,
+      imageUrl: input.imageUrl ?? null,
+      hotspots: input.hotspots.map((hotspot) => ({ ...hotspot })),
+      createdAt,
+      updatedAt: nowIso,
+      dueAt: dueAtDate.toISOString(),
+      status,
+    })
+  }
+
+  const assignment = database.assignments.find((entry) => entry.id === assignmentId)
+  if (!assignment) {
+    throw new Error("Failed to create assignment record")
+  }
+
+  assignment.teacherId = teacherId
+  assignment.classIds = Array.from(new Set(input.classIds))
+  assignment.title = input.title
+  assignment.description = input.description
+  assignment.instructions = input.instructions
+  assignment.surahNumber = input.surahNumber
+  assignment.surahName = surahInfo.englishName
+  assignment.ayahRange = normalizedRange
+  assignment.assignmentType = input.assignmentType
+  assignment.imageUrl = input.imageUrl ?? null
+  assignment.hotspots = input.hotspots.map((hotspot) => ({ ...hotspot }))
+  assignment.updatedAt = nowIso
+  assignment.createdAt = createdAt
+  assignment.dueAt = dueAtDate.toISOString()
+  assignment.status = status
+
+  const verses = buildRecitationVerses(input.surahNumber, start, end)
+  const targetAccuracy = determineTargetAccuracy(input.assignmentType)
+  const assignedStudentIds: string[] = []
+
+  if (status === "published") {
+    const nextStudents = new Set(getStudentIdsForClasses(assignment.classIds))
+    const previousStudents = new Set(
+      database.assignmentSubmissions
+        .filter((entry) => entry.assignmentId === assignment.id)
+        .map((entry) => entry.studentId),
+    )
+
+    nextStudents.forEach((studentId) => {
+      assignRecitationTaskToStudent(studentId, assignment, verses, targetAccuracy)
+      assignedStudentIds.push(studentId)
+      previousStudents.delete(studentId)
+    })
+
+    previousStudents.forEach((studentId) => {
+      removeAssignmentSubmission(studentId, assignment.id)
+      removeRecitationTask(studentId, assignment.id)
+    })
+  }
+
+  return { assignment: cloneAssignment(assignment), assignedStudentIds }
+}
+
 function logMemorizationCompletion(
   studentId: string,
   plan: MemorizationPlanRecord,
@@ -1933,6 +2276,32 @@ export function getMemorizationCompletions(): MemorizationCompletionLogEntry[] {
   return database.memorizationCompletions.map((entry) => ({ ...entry }))
 }
 
+export function getTeacherClasses(teacherId: string): ClassRecord[] {
+  return database.classes
+    .filter((classRecord) => classRecord.teacherId === teacherId)
+    .map((classRecord) => ({ ...classRecord, studentIds: [...classRecord.studentIds] }))
+}
+
+export function listTeacherAssignments(teacherId: string): TeacherAssignmentRecord[] {
+  return database.assignments
+    .filter((assignment) => assignment.teacherId === teacherId)
+    .map((assignment) => cloneAssignment(assignment))
+}
+
+export function saveTeacherAssignmentDraft(
+  teacherId: string,
+  input: AssignmentUpsertInput,
+): AssignmentUpsertResult {
+  return upsertAssignmentRecord(teacherId, input, "draft")
+}
+
+export function publishTeacherAssignment(
+  teacherId: string,
+  input: AssignmentUpsertInput,
+): AssignmentUpsertResult {
+  return upsertAssignmentRecord(teacherId, input, "published")
+}
+
 export function getTeacherProfiles(): TeacherProfile[] {
   return database.teachers.map((teacher) => ({ ...teacher }))
 }
@@ -2234,6 +2603,18 @@ export function logRecitationSession(
     task.reviewNotes = `Awaiting instructor review. Auto-score ${session.accuracy}% accuracy.`
   }
 
+  if (submission.taskId) {
+    const submissionRecord = ensureAssignmentSubmissionRecord(studentId, submission.taskId)
+    if (submissionRecord.status !== "reviewed") {
+      updateAssignmentSubmission(studentId, submission.taskId, {
+        status: "submitted",
+        submittedAt: session.submittedAt,
+        score: session.accuracy,
+        notes: task?.notes,
+      })
+    }
+  }
+
   const ayahCount = parseAyahCount(submission.ayahRange)
   if (ayahCount > 0) {
     record.stats.ayahsRead += ayahCount
@@ -2472,6 +2853,14 @@ export function reviewRecitationTask(
   }
   task.teacherId = review.teacherId
 
+  updateAssignmentSubmission(studentId, review.taskId, {
+    status: "reviewed",
+    reviewedAt: task.reviewedAt,
+    submittedAt: task.submittedAt,
+    score: normalizedAccuracy,
+    notes: task.reviewNotes,
+  })
+
   const relatedSession = record.dashboard.recitationSessions.find((session) => session.taskId === task.id)
   if (relatedSession) {
     relatedSession.accuracy = normalizedAccuracy
@@ -2600,11 +2989,123 @@ export function getInstructorDashboardSummary(teacherId: string): InstructorDash
     return Date.now() - new Date(activity.timestamp).getTime() <= 24 * 60 * 60 * 1000
   }).length
 
-  const teacherAssignments = learners.flatMap((learner) =>
-    learner.dashboard.recitationTasks.filter((task) => task.teacherId === teacherId),
+  const statusPriority: Record<RecitationTaskStatus, number> = {
+    assigned: 0,
+    submitted: 1,
+    reviewed: 2,
+  }
+
+  const recitationAggregates = new Map<
+    string,
+    { task: RecitationTaskRecord; status: RecitationTaskStatus }
+  >()
+
+  learners.forEach((learner) => {
+    learner.dashboard.recitationTasks
+      .filter((task) => task.teacherId === teacherId)
+      .forEach((task) => {
+        const existing = recitationAggregates.get(task.id)
+        if (!existing || statusPriority[task.status] > statusPriority[existing.status]) {
+          recitationAggregates.set(task.id, { task, status: task.status })
+        }
+      })
+  })
+
+  const assignmentSummaries = new Map<string, InstructorAssignmentSummary>()
+  const teacherAssignmentRecords = database.assignments.filter(
+    (assignment) => assignment.teacherId === teacherId,
   )
 
-  const completedAssignments = teacherAssignments.filter((task) => task.status === "reviewed").length
+  teacherAssignmentRecords.forEach((assignment) => {
+    const className = (
+      assignment.classIds
+        .map((classId) => getClassRecord(classId)?.name)
+        .filter((name): name is string => Boolean(name))
+        .join(", ") || CLASS_NAME_BY_TEACHER[teacherId]
+    ) ?? "Learner Cohort"
+
+    const submissions = database.assignmentSubmissions.filter(
+      (entry) => entry.assignmentId === assignment.id,
+    )
+    const totalFromSubmissions = submissions.length
+    const submittedFromSubmissions = submissions.filter((entry) => entry.status !== "assigned").length
+
+    let status: RecitationTaskStatus = "assigned"
+    if (submissions.some((entry) => entry.status === "reviewed")) {
+      status = "reviewed"
+    } else if (submissions.some((entry) => entry.status === "submitted")) {
+      status = "submitted"
+    }
+
+    const aggregateTask = recitationAggregates.get(assignment.id)
+    if (aggregateTask && statusPriority[aggregateTask.status] > statusPriority[status]) {
+      status = aggregateTask.status
+    }
+
+    const totalFromLearners = learners.filter((learner) =>
+      learner.dashboard.recitationTasks.some((task) => task.id === assignment.id),
+    ).length
+    const submittedFromLearners = learners.filter((learner) => {
+      const task = learner.dashboard.recitationTasks.find((entry) => entry.id === assignment.id)
+      return task ? task.status === "submitted" || task.status === "reviewed" : false
+    }).length
+
+    const totalCandidates = [
+      totalFromSubmissions,
+      totalFromLearners,
+      getStudentIdsForClasses(assignment.classIds).length,
+    ].filter((value) => value > 0)
+    const total = totalCandidates.length > 0 ? Math.max(...totalCandidates) : totalFromLearners
+    const submitted = Math.max(submittedFromSubmissions, submittedFromLearners)
+
+    assignmentSummaries.set(assignment.id, {
+      id: assignment.id,
+      title: `${assignment.surahName} • ${assignment.ayahRange}`,
+      dueDate: aggregateTask?.task.dueDate ?? assignment.dueAt,
+      status,
+      submitted,
+      total,
+      className,
+    })
+
+    recitationAggregates.delete(assignment.id)
+  })
+
+  recitationAggregates.forEach(({ task, status }) => {
+    const total = learners.filter((learner) =>
+      learner.dashboard.recitationTasks.some((entry) => entry.id === task.id),
+    ).length
+    const submitted = learners.filter((learner) => {
+      const entry = learner.dashboard.recitationTasks.find((candidate) => candidate.id === task.id)
+      if (!entry) {
+        return false
+      }
+      return entry.status === "submitted" || entry.status === "reviewed"
+    }).length
+
+    const summary = assignmentSummaries.get(task.id)
+    if (summary) {
+      summary.status = statusPriority[status] > statusPriority[summary.status] ? status : summary.status
+      summary.submitted = Math.max(summary.submitted, submitted)
+      summary.total = Math.max(summary.total, total)
+      summary.dueDate = summary.dueDate ?? task.dueDate
+    } else {
+      assignmentSummaries.set(task.id, {
+        id: task.id,
+        title: `${task.surah} • ${task.ayahRange}`,
+        dueDate: task.dueDate,
+        status,
+        submitted,
+        total,
+        className: CLASS_NAME_BY_TEACHER[task.teacherId] ?? "Learner Cohort",
+      })
+    }
+  })
+
+  const aggregatedAssignments = Array.from(assignmentSummaries.values())
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+
+  const completedAssignments = aggregatedAssignments.filter((assignment) => assignment.status === "reviewed").length
 
   const averageProgress =
     learners.length === 0
@@ -2614,30 +3115,7 @@ export function getInstructorDashboardSummary(teacherId: string): InstructorDash
             learners.length,
         )
 
-  const recentAssignments: InstructorAssignmentSummary[] = teacherAssignments
-    .map((task) => {
-      const total = learners.filter((learner) =>
-        learner.dashboard.recitationTasks.some((entry) => entry.id === task.id),
-      ).length
-      const submitted = learners.filter((learner) => {
-        const entry = learner.dashboard.recitationTasks.find((candidate) => candidate.id === task.id)
-        if (!entry) {
-          return false
-        }
-        return entry.status === "submitted" || entry.status === "reviewed"
-      }).length
-      return {
-        id: task.id,
-        title: `${task.surah} • ${task.ayahRange}`,
-        dueDate: task.dueDate,
-        status: task.status,
-        submitted,
-        total,
-        className: CLASS_NAME_BY_TEACHER[task.teacherId] ?? "Learner Cohort",
-      }
-    })
-    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-    .slice(0, 3)
+  const recentAssignments = aggregatedAssignments.slice(0, 3)
 
   const studentProgress: InstructorStudentProgress[] = learners
     .map((learner) => ({

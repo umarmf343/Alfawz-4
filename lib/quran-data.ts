@@ -65,3 +65,7 @@ export function formatVerseReference(verseKey: string): string {
   const surah = getSurahInfo(surahNumber)
   return `${surah?.arabicName ?? `سورة ${surahNumber}`} • ${ayahNumber}`
 }
+
+export function listSurahs(): SurahInfo[] {
+  return Array.from(surahMap.values()).sort((a, b) => a.number - b.number)
+}
