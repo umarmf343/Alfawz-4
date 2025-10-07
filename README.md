@@ -10,6 +10,7 @@ AlFawz is an immersive Next.js platform for Qur'an study that blends AI-assisted
 - **Toast notifications & feedback** – Completing a habit fires polished toasts so learners receive instant encouragement and guidance while experimenting locally.
 - **Mushaf typography pipeline** – The reader now loads high-fidelity Madinah Mushaf outlines sourced from TarteelAI’s `quran-ttx` exports. A helper script (`npm run fonts:mushaf`) fetches the latest TTX files and the reader layers tajweed or mistake overlays above the glyphs.
 - **Mobile-first recitation client** – A compact microphone HUD modeled after the Expo `tarteel-mobile` client guides smartphone learners with live volume feedback, tajweed cues, and permission warnings.
+- **Tarteel ML integration dashboard** – The admin panel now fetches live metadata, script availability, and requirements straight from [tarteel-ml](https://github.com/TarteelAI/tarteel-ml) so ops teams can verify preprocessing pipelines without leaving the platform.
 
 ## Tech Stack
 

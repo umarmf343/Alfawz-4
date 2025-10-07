@@ -45,6 +45,7 @@ import type { CheckedState } from "@radix-ui/react-checkbox"
 import { useToast } from "@/hooks/use-toast"
 import { getTajweedCMSOverview } from "@/lib/data/tajweed-cms"
 import { getRecitationOpsOverview } from "@/lib/data/recitation-ops"
+import TarteelMlIntegrationPanel from "@/components/admin/tarteel-ml-integration"
 import {
   Table,
   TableBody,
@@ -1159,6 +1160,8 @@ export default function AdminDashboard() {
               </Card>
             </div>
           </div>
+
+          <TarteelMlIntegrationPanel />
         </TabsContent>
 
         <TabsContent value="tajweed" className="space-y-6">
