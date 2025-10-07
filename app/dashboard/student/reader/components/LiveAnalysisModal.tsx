@@ -112,13 +112,13 @@ export function LiveAnalysisModal({
 
   useEffect(() => {
     if (open) {
-      start()
+      void start()
     } else {
-      stop()
+      void stop()
     }
     // stop recorder when unmounting modal
     return () => {
-      stop()
+      void stop()
     }
   }, [open, start, stop])
 
@@ -199,9 +199,9 @@ export function LiveAnalysisModal({
                     size="sm"
                     onClick={() => {
                       if (status === "listening" || status === "processing") {
-                        stop()
+                        void stop()
                       } else {
-                        start()
+                        void start()
                       }
                     }}
                   >

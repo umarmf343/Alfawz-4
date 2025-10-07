@@ -171,7 +171,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
   const shouldFinalizeRef = useRef(false)
   const stopSpeechRecognitionRef = useRef<() => void>(() => {})
   const flushPendingFramesRef = useRef<() => void>(() => {})
-  const stopStreamRef = useRef<() => void>(() => {})
+  const stopStreamRef = useRef<() => Promise<void>>(() => Promise.resolve())
   const captureModeRef = useRef<"microphone-stream" | "media-recorder" | null>(null)
   const aggregatorRef = useRef<{ buffers: Float32Array[]; totalSamples: number; sampleRate: number | null }>({
     buffers: [],
@@ -217,10 +217,14 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     setInputVolume(0)
   }, [versesFingerprint])
 
-  const cleanupStream = useCallback(() => {
+  const cleanupStream = useCallback((options?: { stopStream?: boolean }) => {
+    const shouldStopStream = options?.stopStream ?? true
+
     if (captureModeRef.current === "microphone-stream") {
       flushPendingFramesRef.current?.()
-      stopStreamRef.current?.()
+      if (shouldStopStream) {
+        void stopStreamRef.current?.()
+      }
       captureModeRef.current = null
       setCaptureMode(null)
       aggregatorRef.current.buffers = []
@@ -687,16 +691,18 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     startStream,
   ])
 
-  const stopListening = useCallback(() => {
+  const stopListening = useCallback(async () => {
     shouldFinalizeRef.current = true
 
     if (captureModeRef.current === "microphone-stream") {
       flushPendingFramesRef.current?.()
-      stopStreamRef.current?.()
+      if (stopStreamRef.current) {
+        await stopStreamRef.current()
+      }
       const frames = sessionFramesRef.current.slice()
       const sampleRate = sessionSampleRateRef.current
       setIsListening(false)
-      cleanupStream()
+      cleanupStream({ stopStream: false })
       if (frames.length > 0 && sampleRate) {
         try {
           const finalBlob = encodePcmAsWav(frames, sampleRate)
