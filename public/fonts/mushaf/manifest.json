@@ -1,0 +1,18 @@
+{
+  "downloadedAt": "2025-10-07T19:55:01.380Z",
+  "fonts": [
+    {
+      "family": "Mushaf Madinah",
+      "remoteFile": "font-files/QCF_P001.ttx",
+      "localFile": "QCF_P001.ttx",
+      "description": "First page of the Madinah Mushaf in TTX form. Convert to OTF/WOFF before shipping to the browser."
+    },
+    {
+      "family": "Mushaf Madinah",
+      "remoteFile": "font-files/QCF_P002.ttx",
+      "localFile": "QCF_P002.ttx",
+      "description": "Second page of the Madinah Mushaf in TTX form. Bundle remaining pages as needed."
+    }
+  ],
+  "note": "Convert the TTX payloads with FontTools: `ttx -f -o mushaf-madinah.ttf QCF_P001.ttx` and then `ttx -f -o mushaf-madinah.woff2 -t woff2 mushaf-madinah.ttf`. Repeat for other pages as needed."
+}
