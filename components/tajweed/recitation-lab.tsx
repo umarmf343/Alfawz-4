@@ -44,10 +44,15 @@ type SpeechRecognitionLike = {
   continuous: boolean
   interimResults: boolean
   onresult: ((event: SpeechRecognitionEventLike) => void) | null
-  onerror: ((event: { error: string; message?: string }) => void) | null
+  onerror: ((event: SpeechRecognitionErrorEventLike) => void) | null
   start: () => void
   stop: () => void
   abort: () => void
+}
+
+type SpeechRecognitionErrorEventLike = {
+  error: string
+  message?: string
 }
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike
@@ -156,32 +161,21 @@ export function RecitationLab() {
     recognition.lang = "ar-SA"
     recognition.continuous = true
     recognition.interimResults = true
-    recognition.onerror = (event) => {
-      console.warn("Speech recognition error", event)
-
-      if (event.error === "no-speech" || event.error === "aborted") {
-        // These errors occur naturally when the user is quiet for a while. When streaming
-        // we silently restart recognition to keep transcripts flowing without surfacing
-        // a confusing error state to the user.
-        return
-      }
-
-      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-        setPermissionState("denied")
-        setError("Microphone access is blocked. Enable audio permissions to continue capturing transcripts.")
-        return
-      }
-
-      setError(`Speech recognition error: ${event.error || "unknown"}`)
-    }
-    recognition.onend = () => {
+    const attemptRestart = () => {
       if (!shouldRestartRecognitionRef.current) {
         return
       }
+
       window.setTimeout(() => {
         if (!shouldRestartRecognitionRef.current) {
           return
         }
+        try {
+          recognition.abort()
+        } catch (abortError) {
+          console.debug("Speech recognition abort during restart", abortError)
+        }
+
         try {
           recognition.start()
         } catch (restartError) {
@@ -190,6 +184,30 @@ export function RecitationLab() {
         }
       }, 250)
     }
+    recognition.onerror = (event) => {
+      const errorType = event.error
+
+      if (errorType === "no-speech" || errorType === "aborted") {
+        attemptRestart()
+        return
+      }
+
+      if (errorType === "not-allowed" || errorType === "service-not-allowed") {
+        setPermissionState("denied")
+        setError("Microphone access is blocked. Enable audio permissions to continue capturing transcripts.")
+        return
+      }
+
+      if (errorType === "network") {
+        setError("Network error interrupted speech recognition. Check your connection and resume when ready.")
+        attemptRestart()
+        return
+      }
+
+      const message = event.message ? `${errorType}: ${event.message}` : errorType
+      setError(`Speech recognition error: ${message || "unknown"}`)
+    }
+    recognition.onend = attemptRestart
     recognition.onresult = (event) => {
       for (let i = event.results.length - 1; i >= 0; i -= 1) {
         const result = event.results[i]

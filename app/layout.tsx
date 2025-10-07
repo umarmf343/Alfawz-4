@@ -19,6 +19,9 @@ export const metadata: Metadata = {
     "Advanced platform for Qur'an recitation, memorization, and Islamic education with AI-powered feedback and comprehensive teacher tools.",
   generator: "AlFawz Qur'an Institute",
   keywords: ["Quran", "Islamic Education", "Memorization", "Recitation", "Tajweed", "Hifz"],
+  icons: {
+    icon: "/favicon.ico",
+  },
 }
 
 export default function RootLayout({
@@ -31,6 +34,7 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="icon" href="/favicon.ico" />
         <link
           href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400;1,700&family=Scheherazade+New:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@400;500;600;700&family=Reem+Kufi:wght@400;500;600;700&display=swap"
           rel="stylesheet"
