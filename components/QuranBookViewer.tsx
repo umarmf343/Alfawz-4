@@ -62,6 +62,13 @@ function createSelection(verse: VerseDisplay): VerseSelection {
   }
 }
 
+function getChallengeDuration(level: number): number {
+  return Math.max(
+    MIN_CHALLENGE_DURATION,
+    INITIAL_CHALLENGE_DURATION - (level - 1) * CHALLENGE_DURATION_STEP,
+  )
+}
+
 export function QuranBookViewer() {
   const { currentVerse, setCurrentVerse } = useQuranReader()
   const { recordQuranReaderProgress } = useUser()
@@ -75,9 +82,10 @@ export function QuranBookViewer() {
   const awardedVersesRef = useRef<Set<string>>(new Set())
   const [eggLevel, setEggLevel] = useState(1)
   const [versesRecited, setVersesRecited] = useState(0)
-  const [timeRemaining, setTimeRemaining] = useState(INITIAL_CHALLENGE_DURATION)
-  const [isTimerActive, setIsTimerActive] = useState(true)
+  const [timeRemaining, setTimeRemaining] = useState(() => getChallengeDuration(1))
+  const [isTimerActive, setIsTimerActive] = useState(false)
   const [challengeStatus, setChallengeStatus] = useState<"idle" | "cracked" | "failed">("idle")
+  const [hasChallengeStarted, setHasChallengeStarted] = useState(false)
 
   const currentChallengeTarget = useMemo(
     () => INITIAL_CHALLENGE_TARGET + (eggLevel - 1) * CHALLENGE_TARGET_STEP,
@@ -104,13 +112,16 @@ export function QuranBookViewer() {
     if (challengeStatus === "failed") {
       return "Time's up. Reset to try cracking the egg again."
     }
+    if (!hasChallengeStarted) {
+      return "Press start and recite verses to begin cracking the egg."
+    }
     const versesRemaining = Math.max(currentChallengeTarget - versesRecited, 0)
     if (versesRemaining === 0) {
       return "Ready to hatch the next challenge?"
     }
     const verseLabel = versesRemaining === 1 ? "verse" : "verses"
     return `Recite ${versesRemaining} more ${verseLabel} to break the egg.`
-  }, [challengeStatus, currentChallengeTarget, versesRecited])
+  }, [challengeStatus, currentChallengeTarget, hasChallengeStarted, versesRecited])
 
   const spawnHasanatPopup = useCallback(
     (amount: number, verse: VerseSelection) => {
@@ -283,13 +294,10 @@ export function QuranBookViewer() {
         return nextCount
       })
 
+      setHasChallengeStarted(true)
+
       if (challengeStatus === "failed") {
-        setTimeRemaining(
-          Math.max(
-            MIN_CHALLENGE_DURATION,
-            INITIAL_CHALLENGE_DURATION - (eggLevel - 1) * CHALLENGE_DURATION_STEP,
-          ),
-        )
+        setTimeRemaining(getChallengeDuration(eggLevel))
         setChallengeStatus("idle")
         setIsTimerActive(true)
       } else if (!isTimerActive) {
@@ -312,6 +320,7 @@ export function QuranBookViewer() {
         if (previous <= 1) {
           window.clearInterval(intervalId)
           setIsTimerActive(false)
+          setHasChallengeStarted(false)
           setChallengeStatus((status) => (status === "cracked" ? status : "failed"))
           return 0
         }
@@ -331,6 +340,7 @@ export function QuranBookViewer() {
     if (versesRecited >= currentChallengeTarget) {
       setChallengeStatus("cracked")
       setIsTimerActive(false)
+      setHasChallengeStarted(false)
     }
   }, [challengeStatus, currentChallengeTarget, versesRecited])
 
@@ -342,14 +352,10 @@ export function QuranBookViewer() {
       setEggLevel((previousLevel) => {
         const nextLevel = previousLevel + 1
         setVersesRecited(0)
-        setTimeRemaining(
-          Math.max(
-            MIN_CHALLENGE_DURATION,
-            INITIAL_CHALLENGE_DURATION - (nextLevel - 1) * CHALLENGE_DURATION_STEP,
-          ),
-        )
+        setTimeRemaining(getChallengeDuration(nextLevel))
         setChallengeStatus("idle")
-        setIsTimerActive(true)
+        setIsTimerActive(false)
+        setHasChallengeStarted(false)
         return nextLevel
       })
     }, 1600)
@@ -456,19 +462,45 @@ export function QuranBookViewer() {
               </span>
               <span className="font-mono text-base">{formattedTimer}</span>
             </div>
-            <Button variant="outline" size="sm" onClick={() => {
-              setVersesRecited(0)
-              setTimeRemaining(
-                Math.max(
-                  MIN_CHALLENGE_DURATION,
-                  INITIAL_CHALLENGE_DURATION - (eggLevel - 1) * CHALLENGE_DURATION_STEP,
-                ),
-              )
-              setChallengeStatus("idle")
-              setIsTimerActive(true)
-            }}>
-              Reset Challenge
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button
+                size="sm"
+                className="bg-amber-500 text-white hover:bg-amber-600"
+                onClick={() => {
+                  if (isTimerActive) {
+                    setIsTimerActive(false)
+                    return
+                  }
+
+                  if (challengeStatus === "failed") {
+                    setVersesRecited(0)
+                    setTimeRemaining(getChallengeDuration(eggLevel))
+                    setChallengeStatus("idle")
+                  } else if (timeRemaining <= 0) {
+                    setTimeRemaining(getChallengeDuration(eggLevel))
+                  }
+
+                  setHasChallengeStarted(true)
+                  setIsTimerActive(true)
+                }}
+              >
+                {isTimerActive ? "Pause" : hasChallengeStarted ? "Resume" : "Start Challenge"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setEggLevel(1)
+                  setVersesRecited(0)
+                  setTimeRemaining(getChallengeDuration(1))
+                  setChallengeStatus("idle")
+                  setIsTimerActive(false)
+                  setHasChallengeStarted(false)
+                }}
+              >
+                Reset Challenge
+              </Button>
+            </div>
           </div>
         </div>
       </section>

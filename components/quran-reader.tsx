@@ -33,6 +33,7 @@ export function QuranReader({
   const [currentAyahIndex, setCurrentAyahIndex] = useState(0)
   const [isPlaying, setIsPlaying] = useState(false)
   const [showTranslations, setShowTranslations] = useState(showTranslation)
+  const [showAllAyahs, setShowAllAyahs] = useState(true)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
   const [volume, setVolume] = useState(0.8)
   const [repeatMode, setRepeatMode] = useState<"none" | "ayah" | "surah">("none")
@@ -53,6 +54,21 @@ export function QuranReader({
       loadSurah(initialSurah)
     }
   }, [initialSurah])
+
+  useEffect(() => {
+    if (!showTranslations || !currentSurah || ayahs.length === 0) {
+      return
+    }
+
+    const hasCompleteTranslations = ayahs.every((ayah) => {
+      const ayahTranslations = translations[ayah.numberInSurah]
+      return Array.isArray(ayahTranslations) && ayahTranslations.length > 0
+    })
+
+    if (!hasCompleteTranslations) {
+      loadTranslations(ayahs, currentSurah.number)
+    }
+  }, [showTranslations, currentSurah, ayahs, translations])
 
   const loadInitialData = async () => {
     setIsLoading(true)
@@ -204,7 +220,11 @@ export function QuranReader({
   }
 
   const currentAyah = ayahs[currentAyahIndex]
-  const currentTranslations = currentAyah ? translations[currentAyah.numberInSurah] || [] : []
+  const ayahEntries = showAllAyahs
+    ? ayahs.map((ayah, index) => ({ ayah, index }))
+    : currentAyah
+      ? [{ ayah: currentAyah, index: currentAyahIndex }]
+      : []
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -265,6 +285,13 @@ export function QuranReader({
                   Translation
                 </Label>
               </div>
+
+              <div className="flex items-center space-x-2">
+                <Switch id="show-all-ayahs" checked={showAllAyahs} onCheckedChange={setShowAllAyahs} />
+                <Label htmlFor="show-all-ayahs" className="text-sm text-maroon-800">
+                  All Ayahs
+                </Label>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -286,172 +313,182 @@ export function QuranReader({
 
       {/* Audio Controls */}
       {showControls && (
-        <Card className="border-maroon-100 bg-white/90 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <Button onClick={previousAyah} disabled={currentAyahIndex === 0} variant="outline" size="sm">
-                  <SkipBack className="w-4 h-4" />
-                </Button>
+        <div className="sticky top-4 z-20">
+          <Card className="border-maroon-100 bg-white/95 shadow-lg shadow-maroon-100/40">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-3">
+                  <Button onClick={previousAyah} disabled={currentAyahIndex === 0} variant="outline" size="sm">
+                    <SkipBack className="w-4 h-4" />
+                  </Button>
 
-                <Button
-                  onClick={isPlaying ? pauseAyah : () => playAyah(currentAyahIndex)}
-                  className="bg-maroon-600 hover:bg-maroon-700 text-white"
-                  size="sm"
-                >
-                  {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                </Button>
-
-                <Button onClick={nextAyah} disabled={currentAyahIndex === ayahs.length - 1} variant="outline" size="sm">
-                  <SkipForward className="w-4 h-4" />
-                </Button>
-
-                <Button
-                  onClick={() => {
-                    const modes: ("none" | "ayah" | "surah")[] = ["none", "ayah", "surah"]
-                    const currentIndex = modes.indexOf(repeatMode)
-                    const nextMode = modes[(currentIndex + 1) % modes.length]
-                    setRepeatMode(nextMode)
-                  }}
-                  variant="outline"
-                  size="sm"
-                  className={repeatMode !== "none" ? "bg-maroon-50 text-maroon-700 border border-maroon-200" : ""}
-                >
-                  <Repeat className="w-4 h-4 mr-1" />
-                  {repeatMode === "none" ? "No Repeat" : repeatMode === "ayah" ? "Repeat Ayah" : "Repeat Surah"}
-                </Button>
-              </div>
-
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-2">
-                  <Volume2 className="w-4 h-4" />
-                  <Slider
-                    value={[volume]}
-                    onValueChange={(value) => setVolume(value[0])}
-                    max={1}
-                    step={0.1}
-                    className="w-20"
-                  />
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Label className="text-sm text-maroon-800">Speed:</Label>
-                  <Select
-                    value={playbackSpeed.toString()}
-                    onValueChange={(value) => setPlaybackSpeed(Number.parseFloat(value))}
+                  <Button
+                    onClick={isPlaying ? pauseAyah : () => playAyah(currentAyahIndex)}
+                    className="bg-maroon-600 hover:bg-maroon-700 text-white"
+                    size="sm"
                   >
-                    <SelectTrigger className="w-20 bg-white/80">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="0.5">0.5x</SelectItem>
-                      <SelectItem value="0.75">0.75x</SelectItem>
-                      <SelectItem value="1">1x</SelectItem>
-                      <SelectItem value="1.25">1.25x</SelectItem>
-                      <SelectItem value="1.5">1.5x</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  </Button>
+
+                  <Button onClick={nextAyah} disabled={currentAyahIndex === ayahs.length - 1} variant="outline" size="sm">
+                    <SkipForward className="w-4 h-4" />
+                  </Button>
+
+                  <Button
+                    onClick={() => {
+                      const modes: ("none" | "ayah" | "surah")[] = ["none", "ayah", "surah"]
+                      const currentIndex = modes.indexOf(repeatMode)
+                      const nextMode = modes[(currentIndex + 1) % modes.length]
+                      setRepeatMode(nextMode)
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className={repeatMode !== "none" ? "bg-maroon-50 text-maroon-700 border border-maroon-200" : ""}
+                  >
+                    <Repeat className="w-4 h-4 mr-1" />
+                    {repeatMode === "none" ? "No Repeat" : repeatMode === "ayah" ? "Repeat Ayah" : "Repeat Surah"}
+                  </Button>
+                </div>
+
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
+                    <Volume2 className="w-4 h-4" />
+                    <Slider
+                      value={[volume]}
+                      onValueChange={(value) => setVolume(value[0])}
+                      max={1}
+                      step={0.1}
+                      className="w-20"
+                    />
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Label className="text-sm text-maroon-800">Speed:</Label>
+                    <Select
+                      value={playbackSpeed.toString()}
+                      onValueChange={(value) => setPlaybackSpeed(Number.parseFloat(value))}
+                    >
+                      <SelectTrigger className="w-20 bg-white/80">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0.5">0.5x</SelectItem>
+                        <SelectItem value="0.75">0.75x</SelectItem>
+                        <SelectItem value="1">1x</SelectItem>
+                        <SelectItem value="1.25">1.25x</SelectItem>
+                        <SelectItem value="1.5">1.5x</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Ayahs Display */}
       <div className="space-y-4">
-        {ayahs.map((ayah, index) => {
-          const isCurrentAyah = index === currentAyahIndex
-          const bookmarkKey = `${currentSurah?.number}-${ayah.numberInSurah}`
-          const isBookmarked = bookmarkedAyahs.has(bookmarkKey)
-          const ayahTranslations = translations[ayah.numberInSurah] || []
+        {ayahEntries.length === 0 ? (
+          <Card className="border border-dashed border-maroon-200 bg-white/80">
+            <CardContent className="p-6 text-center text-sm text-maroon-700">
+              Toggle “All Ayahs” on or select a verse to display it here.
+            </CardContent>
+          </Card>
+        ) : (
+          ayahEntries.map(({ ayah, index }) => {
+            const isCurrentAyah = index === currentAyahIndex
+            const bookmarkKey = `${currentSurah?.number}-${ayah.numberInSurah}`
+            const isBookmarked = bookmarkedAyahs.has(bookmarkKey)
+            const ayahTranslations = translations[ayah.numberInSurah] || []
 
-          return (
-            <Card
-              key={ayah.number}
-              className={`border border-maroon-100 transition-all duration-200 ${
-                isCurrentAyah ? "ring-2 ring-maroon-200 bg-maroon-50/40" : "bg-white/95"
-              }`}
-            >
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <Badge variant="outline" className="bg-maroon-50 text-maroon-700 border border-maroon-200">
-                    Ayah {ayah.numberInSurah}
-                  </Badge>
-
-                  <div className="flex items-center space-x-2">
-                    <Button
-                      onClick={() => toggleBookmark(ayah.numberInSurah)}
-                      variant="ghost"
-                      size="sm"
-                      className={
-                        isBookmarked ? "text-gold-600 hover:text-gold-700" : "text-gray-400 hover:text-gray-600"
-                      }
-                    >
-                      {isBookmarked ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
-                    </Button>
-
-                    <Button
-                      onClick={() => playAyah(index)}
-                      variant="ghost"
-                      size="sm"
-                      className="text-maroon-600 hover:text-maroon-700"
-                    >
-                      <Play className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Arabic Text */}
-                <div className="text-right text-2xl md:text-3xl leading-relaxed font-arabic text-maroon-800 mb-6 p-4 bg-cream-50 rounded-lg">
-                  {ayah.text}
-                </div>
-
-                {/* Translations */}
-                {showTranslations && ayahTranslations.length > 0 && (
-                  <div className="space-y-3">
-                    {ayahTranslations.map((translation, tIndex) => (
-                      <div
-                        key={tIndex}
-                        className="rounded-md border-l-4 border-maroon-200 bg-cream-50/80 p-4 text-left"
-                      >
-                        <p className="text-maroon-800 leading-relaxed">{translation.text}</p>
-                        <p className="text-sm text-maroon-600 mt-1">— {translation.translator}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Ayah Metadata */}
-                <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-100">
-                  <Badge
-                    variant="secondary"
-                    className="text-xs bg-cream-50 text-maroon-700 border border-maroon-200/60"
-                  >
-                    Juz {ayah.juz}
-                  </Badge>
-                  <Badge
-                    variant="secondary"
-                    className="text-xs bg-cream-50 text-maroon-700 border border-maroon-200/60"
-                  >
-                    Page {ayah.page}
-                  </Badge>
-                  <Badge
-                    variant="secondary"
-                    className="text-xs bg-cream-50 text-maroon-700 border border-maroon-200/60"
-                  >
-                    Manzil {ayah.manzil}
-                  </Badge>
-                  {ayah.sajda && (
-                    <Badge variant="secondary" className="text-xs bg-green-100 text-green-800">
-                      Sajda
+            return (
+              <Card
+                key={ayah.number}
+                className={`border border-maroon-100 transition-all duration-200 ${
+                  isCurrentAyah ? "ring-2 ring-maroon-200 bg-maroon-50/40" : "bg-white/95"
+                }`}
+              >
+                <CardContent className="p-6">
+                  <div className="mb-4 flex items-start justify-between">
+                    <Badge variant="outline" className="border border-maroon-200 bg-maroon-50 text-maroon-700">
+                      Ayah {ayah.numberInSurah}
                     </Badge>
+
+                    <div className="flex items-center space-x-2">
+                      <Button
+                        onClick={() => toggleBookmark(ayah.numberInSurah)}
+                        variant="ghost"
+                        size="sm"
+                        className={
+                          isBookmarked ? "text-gold-600 hover:text-gold-700" : "text-gray-400 hover:text-gray-600"
+                        }
+                      >
+                        {isBookmarked ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
+                      </Button>
+
+                      <Button
+                        onClick={() => playAyah(index)}
+                        variant="ghost"
+                        size="sm"
+                        className="text-maroon-600 hover:text-maroon-700"
+                      >
+                        <Play className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Arabic Text */}
+                  <div className="font-arabic mb-6 rounded-lg bg-cream-50 p-4 text-right text-2xl leading-relaxed text-maroon-800 md:text-3xl">
+                    {ayah.text}
+                  </div>
+
+                  {/* Translations */}
+                  {showTranslations && ayahTranslations.length > 0 && (
+                    <div className="space-y-3">
+                      {ayahTranslations.map((translation, tIndex) => (
+                        <div
+                          key={tIndex}
+                          className="rounded-md border-l-4 border-maroon-200 bg-cream-50/80 p-4 text-left"
+                        >
+                          <p className="leading-relaxed text-maroon-800">{translation.text}</p>
+                          <p className="mt-1 text-sm text-maroon-600">— {translation.translator}</p>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
+
+                  {/* Ayah Metadata */}
+                  <div className="mt-4 flex flex-wrap gap-2 border-t border-gray-100 pt-4">
+                    <Badge
+                      variant="secondary"
+                      className="border border-maroon-200/60 bg-cream-50 text-xs text-maroon-700"
+                    >
+                      Juz {ayah.juz}
+                    </Badge>
+                    <Badge
+                      variant="secondary"
+                      className="border border-maroon-200/60 bg-cream-50 text-xs text-maroon-700"
+                    >
+                      Page {ayah.page}
+                    </Badge>
+                    <Badge
+                      variant="secondary"
+                      className="border border-maroon-200/60 bg-cream-50 text-xs text-maroon-700"
+                    >
+                      Manzil {ayah.manzil}
+                    </Badge>
+                    {ayah.sajda && (
+                      <Badge variant="secondary" className="bg-green-100 text-xs text-green-800">
+                        Sajda
+                      </Badge>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })
+        )}
       </div>
 
       {/* Audio Element */}
