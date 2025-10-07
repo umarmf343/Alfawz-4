@@ -83,7 +83,7 @@ Copy the provided `.env.example` into a new `.env.local` file before running the
 
 - `NEXT_PUBLIC_APP_URL` – The public URL of the site (used for callback URLs).
 - `PAYSTACK_SECRET_KEY` – Secret key from your Paystack dashboard for initializing payments and verifying webhooks.
-- `OPENAI_API_KEY` – Whisper API key used to transcribe recitations.
+- `TARTEEL_API_KEY` – Tarteel transcription API key used to transcribe recitations.
 
 ### cPanel deployment notes
 

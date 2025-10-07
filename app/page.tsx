@@ -169,7 +169,7 @@ export default function HomePage() {
                 </div>
                 <CardTitle>AI-Powered Feedback</CardTitle>
                 <CardDescription>
-                  Advanced recitation analysis using OpenAI Whisper for pronunciation and Tajweed improvement
+                  Advanced recitation analysis powered by the Tarteel recitation engine for pronunciation and tajwīd improvement
                 </CardDescription>
               </CardHeader>
             </Card>

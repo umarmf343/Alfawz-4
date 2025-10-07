@@ -359,7 +359,7 @@ export function QuranFlipBook({ initialSurahName, initialAyah, className }: Qura
         </CardTitle>
         <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
           <Select
-            value={selectedSurahNumber ? String(selectedSurahNumber) : undefined}
+            value={selectedSurahNumber ? String(selectedSurahNumber) : ""}
             onValueChange={(value) => {
               const surahNumber = Number(value)
               goToSurah(surahNumber)

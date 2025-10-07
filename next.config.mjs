@@ -13,7 +13,7 @@ const mushafFontsReady = requiredMushafFonts.every((file) => {
   }
 })
 
-const transcriptionEnabled = typeof process.env.OPENAI_API_KEY === "string" && process.env.OPENAI_API_KEY.length > 0
+const transcriptionEnabled = typeof process.env.TARTEEL_API_KEY === "string" && process.env.TARTEEL_API_KEY.length > 0
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {

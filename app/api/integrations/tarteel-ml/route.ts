@@ -71,7 +71,7 @@ const MISTAKE_DETECTION = {
       label: "Incorrect words",
       description: "Detects substitutions or misreadings before tajwīd overlays are generated.",
       status: "production" as const,
-      highlights: ["Aligns Whisper tokens with Mushaf text", "Captures makhārij drift for coaching"],
+      highlights: ["Aligns Tarteel tokens with Mushaf text", "Captures makhārij drift for coaching"],
     },
     {
       id: "extra_word",
@@ -92,7 +92,7 @@ const MISTAKE_DETECTION = {
       label: "Pronunciation",
       description: "Captures makhārij and heavy-letter articulation issues for rapid remediation.",
       status: "production" as const,
-      highlights: ["Maps letters to articulation groups", "Supports live whisper prompts"],
+      highlights: ["Maps letters to articulation groups", "Supports live Tarteel prompts"],
     },
     {
       id: "tajweed",
