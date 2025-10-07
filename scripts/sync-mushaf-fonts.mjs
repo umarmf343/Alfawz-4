@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { mkdir, writeFile } from "node:fs/promises"
-import { pipeline } from "node:stream/promises"
+import { spawn } from "node:child_process"
 import { createWriteStream } from "node:fs"
+import { pipeline } from "node:stream/promises"
 import path from "node:path"
 import process from "node:process"
 import { fileURLToPath } from "node:url"
@@ -31,6 +32,23 @@ const FONT_MANIFEST = [
 
 async function fetchToFile(remotePath, destination) {
   const url = new URL(`https://raw.githubusercontent.com/TarteelAI/quran-ttx/main/${remotePath}`)
+
+  try {
+    await fetchWithNode(remotePath, url, destination)
+    return
+  } catch (error) {
+    if (!shouldFallbackToCurl(error)) {
+      throw error
+    }
+
+    const reason = error?.message ?? "fetch failed"
+    console.warn(`Node fetch failed for ${remotePath} (${reason}) — retrying with curl.`)
+  }
+
+  await fetchWithCurl(remotePath, url, destination)
+}
+
+async function fetchWithNode(remotePath, url, destination) {
   const response = await fetch(url, {
     headers: { "User-Agent": "alfawz-sync-script" },
   })
@@ -40,6 +58,50 @@ async function fetchToFile(remotePath, destination) {
   }
 
   await pipeline(response.body, createWriteStream(destination))
+}
+
+function shouldFallbackToCurl(error) {
+  if (!error) {
+    return false
+  }
+
+  const message = error.message ?? ""
+  const causeCode = error.cause?.code
+
+  return (
+    causeCode === "ENETUNREACH" ||
+    causeCode === "ECONNREFUSED" ||
+    causeCode === "ECONNRESET" ||
+    /ENETUNREACH|ECONNREFUSED|ECONNRESET/i.test(message)
+  )
+}
+
+async function fetchWithCurl(remotePath, url, destination) {
+  await new Promise((resolve, reject) => {
+    const curl = spawn("curl", ["-sSL", url.toString(), "-o", destination], {
+      stdio: ["ignore", "inherit", "pipe"],
+    })
+
+    const stderr = []
+
+    curl.stderr.on("data", (chunk) => {
+      stderr.push(chunk)
+    })
+
+    curl.on("error", (error) => {
+      reject(new Error(`Unable to launch curl for ${remotePath}: ${error.message}`))
+    })
+
+    curl.on("close", (code) => {
+      if (code === 0) {
+        resolve()
+        return
+      }
+
+      const details = Buffer.concat(stderr).toString().trim()
+      reject(new Error(`curl exited with code ${code}${details ? ` — ${details}` : ""}`))
+    })
+  })
 }
 
 async function main() {
@@ -73,7 +135,7 @@ async function main() {
       "Convert the TTX payloads with FontTools: `ttx -f -o mushaf-madinah.ttf QCF_P001.ttx` and then `ttx -f -o mushaf-madinah.woff2 -t woff2 mushaf-madinah.ttf`. Repeat for other pages as needed.",
   }
 
-  await writeFile(manifestPath, JSON.stringify(manifestPayload, null, 2), "utf8")
+  await writeFile(manifestPath, JSON.stringify(manifestPayload, null, 2) + "\n", "utf8")
 
   console.log("Mushaf font sync complete:\n" + summary.join("\n"))
   console.log(`\nNext steps: run FontTools to convert TTX into browser-friendly formats (see ${manifestPath}).`)
