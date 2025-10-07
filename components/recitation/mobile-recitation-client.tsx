@@ -21,6 +21,8 @@ export interface MobileRecitationClientProps {
   overlayMode: MushafOverlayMode
   permissionStatus: "unknown" | "granted" | "denied"
   errorMessage?: string | null
+  isLiveAnalysisSupported: boolean
+  unavailableMessage?: string
   className?: string
 }
 
@@ -35,6 +37,8 @@ export function MobileRecitationClient({
   overlayMode,
   permissionStatus,
   errorMessage,
+  isLiveAnalysisSupported,
+  unavailableMessage,
   className,
 }: MobileRecitationClientProps) {
   const normalizedVolume = Math.min(1, Math.max(volumeLevel, 0))
@@ -78,12 +82,13 @@ export function MobileRecitationClient({
             onClick={onToggle}
             size="icon"
             className={cn(
-              "relative z-10 h-full w-full rounded-full border-0 text-white shadow-xl transition-all",
+              "relative z-10 h-full w-full rounded-full border-0 text-white shadow-xl transition-all disabled:cursor-not-allowed disabled:opacity-60",
               isRecording
                 ? "bg-gradient-to-br from-emerald-500 to-emerald-600 hover:from-emerald-500 hover:to-emerald-600"
                 : "bg-gradient-to-br from-primary to-primary/90 hover:from-primary/90 hover:to-primary",
             )}
             aria-label={isRecording ? "Stop live recitation" : "Start live recitation"}
+            disabled={!isLiveAnalysisSupported}
           >
             {isRecording ? <MicOff className="h-10 w-10" /> : <Mic className="h-10 w-10" />}
           </Button>
@@ -97,9 +102,12 @@ export function MobileRecitationClient({
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              {isLiveAnalysisActive
-                ? "Speak clearly and maintain a steady pace."
-                : "Tap the button to begin tajweed analysis."}
+              {!isLiveAnalysisSupported
+                ? unavailableMessage ||
+                  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY and refresh."
+                : isLiveAnalysisActive
+                  ? "Speak clearly and maintain a steady pace."
+                  : "Tap the button to begin tajweed analysis."}
             </p>
           )}
         </div>

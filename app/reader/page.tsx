@@ -43,7 +43,7 @@ import {
   type LiveMistake,
   type LiveSessionSummary,
 } from "@/lib/tajweed-analysis"
-import type { MushafOverlayMode } from "@/lib/mushaf-fonts"
+import { MUSHAF_FONTS_AVAILABLE, type MushafOverlayMode } from "@/lib/mushaf-fonts"
 
 const FALLBACK_AUDIO_BASE = "https://cdn.islamic.network/quran/audio/128/ar.alafasy"
 
@@ -169,6 +169,8 @@ type ReciterKey = keyof typeof RECITER_AUDIO_SLUGS
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
   "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY and refresh to enable live analysis."
 
+const TRANSCRIPTION_AVAILABLE = process.env.NEXT_PUBLIC_TRANSCRIPTION_ENABLED === "true"
+
 type TajweedMetric = {
   id: string
   label: string
@@ -196,7 +198,8 @@ export default function QuranReaderPage() {
   const [showTranslation, setShowTranslation] = useState(true)
   const [showTransliteration, setShowTransliteration] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
-  const [useMushafTypography, setUseMushafTypography] = useState(true)
+  const isMushafTypographySupported = MUSHAF_FONTS_AVAILABLE
+  const [useMushafTypography, setUseMushafTypography] = useState(isMushafTypographySupported)
   const [mushafOverlayMode, setMushafOverlayMode] = useState<MushafOverlayMode>("tajweed")
   const [liveVolume, setLiveVolume] = useState(0)
   const [microphonePermission, setMicrophonePermission] = useState<MicrophonePermissionStatus>("unknown")
@@ -245,8 +248,11 @@ export default function QuranReaderPage() {
       description: "Echo on heavy letters",
     },
   ])
+  const isLiveAnalysisSupported = TRANSCRIPTION_AVAILABLE
   const [analysisMessage, setAnalysisMessage] = useState(
-    "Start the live analysis to receive tajweed feedback in real time.",
+    isLiveAnalysisSupported
+      ? "Start the live analysis to receive tajweed feedback in real time."
+      : TRANSCRIPTION_UNAVAILABLE_MESSAGE,
   )
   const [isAnalysisStarted, setIsAnalysisStarted] = useState(false)
   const [liveTranscription, setLiveTranscription] = useState("")
@@ -256,7 +262,7 @@ export default function QuranReaderPage() {
   const [isFinalizingLiveSession, setIsFinalizingLiveSession] = useState(false)
   const [liveSessionSummary, setLiveSessionSummary] = useState<LiveSessionSummary | null>(null)
   const { status: mushafFontStatus, isReady: areMushafFontsReady, error: mushafFontError } = useMushafFontLoader(
-    useMushafTypography,
+    useMushafTypography && isMushafTypographySupported,
   )
 
   useEffect(() => {
@@ -432,6 +438,10 @@ export default function QuranReaderPage() {
   }, [tajweedMetrics])
 
   const mushafFontSupportText = useMemo(() => {
+    if (!isMushafTypographySupported) {
+      return "Mushaf typography is disabled because the font assets are missing. Run `npm run fonts:mushaf` and convert the TTX files to WOFF/WOFF2, then restart the server."
+    }
+
     if (!useMushafTypography || mushafFontStatus === "ready") {
       return null
     }
@@ -442,7 +452,7 @@ export default function QuranReaderPage() {
 
     const base = "Font files not found. Run npm run fonts:mushaf and convert the TTX exports to WOFF/WOFF2."
     return mushafFontError ? `${base} ${mushafFontError}` : base
-  }, [mushafFontStatus, mushafFontError, useMushafTypography])
+  }, [isMushafTypographySupported, mushafFontStatus, mushafFontError, useMushafTypography])
 
   const audioRef = useRef<HTMLAudioElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -535,6 +545,18 @@ export default function QuranReaderPage() {
 
   const processChunkQueue = useCallback(async () => {
     if (isProcessingChunkRef.current || chunkQueueRef.current.length === 0) {
+      return
+    }
+
+    if (!isLiveAnalysisSupported) {
+      chunkQueueRef.current = []
+      sessionChunksRef.current = []
+      isProcessingChunkRef.current = false
+      setIsProcessingLiveChunk(false)
+      setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+      setAnalysisMessage(
+        "Live analysis requires server-side transcription. Add an OPENAI_API_KEY and reload to continue.",
+      )
       return
     }
 
@@ -637,10 +659,19 @@ export default function QuranReaderPage() {
       isProcessingChunkRef.current = false
       setIsProcessingLiveChunk(false)
     }
-  }, [])
+  }, [isLiveAnalysisSupported])
 
   const finalizeLiveSession = useCallback(
     async (audioBlob: Blob) => {
+      if (!isLiveAnalysisSupported) {
+        setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+        setAnalysisMessage(
+          "Live analysis stopped because the AI transcription service is not configured on this server.",
+        )
+        shouldFinalizeRef.current = false
+        return
+      }
+
       if (!audioBlob || audioBlob.size === 0) {
         setAnalysisMessage("We didn't capture any audio. Start another attempt when ready.")
         return
@@ -746,6 +777,7 @@ export default function QuranReaderPage() {
     [
       activeAyah,
       currentAyah,
+      isLiveAnalysisSupported,
       getAyahDisplayNumber,
       submitRecitationResult,
       surahData.metadata.englishName,
@@ -863,6 +895,14 @@ export default function QuranReaderPage() {
       return
     }
 
+    if (!isLiveAnalysisSupported) {
+      setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+      setAnalysisMessage(
+        "Live analysis requires server-side transcription. Add an OPENAI_API_KEY and reload to continue.",
+      )
+      return
+    }
+
     if (typeof window === "undefined" || typeof MediaRecorder === "undefined") {
       setLiveAnalysisError("Live analysis requires a browser that supports audio recording.")
       return
@@ -938,9 +978,25 @@ export default function QuranReaderPage() {
       setMicrophonePermission("denied")
       stopLiveRecording({ collapse: false, skipFinalize: true })
     }
-  }, [finalizeLiveSession, isRecording, processChunkQueue, weakestMetric, stopLiveRecording, setupVolumeMeter])
+  }, [
+    finalizeLiveSession,
+    isLiveAnalysisSupported,
+    isRecording,
+    processChunkQueue,
+    weakestMetric,
+    stopLiveRecording,
+    setupVolumeMeter,
+  ])
 
   const handleLiveAnalysisToggle = useCallback(() => {
+    if (!isLiveAnalysisSupported) {
+      setLiveAnalysisError(TRANSCRIPTION_UNAVAILABLE_MESSAGE)
+      setAnalysisMessage(
+        "Live analysis requires server-side transcription. Add an OPENAI_API_KEY and reload to continue.",
+      )
+      return
+    }
+
     if (!isAnalysisStarted && !isRecording) {
       setIsAnalysisStarted(true)
       void startLiveRecording()
@@ -958,18 +1014,26 @@ export default function QuranReaderPage() {
       setLiveMistakes([])
       setLiveSessionSummary(null)
       setLiveAnalysisError(null)
-      setAnalysisMessage("Start the live analysis to receive tajweed feedback in real time.")
+      setAnalysisMessage(
+        isLiveAnalysisSupported
+          ? "Start the live analysis to receive tajweed feedback in real time."
+          : TRANSCRIPTION_UNAVAILABLE_MESSAGE,
+      )
     }
-  }, [isAnalysisStarted, isRecording, startLiveRecording, stopLiveRecording])
+  }, [isAnalysisStarted, isLiveAnalysisSupported, isRecording, startLiveRecording, stopLiveRecording])
 
   useEffect(() => {
     if (!isAnalysisStarted && !isRecording) {
-      setAnalysisMessage("Start the live analysis to receive tajweed feedback in real time.")
+      setAnalysisMessage(
+        isLiveAnalysisSupported
+          ? "Start the live analysis to receive tajweed feedback in real time."
+          : TRANSCRIPTION_UNAVAILABLE_MESSAGE,
+      )
       setLiveAnalysisError(null)
       setLiveTranscription("")
       setLiveMistakes([])
     }
-  }, [isAnalysisStarted, isRecording])
+  }, [isAnalysisStarted, isLiveAnalysisSupported, isRecording])
 
   useEffect(() => {
     return () => {
@@ -1314,6 +1378,7 @@ export default function QuranReaderPage() {
                       variant={isLiveAnalysisActive ? "default" : "outline"}
                       size="sm"
                       onClick={handleLiveAnalysisToggle}
+                      disabled={!isLiveAnalysisSupported}
                       className={
                         isLiveAnalysisActive
                           ? "bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
@@ -1341,6 +1406,8 @@ export default function QuranReaderPage() {
                   overlayMode={mushafOverlayMode}
                   permissionStatus={microphonePermission}
                   errorMessage={isLiveAnalysisActive ? liveAnalysisError : null}
+                  isLiveAnalysisSupported={isLiveAnalysisSupported}
+                  unavailableMessage={TRANSCRIPTION_UNAVAILABLE_MESSAGE}
                 />
 
                 {isLiveAnalysisActive && (
@@ -1757,7 +1824,11 @@ export default function QuranReaderPage() {
                         Render āyāt using the Madinah Mushaf outlines layered with tajweed cues.
                       </p>
                     </div>
-                    <Switch checked={useMushafTypography} onCheckedChange={setUseMushafTypography} />
+                    <Switch
+                      checked={useMushafTypography && isMushafTypographySupported}
+                      onCheckedChange={(checked) => setUseMushafTypography(checked && isMushafTypographySupported)}
+                      disabled={!isMushafTypographySupported}
+                    />
                   </div>
                   {mushafFontSupportText && (
                     <p className="text-xs text-amber-700">{mushafFontSupportText}</p>
@@ -1767,8 +1838,9 @@ export default function QuranReaderPage() {
                     <Select
                       value={mushafOverlayMode}
                       onValueChange={(value) => setMushafOverlayMode(value as MushafOverlayMode)}
+                      disabled={!useMushafTypography || !isMushafTypographySupported}
                     >
-                      <SelectTrigger className="mt-2">
+                      <SelectTrigger className="mt-2" disabled={!useMushafTypography || !isMushafTypographySupported}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

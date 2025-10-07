@@ -3,16 +3,6 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@font-face {
-  font-family: "Mushaf Madinah";
-  src:
-    url("/fonts/mushaf/mushaf-madinah.woff2") format("woff2"),
-    url("/fonts/mushaf/mushaf-madinah.woff") format("woff");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 :root {
   /* Updated theme to match Islamic educational platform with maroon and cream colors */
   --background: oklch(0.98 0.01 45); /* Warm cream background */
