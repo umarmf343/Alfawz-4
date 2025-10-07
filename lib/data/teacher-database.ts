@@ -1,3 +1,5 @@
+import { expandVerseRange, normalizeVerseKey, validateVerseKeys } from "../verse-validator"
+
 export type TeacherRole = "head" | "assistant"
 
 export interface TeacherProfile {
@@ -364,6 +366,79 @@ export interface MemorizationPlanRecord {
   notes?: string
 }
 
+export interface TeacherClassSummary {
+  id: string
+  name: string
+  description?: string
+  teacherId: string
+  schedule?: string
+  studentIds: string[]
+  studentCount: number
+}
+
+export interface TeacherMemorizationPlanStats {
+  verseCount: number
+  assignedStudents: number
+  completedStudents: number
+  inProgressStudents: number
+  notStartedStudents: number
+}
+
+export interface TeacherMemorizationPlanSummary {
+  plan: MemorizationPlanRecord
+  classes: TeacherClassSummary[]
+  stats: TeacherMemorizationPlanStats
+}
+
+export interface TeacherPlanProgressStudent {
+  studentId: string
+  studentName: string
+  status: "not_started" | "in_progress" | "completed"
+  classId: string
+  className: string
+  repetitionsDone: number
+  totalRepetitions: number
+  currentVerseIndex: number
+  verseCount: number
+  lastActivity?: string | null
+}
+
+export interface TeacherPlanProgressClassSummary {
+  id: string
+  name: string
+  studentCount: number
+  completed: number
+  inProgress: number
+  notStarted: number
+}
+
+export interface TeacherPlanProgress {
+  plan: MemorizationPlanRecord
+  classes: TeacherPlanProgressClassSummary[]
+  students: TeacherPlanProgressStudent[]
+}
+
+export interface SuggestedMemorizationPlan {
+  id: string
+  title: string
+  verseKeys: string[]
+  reason: string
+}
+
+export interface CreateTeacherPlanInput {
+  title: string
+  verseKeys: string[]
+  classIds: string[]
+  notes?: string
+}
+
+export interface UpdateTeacherPlanInput {
+  title?: string
+  verseKeys?: string[]
+  classIds?: string[]
+  notes?: string
+}
+
 export interface MemorizationHistoryEntry {
   verseKey: string
   repetitions: number
@@ -448,6 +523,7 @@ const GAME_LEVEL_MULTIPLIER = 1.15
 const MAX_GAMIFICATION_LOG = 100
 const MEMORIZATION_REPETITION_TARGET = 20
 const MAX_MEMORIZATION_COMPLETIONS = 100
+const PLAN_CREATION_DAILY_LIMIT = 10
 
 const database: TeacherDatabaseSchema = {
   teachers: [
@@ -512,6 +588,9 @@ const database: TeacherDatabaseSchema = {
   ],
   memorizationCompletions: [],
 }
+
+const planCreationTracker = new Map<string, { date: string; count: number }>()
+let planSequence = 0
 
 const rolePrefixes: Record<UserRole, string> = {
   student: "user",
@@ -1506,6 +1585,133 @@ function ensureProgressRecordsForStudent(studentId: string) {
   })
 }
 
+function generatePlanId(): string {
+  planSequence += 1
+  let candidate = `plan_${Date.now()}_${planSequence.toString().padStart(3, "0")}`
+  while (database.memorizationPlans.some((plan) => plan.id === candidate)) {
+    planSequence += 1
+    candidate = `plan_${Date.now()}_${planSequence.toString().padStart(3, "0")}`
+  }
+  return candidate
+}
+
+function cloneTeacherClassSummary(classRecord: ClassRecord): TeacherClassSummary {
+  return {
+    id: classRecord.id,
+    name: classRecord.name,
+    description: classRecord.description,
+    teacherId: classRecord.teacherId,
+    schedule: classRecord.schedule,
+    studentIds: [...classRecord.studentIds],
+    studentCount: classRecord.studentIds.length,
+  }
+}
+
+function getTeacherClassRecords(teacherId: string): ClassRecord[] {
+  return database.classes.filter((classRecord) => classRecord.teacherId === teacherId)
+}
+
+function getPlanStudentIds(plan: MemorizationPlanRecord): string[] {
+  const studentIds = new Set<string>()
+  plan.classIds.forEach((classId) => {
+    const classRecord = getClassRecord(classId)
+    classRecord?.studentIds.forEach((studentId) => studentIds.add(studentId))
+  })
+  return Array.from(studentIds)
+}
+
+function prunePlanProgressRecords(planId: string, allowedStudentIds: Set<string>) {
+  database.studentMemorizationProgress = database.studentMemorizationProgress.filter((record) => {
+    if (record.planId !== planId) {
+      return true
+    }
+    return allowedStudentIds.has(record.studentId)
+  })
+}
+
+function assertPlanCreationLimit(teacherId: string) {
+  const todayKey = new Date().toISOString().slice(0, 10)
+  const entry = planCreationTracker.get(teacherId)
+  if (!entry || entry.date !== todayKey) {
+    planCreationTracker.set(teacherId, { date: todayKey, count: 0 })
+    return
+  }
+  if (entry.count >= PLAN_CREATION_DAILY_LIMIT) {
+    throw new Error("Daily plan creation limit reached")
+  }
+}
+
+function recordPlanCreation(teacherId: string) {
+  const todayKey = new Date().toISOString().slice(0, 10)
+  const entry = planCreationTracker.get(teacherId)
+  if (!entry || entry.date !== todayKey) {
+    planCreationTracker.set(teacherId, { date: todayKey, count: 1 })
+    return
+  }
+  entry.count += 1
+}
+
+function clonePlan(plan: MemorizationPlanRecord): MemorizationPlanRecord {
+  return {
+    ...plan,
+    verseKeys: [...plan.verseKeys],
+    classIds: [...plan.classIds],
+  }
+}
+
+function buildTeacherClassSummaries(classIds: string[]): TeacherClassSummary[] {
+  return classIds
+    .map((classId) => getClassRecord(classId))
+    .filter((classRecord): classRecord is ClassRecord => Boolean(classRecord))
+    .map((classRecord) => cloneTeacherClassSummary(classRecord))
+}
+
+function computePlanStats(plan: MemorizationPlanRecord): TeacherMemorizationPlanStats {
+  const studentIds = getPlanStudentIds(plan)
+  let completed = 0
+  let inProgress = 0
+  studentIds.forEach((studentId) => {
+    const progress = findProgressRecord(studentId, plan.id)
+    if (!progress) {
+      return
+    }
+    if (progress.completedAt) {
+      completed += 1
+      return
+    }
+    if (progress.repetitionsDone > 0 || progress.currentVerseIndex > 0) {
+      inProgress += 1
+    }
+  })
+  const assigned = studentIds.length
+  const notStarted = Math.max(0, assigned - completed - inProgress)
+  return {
+    verseCount: plan.verseKeys.length,
+    assignedStudents: assigned,
+    completedStudents: completed,
+    inProgressStudents: inProgress,
+    notStartedStudents: notStarted,
+  }
+}
+
+function buildPlanSummary(plan: MemorizationPlanRecord): TeacherMemorizationPlanSummary {
+  return {
+    plan: clonePlan(plan),
+    classes: buildTeacherClassSummaries(plan.classIds),
+    stats: computePlanStats(plan),
+  }
+}
+
+function assertTeacherOwnsClasses(teacherId: string, classIds: string[]) {
+  const unauthorized = classIds.filter((classId) => {
+    const classRecord = getClassRecord(classId)
+    return !classRecord || classRecord.teacherId !== teacherId
+  })
+  if (unauthorized.length > 0) {
+    throw new Error("You can only assign plans to your own classes")
+  }
+}
+
 function logMemorizationCompletion(
   studentId: string,
   plan: MemorizationPlanRecord,
@@ -1770,6 +1976,283 @@ export function getMemorizationClasses(): ClassRecord[] {
     ...classRecord,
     studentIds: [...classRecord.studentIds],
   }))
+}
+
+export function listClassesForTeacher(teacherId: string): TeacherClassSummary[] {
+  return getTeacherClassRecords(teacherId).map((classRecord) => cloneTeacherClassSummary(classRecord))
+}
+
+export function listTeacherMemorizationPlans(
+  teacherId: string,
+): TeacherMemorizationPlanSummary[] {
+  return database.memorizationPlans
+    .filter((plan) => plan.teacherId === teacherId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .map((plan) => buildPlanSummary(plan))
+}
+
+export function createTeacherMemorizationPlan(
+  teacherId: string,
+  input: CreateTeacherPlanInput,
+): TeacherMemorizationPlanSummary {
+  const title = input.title.trim()
+  if (!title) {
+    throw new Error("Plan title is required")
+  }
+
+  const classIds = Array.from(new Set(input.classIds.map((classId) => classId.trim()).filter(Boolean)))
+  if (classIds.length === 0) {
+    throw new Error("Select at least one class for this plan")
+  }
+
+  const normalizedKeys = input.verseKeys.map((key) => normalizeVerseKey(key))
+  const validation = validateVerseKeys(normalizedKeys)
+  if (validation.validKeys.length === 0) {
+    throw new Error("Please choose at least one valid verse")
+  }
+  if (validation.issues.length > 0) {
+    const invalidList = validation.issues.map((issue) => issue.key).join(", ")
+    throw new Error(`Invalid verse references: ${invalidList}`)
+  }
+
+  assertPlanCreationLimit(teacherId)
+  assertTeacherOwnsClasses(teacherId, classIds)
+
+  const plan: MemorizationPlanRecord = {
+    id: generatePlanId(),
+    title,
+    verseKeys: [...validation.validKeys],
+    teacherId,
+    classIds,
+    createdAt: new Date().toISOString(),
+    notes: input.notes ? (input.notes.trim() || undefined) : undefined,
+  }
+
+  database.memorizationPlans.unshift(plan)
+
+  const studentIds = getPlanStudentIds(plan)
+  studentIds.forEach((studentId) => {
+    ensureProgressRecordForPlan(studentId, plan)
+  })
+
+  recordPlanCreation(teacherId)
+  return buildPlanSummary(plan)
+}
+
+export function updateTeacherMemorizationPlan(
+  teacherId: string,
+  planId: string,
+  updates: UpdateTeacherPlanInput,
+): TeacherMemorizationPlanSummary {
+  const plan = findMemorizationPlan(planId)
+  if (!plan) {
+    throw new Error("Memorization plan not found")
+  }
+  if (plan.teacherId !== teacherId) {
+    throw new Error("You do not have permission to modify this plan")
+  }
+
+  if (updates.title !== undefined) {
+    const nextTitle = updates.title.trim()
+    if (!nextTitle) {
+      throw new Error("Plan title is required")
+    }
+    plan.title = nextTitle
+  }
+
+  if (updates.notes !== undefined) {
+    const trimmed = updates.notes.trim()
+    plan.notes = trimmed ? trimmed : undefined
+  }
+
+  let verseKeysChanged = false
+  if (updates.verseKeys) {
+    const normalizedKeys = updates.verseKeys.map((key) => normalizeVerseKey(key))
+    const validation = validateVerseKeys(normalizedKeys)
+    if (validation.validKeys.length === 0) {
+      throw new Error("Please choose at least one valid verse")
+    }
+    if (validation.issues.length > 0) {
+      const invalidList = validation.issues.map((issue) => issue.key).join(", ")
+      throw new Error(`Invalid verse references: ${invalidList}`)
+    }
+    plan.verseKeys = [...validation.validKeys]
+    verseKeysChanged = true
+  }
+
+  if (updates.classIds) {
+    const classIds = Array.from(new Set(updates.classIds.map((id) => id.trim()).filter(Boolean)))
+    assertTeacherOwnsClasses(teacherId, classIds)
+    plan.classIds = classIds
+  }
+
+  const assignedStudents = getPlanStudentIds(plan)
+  const allowedStudents = new Set(assignedStudents)
+
+  assignedStudents.forEach((studentId) => {
+    const progress = ensureProgressRecordForPlan(studentId, plan)
+    if (verseKeysChanged) {
+      const maxIndex = Math.max(plan.verseKeys.length - 1, 0)
+      progress.currentVerseIndex = Math.min(progress.currentVerseIndex, maxIndex)
+      progress.repetitionsDone = 0
+      progress.completedAt = null
+      progress.lastRepetitionAt = null
+      progress.updatedAt = iso(new Date())
+    }
+  })
+
+  prunePlanProgressRecords(plan.id, allowedStudents)
+
+  return buildPlanSummary(plan)
+}
+
+export function deleteTeacherMemorizationPlan(teacherId: string, planId: string): boolean {
+  const index = database.memorizationPlans.findIndex((plan) => plan.id === planId)
+  if (index === -1) {
+    return false
+  }
+  const plan = database.memorizationPlans[index]
+  if (plan.teacherId !== teacherId) {
+    throw new Error("You do not have permission to delete this plan")
+  }
+
+  database.memorizationPlans.splice(index, 1)
+  database.studentMemorizationProgress = database.studentMemorizationProgress.filter(
+    (record) => record.planId !== planId,
+  )
+  database.memorizationCompletions = database.memorizationCompletions.filter(
+    (entry) => entry.planId !== planId,
+  )
+
+  return true
+}
+
+export function getTeacherPlanProgress(
+  teacherId: string,
+  planId: string,
+): TeacherPlanProgress | undefined {
+  const plan = findMemorizationPlan(planId)
+  if (!plan || plan.teacherId !== teacherId) {
+    return undefined
+  }
+
+  const classSummaries: TeacherPlanProgressClassSummary[] = buildTeacherClassSummaries(plan.classIds).map(
+    (classRecord) => ({
+      id: classRecord.id,
+      name: classRecord.name,
+      studentCount: classRecord.studentIds.length,
+      completed: 0,
+      inProgress: 0,
+      notStarted: 0,
+    }),
+  )
+  const classSummaryMap = new Map(classSummaries.map((summary) => [summary.id, summary]))
+
+  const students: TeacherPlanProgressStudent[] = []
+  const studentIds = getPlanStudentIds(plan)
+
+  studentIds.forEach((studentId) => {
+    const progress = ensureProgressRecordForPlan(studentId, plan)
+    const learner = getLearnerRecord(studentId)
+    const classRecord = plan.classIds
+      .map((classId) => getClassRecord(classId))
+      .find((entry) => entry?.studentIds.includes(studentId))
+
+    const primarySummary = classRecord ? classSummaryMap.get(classRecord.id) : undefined
+
+    let status: TeacherPlanProgressStudent["status"] = "not_started"
+    const summary = primarySummary ?? (classRecord ? undefined : classSummaryMap.get(plan.classIds[0] ?? ""))
+
+    if (progress.completedAt) {
+      status = "completed"
+      summary && (summary.completed += 1)
+    } else if (progress.repetitionsDone > 0 || progress.currentVerseIndex > 0 || progress.totalRepetitions > 0) {
+      status = "in_progress"
+      summary && (summary.inProgress += 1)
+    } else {
+      summary && (summary.notStarted += 1)
+    }
+
+    const studentName = learner?.profile.name ?? "Student"
+    const classId = classRecord?.id ?? (plan.classIds[0] ?? "")
+    const className = classRecord?.name ?? (classId ? getClassRecord(classId)?.name ?? "Class" : "Class")
+
+    students.push({
+      studentId,
+      studentName,
+      status,
+      classId,
+      className,
+      repetitionsDone: progress.repetitionsDone,
+      totalRepetitions: progress.totalRepetitions,
+      currentVerseIndex: progress.currentVerseIndex,
+      verseCount: plan.verseKeys.length,
+      lastActivity: progress.updatedAt,
+    })
+  })
+
+  // Ensure counts for classes with no students default to zero
+  classSummaries.forEach((summary) => {
+    if (summary.completed + summary.inProgress + summary.notStarted === 0) {
+      summary.notStarted = summary.studentCount
+    }
+  })
+
+  return {
+    plan: clonePlan(plan),
+    classes: classSummaries,
+    students,
+  }
+}
+
+export function suggestMemorizationPlans(teacherId: string): SuggestedMemorizationPlan[] {
+  const classes = listClassesForTeacher(teacherId)
+  const suggestions: SuggestedMemorizationPlan[] = []
+
+  const hasBeginnerClass = classes.some((classRecord) => /beginner|foundation|starter/i.test(classRecord.name))
+  if (hasBeginnerClass) {
+    suggestions.push({
+      id: "suggest_juz_amma_starter",
+      title: "Juz' Amma Starter Pack",
+      verseKeys: [
+        ...expandVerseRange(114, 1, 6),
+        ...expandVerseRange(113, 1, 5),
+        ...expandVerseRange(112, 1, 4),
+      ],
+      reason: "Gentle heart-softening verses for new hifz journeys.",
+    })
+  }
+
+  const hasEveningOrCircle = classes.some((classRecord) => /evening|circle|advanced/i.test(classRecord.name))
+  if (hasEveningOrCircle) {
+    suggestions.push({
+      id: "suggest_light_upon_light",
+      title: "Light Upon Light Reflection",
+      verseKeys: [...expandVerseRange(24, 35, 36), ...expandVerseRange(59, 22, 24)],
+      reason: "Ayat that deepen contemplation for committed circles.",
+    })
+  }
+
+  const hasYoungLearners = classes.some((classRecord) => /youth|junior|kids/i.test(classRecord.name))
+  if (hasYoungLearners) {
+    suggestions.push({
+      id: "suggest_morning_fortress",
+      title: "Morning Fortress Routine",
+      verseKeys: [...expandVerseRange(2, 255, 255), ...expandVerseRange(18, 1, 10)],
+      reason: "Core adhkar verses to anchor mornings in barakah.",
+    })
+  }
+
+  if (suggestions.length === 0) {
+    suggestions.push({
+      id: "suggest_refresher_core",
+      title: "Heart Refresher Essentials",
+      verseKeys: [...expandVerseRange(36, 1, 12), ...expandVerseRange(94, 1, 8)],
+      reason: "A balanced set to revisit sincerity and sabr.",
+    })
+  }
+
+  return suggestions
 }
 
 export function listStudentMemorizationPlans(
