@@ -9,7 +9,8 @@
     "lint": "eslint . --max-warnings=0",
     "rundev": "npm run dev",
     "start": "npm run build && next start -p 3001",
-    "start:standalone": "node .next/standalone/server.js"
+    "start:standalone": "node .next/standalone/server.js",
+    "fonts:mushaf": "node ./scripts/sync-mushaf-fonts.mjs"
   },
   "engines": {
     "node": ">=18.18.0",

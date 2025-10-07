@@ -8,6 +8,8 @@ AlFawz is an immersive Next.js platform for Qur'an study that blends AI-assisted
 - **Habit Quest Arena** – A dedicated habit-building game (`/habits`) lets learners complete themed quests, earn XP/hasanat, and track weekly streaks with a tactile UI inspired by RPG dashboards.
 - **Premium feature gating** – The reusable `<PremiumGate />` component visually locks advanced cards (e.g., AI Tajweed Coach, advanced analytics) until the user upgrades. It is tightly integrated with the user provider so the “Unlock Premium” action immediately updates the interface.
 - **Toast notifications & feedback** – Completing a habit fires polished toasts so learners receive instant encouragement and guidance while experimenting locally.
+- **Mushaf typography pipeline** – The reader now loads high-fidelity Madinah Mushaf outlines sourced from TarteelAI’s `quran-ttx` exports. A helper script (`npm run fonts:mushaf`) fetches the latest TTX files and the reader layers tajweed or mistake overlays above the glyphs.
+- **Mobile-first recitation client** – A compact microphone HUD modeled after the Expo `tarteel-mobile` client guides smartphone learners with live volume feedback, tajweed cues, and permission warnings.
 
 ## Tech Stack
 
@@ -53,6 +55,26 @@ hooks/
    ```bash
    npm run lint
    ```
+
+### Mushaf font assets (from `quran-ttx`)
+
+High-fidelity Madinah Mushaf outlines are not stored in the repository. Fetch and convert them locally before running the reader:
+
+1. Download the latest TTX exports from TarteelAI by running:
+   ```bash
+   npm run fonts:mushaf
+   ```
+   The script saves representative pages into `public/fonts/mushaf/manifest.json`.
+2. Install [FontTools](https://fonttools.readthedocs.io/) if you have not already:
+   ```bash
+   pip install fonttools
+   ```
+3. Convert the TTX files into browser formats (repeat for additional pages as required):
+   ```bash
+   ttx -f -o public/fonts/mushaf/mushaf-madinah.ttf public/fonts/mushaf/QCF_P001.ttx
+   ttx -f -o public/fonts/mushaf/mushaf-madinah.woff2 -t woff2 public/fonts/mushaf/mushaf-madinah.ttf
+   ```
+4. Restart the dev server so the new fonts are picked up. The reader automatically switches to the Mushaf typography when the converted files are present.
 
 ### Environment variables
 
