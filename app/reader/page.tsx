@@ -40,8 +40,10 @@ import {
   annotateTajweedMistakes,
   analyzeMistakes,
   calculateTajweedMetricScores,
+  MISTAKE_CATEGORY_META,
   type LiveMistake,
   type LiveSessionSummary,
+  type MistakeCategory,
 } from "@/lib/tajweed-analysis"
 import { MUSHAF_FONTS_AVAILABLE, type MushafOverlayMode } from "@/lib/mushaf-fonts"
 
@@ -261,6 +263,19 @@ export default function QuranReaderPage() {
   const [isProcessingLiveChunk, setIsProcessingLiveChunk] = useState(false)
   const [isFinalizingLiveSession, setIsFinalizingLiveSession] = useState(false)
   const [liveSessionSummary, setLiveSessionSummary] = useState<LiveSessionSummary | null>(null)
+
+  const formatInferenceLatency = (latency: number | null | undefined) => {
+    if (typeof latency !== "number" || Number.isNaN(latency) || latency <= 0) {
+      return "—"
+    }
+    return `${Math.round(latency)} ms`
+  }
+
+  const getInferenceEngineLabel = (engine: LiveSessionSummary["analysis"]["engine"]) =>
+    engine === "nvidia" ? "NVIDIA GPU pipeline" : "On-device AI"
+
+  const getMistakeCategoryLabel = (category: MistakeCategory) =>
+    MISTAKE_CATEGORY_META[category]?.label ?? category
   const { status: mushafFontStatus, isReady: areMushafFontsReady, error: mushafFontError } = useMushafFontLoader(
     useMushafTypography && isMushafTypographySupported,
   )
@@ -766,8 +781,16 @@ export default function QuranReaderPage() {
           setLiveTranscription(transcriptText)
         }
 
+        const summaryMistakes = Array.isArray(result.mistakes) ? result.mistakes : []
+        if (summaryMistakes.length > 0) {
+          setLiveMistakes(summaryMistakes)
+        }
+
         if (expectedText && transcriptText) {
-          const annotated = annotateTajweedMistakes(analyzeMistakes(transcriptText, expectedText))
+          const annotated =
+            summaryMistakes.length > 0
+              ? summaryMistakes
+              : annotateTajweedMistakes(analyzeMistakes(transcriptText, expectedText))
           setLiveMistakes(annotated)
 
           const scores = calculateTajweedMetricScores(annotated, expectedText)
@@ -1588,6 +1611,18 @@ export default function QuranReaderPage() {
                                     Expected: <span className="font-semibold text-foreground">{mistake.correct}</span>
                                   </div>
                                 )}
+                                {mistake.categories && mistake.categories.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-1 text-[10px] font-semibold uppercase text-foreground/60">
+                                    {mistake.categories.map((category) => (
+                                      <span
+                                        key={`${mistake.index}-${category}`}
+                                        className="rounded-full bg-background px-2 py-0.5"
+                                      >
+                                        {getMistakeCategoryLabel(category)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                                 {mistake.tajweedRules && mistake.tajweedRules.length > 0 ? (
                                   <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-foreground/80">
                                     {mistake.tajweedRules.map((rule) => (
@@ -1625,9 +1660,27 @@ export default function QuranReaderPage() {
                               Overall {liveSessionSummary.feedback.overallScore}% • Accuracy {liveSessionSummary.feedback.accuracy}% • Fluency {liveSessionSummary.feedback.fluencyScore}%
                             </p>
                           </div>
-                          <Badge variant="secondary" className="text-xs">
-                            +{liveSessionSummary.hasanatPoints} hasanat
-                          </Badge>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline" className="text-xs">
+                              {getInferenceEngineLabel(liveSessionSummary.analysis.engine)}
+                            </Badge>
+                            <Badge variant="secondary" className="text-xs bg-maroon-100 text-maroon-700">
+                              {formatInferenceLatency(liveSessionSummary.analysis.latencyMs)}
+                            </Badge>
+                            <Badge variant="secondary" className="text-xs">
+                              +{liveSessionSummary.hasanatPoints} hasanat
+                            </Badge>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {liveSessionSummary.analysis.description}
+                        </p>
+                        <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase text-muted-foreground">
+                          {liveSessionSummary.analysis.stack.map((layer) => (
+                            <Badge key={layer} variant="secondary" className="bg-muted text-maroon-700">
+                              {layer}
+                            </Badge>
+                          ))}
                         </div>
                         <div className="grid gap-3 md:grid-cols-2">
                           <div className="rounded-md border border-muted/50 bg-background/90 p-3 text-xs leading-relaxed">
@@ -1642,6 +1695,24 @@ export default function QuranReaderPage() {
                         {liveSessionSummary.feedback.feedback && (
                           <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-900">
                             {liveSessionSummary.feedback.feedback}
+                          </div>
+                        )}
+                        {liveSessionSummary.mistakeBreakdown.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-xs font-semibold uppercase text-muted-foreground">
+                              Mistake detection coverage
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {liveSessionSummary.mistakeBreakdown.map((entry) => (
+                                <Badge
+                                  key={entry.category}
+                                  variant="outline"
+                                  className="border-maroon-100 text-[11px] text-maroon-700"
+                                >
+                                  {entry.label}: {entry.count}
+                                </Badge>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>

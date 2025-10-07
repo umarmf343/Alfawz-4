@@ -43,6 +43,23 @@ export type TarteelMlIntegrationPayload = {
   scripts: TarteelMlScriptStatus[]
   requirements: TarteelMlRequirement[]
   quickstart: TarteelMlQuickstart
+  inferenceProfile: {
+    latencyMs: number
+    description: string
+    poweredBy: string
+    stack: string[]
+    telemetry: Array<{ label: string; value: string; description: string }>
+  }
+  mistakeDetection: {
+    overview: string
+    categories: Array<{
+      id: string
+      label: string
+      description: string
+      status: "production" | "beta"
+      highlights: string[]
+    }>
+  }
 }
 
 export type TarteelMlIntegrationError = {

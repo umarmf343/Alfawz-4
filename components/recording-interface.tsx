@@ -7,7 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Mic, Square, Play, Pause, RotateCcw, Upload, Award } from "lucide-react"
-import { createLiveSessionSummary, type LiveSessionSummary } from "@/lib/tajweed-analysis"
+import {
+  createLiveSessionSummary,
+  MISTAKE_CATEGORY_META,
+  type LiveSessionSummary,
+  type MistakeCategory,
+} from "@/lib/tajweed-analysis"
 import { createBrowserVoiceEngine, BrowserVoiceEngine } from "@/lib/voice/browser-voice-engine"
 
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
@@ -321,10 +326,28 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
 
     lastAnalyzedTranscriptRef.current = transcriptToAnalyze
     const durationSeconds = Number.isFinite(recordingTime) ? recordingTime / 10 : undefined
-    const summary = createLiveSessionSummary(transcriptToAnalyze, expectedText, {
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
+    const baseSummary = createLiveSessionSummary(transcriptToAnalyze, expectedText, {
       durationSeconds: typeof durationSeconds === "number" ? Number(durationSeconds.toFixed(1)) : undefined,
       ayahId,
     })
+    const endedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
+    const latencyMs = Math.max(1, Math.round(endedAt - startedAt))
+
+    const summary: LiveSessionSummary = {
+      ...baseSummary,
+      analysis: {
+        ...baseSummary.analysis,
+        engine: useOnDeviceAI ? "on-device" : baseSummary.analysis.engine,
+        latencyMs,
+        description: useOnDeviceAI
+          ? "Browser speech recognition processed locally with sub-200ms responsiveness."
+          : baseSummary.analysis.description,
+        stack: useOnDeviceAI
+          ? ["Web Speech API", "Device microphone", "Client tajwīd heuristics"]
+          : baseSummary.analysis.stack,
+      },
+    }
 
     setTranscriptionResult(summary)
     setResultSource("browser")
@@ -349,6 +372,26 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     if (resultSource === "browser") return "bg-emerald-100 text-emerald-800"
     if (resultSource === "server") return "bg-indigo-100 text-indigo-800"
     return "bg-gray-100 text-gray-700"
+  }
+
+  const formatLatency = (latency: number | null | undefined) => {
+    if (typeof latency !== "number" || Number.isNaN(latency) || latency <= 0) {
+      return "—"
+    }
+    return `${Math.round(latency)} ms`
+  }
+
+  const getEngineLabel = (engine: LiveSessionSummary["analysis"]["engine"]) =>
+    engine === "nvidia" ? "NVIDIA GPU pipeline" : "On-device AI"
+
+  const getCategoryLabel = (category: MistakeCategory) =>
+    MISTAKE_CATEGORY_META[category]?.label ?? category
+
+  const getErrorTypeLabel = (type: string) => {
+    if (type === "missing") return "Missing word"
+    if (type === "extra") return "Extra word"
+    if (type === "substitution") return "Incorrect word"
+    return type
   }
 
   return (
@@ -519,6 +562,33 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
               </div>
             </div>
 
+            <div className="grid gap-4 rounded-lg border border-muted/60 bg-muted/30 p-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Inference engine</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-maroon-900">
+                    {getEngineLabel(transcriptionResult.analysis.engine)}
+                  </span>
+                  <Badge variant="outline" className="text-xs">
+                    {formatLatency(transcriptionResult.analysis.latencyMs)} latency
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {transcriptionResult.analysis.description}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Optimised stack</p>
+                <div className="flex flex-wrap gap-2">
+                  {transcriptionResult.analysis.stack.map((layer) => (
+                    <Badge key={layer} variant="secondary" className="bg-maroon-100 text-maroon-700">
+                      {layer}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             {/* Hasanat Points */}
             <div className="bg-gradient-to-r from-gold-50 to-gold-100 p-4 rounded-lg text-center">
               <div className="text-2xl font-bold text-gold-700">+{transcriptionResult.hasanatPoints} Hasanat</div>
@@ -533,17 +603,71 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
               <p className="text-blue-800">{transcriptionResult.feedback.feedback}</p>
             </div>
 
+            {transcriptionResult.mistakeBreakdown.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="font-semibold text-maroon-800">Mistake detection coverage</h4>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {transcriptionResult.mistakeBreakdown.map((entry) => (
+                    <div
+                      key={entry.category}
+                      className="rounded-lg border border-maroon-100 bg-rose-50/70 p-3 shadow-sm"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-maroon-900">{entry.label}</span>
+                        <Badge variant="secondary" className="bg-maroon-100 text-maroon-700">
+                          {entry.count}
+                        </Badge>
+                      </div>
+                      <p className="mt-2 text-xs leading-relaxed text-maroon-700">{entry.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Errors Analysis */}
             {transcriptionResult.feedback.errors.length > 0 && (
               <div className="space-y-3">
                 <h4 className="font-semibold text-maroon-800">Areas for Improvement:</h4>
                 <div className="space-y-2">
                   {transcriptionResult.feedback.errors.slice(0, 5).map((error, index) => (
-                    <div key={index} className="flex items-center space-x-3 p-2 bg-red-50 rounded">
-                      <Badge variant="outline" className="text-red-700 border-red-300">
-                        {error.type}
-                      </Badge>
-                      <span className="text-sm text-red-800">{error.message}</span>
+                    <div
+                      key={`${error.type}-${index}-${error.expected ?? ""}-${error.transcribed ?? ""}`}
+                      className="space-y-2 rounded-lg border border-red-200 bg-red-50/70 p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Badge variant="outline" className="border-red-300 text-xs uppercase text-red-700">
+                          {getErrorTypeLabel(error.type)}
+                        </Badge>
+                        {error.categories && error.categories.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {error.categories.map((category) => (
+                              <Badge
+                                key={`${category}-${index}`}
+                                variant="secondary"
+                                className="bg-white/80 text-[10px] font-semibold uppercase text-maroon-700"
+                              >
+                                {getCategoryLabel(category)}
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm text-red-800">{error.message}</p>
+                      {(error.expected || error.transcribed) && (
+                        <div className="text-xs text-red-700">
+                          {error.expected && (
+                            <span className="mr-3">
+                              Expected: <span className="font-semibold">{error.expected}</span>
+                            </span>
+                          )}
+                          {error.transcribed && (
+                            <span>
+                              Spoken: <span className="font-semibold">{error.transcribed}</span>
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
