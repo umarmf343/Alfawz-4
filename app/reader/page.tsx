@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useMemo, useCallback } from "react"
+import { useState, useRef, useEffect, useMemo, useCallback, useId } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -190,6 +190,9 @@ const CHALLENGE_DURATION_STEP = 5
 const INITIAL_CHALLENGE_TARGET = 3
 const CHALLENGE_TARGET_STEP = 2
 
+const getChallengeDuration = (level: number) =>
+  Math.max(MIN_CHALLENGE_DURATION, INITIAL_CHALLENGE_DURATION - (level - 1) * CHALLENGE_DURATION_STEP)
+
 type TajweedMetric = {
   id: string
   label: string
@@ -227,6 +230,7 @@ export default function QuranReaderPage() {
   const [playbackSpeed, setPlaybackSpeed] = useState("1")
   const [showTranslation, setShowTranslation] = useState(true)
   const [showTransliteration, setShowTransliteration] = useState(false)
+  const [showAllAyahs, setShowAllAyahs] = useState(true)
   const [isRecording, setIsRecording] = useState(false)
   const isMushafTypographySupported = MUSHAF_FONTS_AVAILABLE
   const [useMushafTypography, setUseMushafTypography] = useState(isMushafTypographySupported)
@@ -298,9 +302,11 @@ export default function QuranReaderPage() {
   const [gwaniVolume, setGwaniVolume] = useState<number[]>([80])
   const [eggLevel, setEggLevel] = useState(1)
   const [versesRecited, setVersesRecited] = useState(0)
-  const [timeRemaining, setTimeRemaining] = useState(INITIAL_CHALLENGE_DURATION)
-  const [isTimerActive, setIsTimerActive] = useState(true)
+  const [timeRemaining, setTimeRemaining] = useState(() => getChallengeDuration(1))
+  const [isTimerActive, setIsTimerActive] = useState(false)
   const [challengeStatus, setChallengeStatus] = useState<"idle" | "cracked" | "failed">("idle")
+  const [hasChallengeStarted, setHasChallengeStarted] = useState(false)
+  const allAyahsToggleId = useId()
 
   const currentChallengeTarget = useMemo(
     () => INITIAL_CHALLENGE_TARGET + (eggLevel - 1) * CHALLENGE_TARGET_STEP,
@@ -327,13 +333,16 @@ export default function QuranReaderPage() {
     if (challengeStatus === "failed") {
       return "Time's up. Reset to try cracking the egg again."
     }
+    if (!hasChallengeStarted) {
+      return "Press start and recite verses to begin cracking the egg."
+    }
     const versesRemaining = Math.max(currentChallengeTarget - versesRecited, 0)
     if (versesRemaining === 0) {
       return "Ready to hatch the next challenge?"
     }
     const verseLabel = versesRemaining === 1 ? "verse" : "verses"
     return `Recite ${versesRemaining} more ${verseLabel} to break the egg.`
-  }, [challengeStatus, currentChallengeTarget, versesRecited])
+  }, [challengeStatus, currentChallengeTarget, hasChallengeStarted, versesRecited])
 
   const gwaniTheme = useMemo(() => {
     if (gwaniError) {
@@ -958,18 +967,17 @@ export default function QuranReaderPage() {
       const nextCount = Math.min(baseCount + 1, currentChallengeTarget)
       return nextCount
     })
+    setHasChallengeStarted(true)
 
     if (challengeStatus === "failed") {
-      setTimeRemaining(
-        Math.max(
-          MIN_CHALLENGE_DURATION,
-          INITIAL_CHALLENGE_DURATION - (eggLevel - 1) * CHALLENGE_DURATION_STEP,
-        ),
-      )
+      setTimeRemaining(getChallengeDuration(eggLevel))
       setChallengeStatus("idle")
       setIsTimerActive(true)
-    } else if (!isTimerActive) {
-      setIsTimerActive(true)
+    } else {
+      setTimeRemaining((previous) => (previous <= 0 ? getChallengeDuration(eggLevel) : previous))
+      if (!isTimerActive) {
+        setIsTimerActive(true)
+      }
     }
   }
 
@@ -983,6 +991,7 @@ export default function QuranReaderPage() {
         if (previous <= 1) {
           window.clearInterval(intervalId)
           setIsTimerActive(false)
+          setHasChallengeStarted(false)
           setChallengeStatus((status) => (status === "cracked" ? status : "failed"))
           return 0
         }
@@ -1003,6 +1012,7 @@ export default function QuranReaderPage() {
     if (versesRecited >= currentChallengeTarget) {
       setChallengeStatus("cracked")
       setIsTimerActive(false)
+      setHasChallengeStarted(false)
     }
   }, [challengeStatus, currentChallengeTarget, versesRecited])
 
@@ -1015,14 +1025,10 @@ export default function QuranReaderPage() {
       setEggLevel((previousLevel) => {
         const nextLevel = previousLevel + 1
         setVersesRecited(0)
-        setTimeRemaining(
-          Math.max(
-            MIN_CHALLENGE_DURATION,
-            INITIAL_CHALLENGE_DURATION - (nextLevel - 1) * CHALLENGE_DURATION_STEP,
-          ),
-        )
+        setTimeRemaining(getChallengeDuration(nextLevel))
         setChallengeStatus("idle")
-        setIsTimerActive(true)
+        setIsTimerActive(false)
+        setHasChallengeStarted(false)
         return nextLevel
       })
     }, 1600)
@@ -1758,7 +1764,7 @@ export default function QuranReaderPage() {
                 </div>
               </CardHeader>
 
-              <CardContent className="space-y-8">
+              <CardContent className="relative space-y-8 pb-8">
                 <section className="relative overflow-hidden rounded-2xl border border-amber-100 bg-gradient-to-r from-amber-50 via-white to-amber-100/70 p-5 shadow-sm">
                   <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
                     <div className="flex flex-1 items-start gap-4">
@@ -1805,23 +1811,45 @@ export default function QuranReaderPage() {
                         </span>
                         <span className="font-mono text-base">{formattedTimer}</span>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setVersesRecited(0)
-                          setTimeRemaining(
-                            Math.max(
-                              MIN_CHALLENGE_DURATION,
-                              INITIAL_CHALLENGE_DURATION - (eggLevel - 1) * CHALLENGE_DURATION_STEP,
-                            ),
-                          )
-                          setChallengeStatus("idle")
-                          setIsTimerActive(true)
-                        }}
-                      >
-                        Reset Challenge
-                      </Button>
+                      <div className="flex flex-col gap-2">
+                        <Button
+                          size="sm"
+                          className="bg-amber-500 text-white hover:bg-amber-600"
+                          onClick={() => {
+                            if (isTimerActive) {
+                              setIsTimerActive(false)
+                              return
+                            }
+
+                            if (challengeStatus === "failed") {
+                              setVersesRecited(0)
+                              setTimeRemaining(getChallengeDuration(eggLevel))
+                              setChallengeStatus("idle")
+                            } else if (timeRemaining <= 0) {
+                              setTimeRemaining(getChallengeDuration(eggLevel))
+                            }
+
+                            setHasChallengeStarted(true)
+                            setIsTimerActive(true)
+                          }}
+                        >
+                          {isTimerActive ? "Pause" : hasChallengeStarted ? "Resume" : "Start Challenge"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEggLevel(1)
+                            setVersesRecited(0)
+                            setTimeRemaining(getChallengeDuration(1))
+                            setChallengeStatus("idle")
+                            setIsTimerActive(false)
+                            setHasChallengeStarted(false)
+                          }}
+                        >
+                          Reset Challenge
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -1850,113 +1878,116 @@ export default function QuranReaderPage() {
                 </div>
 
                 {/* Audio Controls */}
-                <div className="bg-muted/30 rounded-xl p-6 space-y-4">
-                  <div className="flex items-center justify-center space-x-4">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handlePrevAyah}
-                      disabled={currentAyah === 0}
-                      className="bg-transparent"
-                    >
-                      <SkipBack className="w-4 h-4" />
-                    </Button>
-
-                    <Button
-                      onClick={handlePlayPause}
-                      size="lg"
-                      className="gradient-maroon text-white border-0 w-16 h-16 rounded-full"
-                    >
-                      {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-1" />}
-                    </Button>
-
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleNextAyah}
-                      disabled={currentAyah === Math.max(totalAyahs - 1, 0)}
-                      className="bg-transparent"
-                    >
-                      <SkipForward className="w-4 h-4" />
-                    </Button>
-                  </div>
-
-                  {audioError && (
-                    <Alert
-                      variant="destructive"
-                      className="bg-destructive/10 border-destructive/30 text-destructive"
-                    >
-                      <div className="flex items-start space-x-3">
-                        <AlertCircle className="w-4 h-4 mt-1" />
-                        <div>
-                          <AlertTitle className="text-sm font-semibold">Audio unavailable</AlertTitle>
-                          <AlertDescription className="text-sm text-destructive/90">
-                            {audioError}
-                          </AlertDescription>
-                        </div>
-                      </div>
-                    </Alert>
-                  )}
-
-                  <div className="flex items-center space-x-4">
-                    <Volume2 className="w-5 h-5 text-muted-foreground" />
-                    <Slider value={volume} onValueChange={setVolume} max={100} step={1} className="flex-1" />
-                    <span className="text-sm text-muted-foreground w-12">{volume[0]}%</span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-sm">
-                    <div className="flex items-center space-x-4">
-                      <Select value={playbackSpeed} onValueChange={setPlaybackSpeed}>
-                        <SelectTrigger className="w-20 h-8">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="0.5">0.5x</SelectItem>
-                          <SelectItem value="0.75">0.75x</SelectItem>
-                          <SelectItem value="1">1x</SelectItem>
-                          <SelectItem value="1.25">1.25x</SelectItem>
-                          <SelectItem value="1.5">1.5x</SelectItem>
-                        </SelectContent>
-                      </Select>
-
-                      <Select
-                        value={reciter}
-                        onValueChange={(value) => {
-                          const typedValue = value as ReciterKey
-                          setReciter(typedValue)
-                          setAudioError(null)
-                        }}
+                <div className="sticky bottom-4 left-0 right-0 z-20">
+                  <div className="bg-muted/40 rounded-xl border border-border/60 p-6 space-y-4 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-muted/60">
+                    <div className="flex items-center justify-center space-x-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handlePrevAyah}
+                        disabled={currentAyah === 0}
+                        className="bg-transparent"
                       >
-                        <SelectTrigger className="w-32 h-8">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="mishary">Mishary Rashid</SelectItem>
-                          <SelectItem value="sudais">Abdul Rahman Al-Sudais</SelectItem>
-                          <SelectItem value="husary">Mahmoud Khalil Al-Husary</SelectItem>
-                          <SelectItem value="minshawi">Mohamed Siddiq El-Minshawi</SelectItem>
-                        </SelectContent>
-                      </Select>
+                        <SkipBack className="w-4 h-4" />
+                      </Button>
+
+                      <Button
+                        onClick={handlePlayPause}
+                        size="lg"
+                        className="gradient-maroon text-white border-0 w-16 h-16 rounded-full"
+                      >
+                        {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-1" />}
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleNextAyah}
+                        disabled={currentAyah === Math.max(totalAyahs - 1, 0)}
+                        className="bg-transparent"
+                      >
+                        <SkipForward className="w-4 h-4" />
+                      </Button>
                     </div>
 
-                    <Button
-                      variant={isLiveAnalysisActive ? "default" : "outline"}
-                      size="sm"
-                      onClick={handleLiveAnalysisToggle}
-                      disabled={!isLiveAnalysisSupported}
-                      className={
-                        isLiveAnalysisActive
-                          ? "bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
-                          : "bg-transparent"
-                      }
-                    >
-                      {isLiveAnalysisActive ? (
-                        <MicOff className="w-4 h-4 mr-2" />
-                      ) : (
-                        <Sparkles className="w-4 h-4 mr-2 text-amber-500" />
-                      )}
-                      {isLiveAnalysisActive ? "Stop Live Analysis" : "Start Live Analysis"}
-                    </Button>
+                    {audioError && (
+                      <Alert
+                        variant="destructive"
+                        className="bg-destructive/10 border-destructive/30 text-destructive"
+                      >
+                        <div className="flex items-start space-x-3">
+                          <AlertCircle className="w-4 h-4 mt-1" />
+                          <div>
+                            <AlertTitle className="text-sm font-semibold">Audio unavailable</AlertTitle>
+                            <AlertDescription className="text-sm text-destructive/90">
+                              {audioError}
+                            </AlertDescription>
+                          </div>
+                        </div>
+                      </Alert>
+                    )}
+
+                    <div className="flex items-center space-x-4">
+                      <Volume2 className="w-5 h-5 text-muted-foreground" />
+                      <Slider value={volume} onValueChange={setVolume} max={100} step={1} className="flex-1" />
+                      <span className="text-sm text-muted-foreground w-12">{volume[0]}%</span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center space-x-4">
+                        <Select value={playbackSpeed} onValueChange={setPlaybackSpeed}>
+                          <SelectTrigger className="w-20 h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0.5">0.5x</SelectItem>
+                            <SelectItem value="0.75">0.75x</SelectItem>
+                            <SelectItem value="1">1x</SelectItem>
+                            <SelectItem value="1.25">1.25x</SelectItem>
+                            <SelectItem value="1.5">1.5x</SelectItem>
+                          </SelectContent>
+                        </Select>
+
+                        <Select
+                          value={reciter}
+                          onValueChange={(value) => {
+                            const typedValue = value as ReciterKey
+                            setReciter(typedValue)
+                            setAudioError(null)
+                          }}
+                        >
+                          <SelectTrigger className="w-32 h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="mishary">Mishary Rashid</SelectItem>
+                            <SelectItem value="sudais">Abdul Rahman Al-Sudais</SelectItem>
+                            <SelectItem value="husary">Mahmoud Khalil Al-Husary</SelectItem>
+                            <SelectItem value="minshawi">Mohamed Siddiq El-Minshawi</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <Button
+                        variant={isLiveAnalysisActive ? "default" : "outline"}
+                        size="sm"
+                        onClick={handleLiveAnalysisToggle}
+                        disabled={!isLiveAnalysisSupported}
+                        className={
+                          isLiveAnalysisActive
+                            ? "bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
+                            : "bg-transparent"
+                        }
+                      >
+                        {isLiveAnalysisActive ? (
+                          <MicOff className="w-4 h-4 mr-2" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 mr-2 text-amber-500" />
+                        )}
+                        {isLiveAnalysisActive ? "Stop Live Analysis" : "Start Live Analysis"}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
 
                 <MobileRecitationClient
@@ -2239,72 +2270,83 @@ export default function QuranReaderPage() {
 
                 <div className="pt-4 border-t border-muted/60 space-y-3">
                   <div className="flex flex-wrap items-center justify-center gap-3">
-                    <Button
-                        className="gradient-maroon text-white border-0 px-6"
-                        onClick={handleReciteAyah}
-                      >
-                        <Activity className="w-4 h-4 mr-2" /> Mark Ayah Recited
-                      </Button>
-                      <Badge
-                        variant="secondary"
-                        className={`text-xs ${dailyGoalMet ? "bg-emerald-100 text-emerald-700" : ""}`}
-                      >
-                        {dailyGoalMet
-                          ? "Daily goal complete"
-                          : `${remainingAyahs} ayah${remainingAyahs === 1 ? "" : "s"} remaining`}
-                      </Badge>
-                    </div>
+                    <Button className="gradient-maroon text-white border-0 px-6" onClick={handleReciteAyah}>
+                      <Activity className="w-4 h-4 mr-2" /> Mark Ayah Recited
+                    </Button>
+                    <Badge
+                      variant="secondary"
+                      className={`text-xs ${dailyGoalMet ? "bg-emerald-100 text-emerald-700" : ""}`}
+                    >
+                      {dailyGoalMet
+                        ? "Daily goal complete"
+                        : `${remainingAyahs} ayah${remainingAyahs === 1 ? "" : "s"} remaining`}
+                    </Badge>
+                  </div>
                     <p className="text-xs text-muted-foreground text-center">
                       Each marked ayah updates your daily target automatically.
                     </p>
                   </div>
-                </div>
 
                 {/* All Ayahs List */}
                 <div className="space-y-4">
-                  <h3 className="text-lg font-semibold">All Ayahs</h3>
-                  <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar">
-                    {surahData.ayahs.length === 0 ? (
-                      <p className="text-sm text-muted-foreground italic">No ayahs available for this surah.</p>
-                    ) : (
-                      surahData.ayahs.map((ayah, index) => (
-                        <div
-                          key={`${surahData.metadata.number}-${getAyahDisplayNumber(ayah, index)}`}
-                          className={`p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
-                            index === currentAyah
-                              ? "border-primary bg-primary/5"
-                              : "border-border/50 hover:border-primary/30"
-                          }`}
-                          onClick={() => handleAyahClick(index)}
-                        >
-                          <div className="flex items-start justify-between mb-3">
-                            <Badge variant={index === currentAyah ? "default" : "secondary"} className="text-xs">
-                              {getAyahDisplayNumber(ayah, index)}
-                            </Badge>
-                            {index === currentAyah && isPlaying && (
-                              <div className="flex items-center space-x-1">
-                                <div className="w-1 h-4 bg-primary rounded animate-pulse"></div>
-                                <div className="w-1 h-6 bg-primary rounded animate-pulse delay-100"></div>
-                                <div className="w-1 h-4 bg-primary rounded animate-pulse delay-200"></div>
-                              </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-lg font-semibold">All Ayahs</h3>
+                    <label
+                      htmlFor={allAyahsToggleId}
+                      className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer"
+                    >
+                      <span>{showAllAyahs ? "Hide list" : "Show list"}</span>
+                      <Switch id={allAyahsToggleId} checked={showAllAyahs} onCheckedChange={setShowAllAyahs} />
+                    </label>
+                  </div>
+                  {showAllAyahs ? (
+                    <div className="space-y-3 max-h-96 overflow-y-auto custom-scrollbar">
+                      {surahData.ayahs.length === 0 ? (
+                        <p className="text-sm text-muted-foreground italic">No ayahs available for this surah.</p>
+                      ) : (
+                        surahData.ayahs.map((ayah, index) => (
+                          <div
+                            key={`${surahData.metadata.number}-${getAyahDisplayNumber(ayah, index)}`}
+                            className={`p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${
+                              index === currentAyah
+                                ? "border-primary bg-primary/5"
+                                : "border-border/50 hover:border-primary/30"
+                            }`}
+                            onClick={() => handleAyahClick(index)}
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <Badge variant={index === currentAyah ? "default" : "secondary"} className="text-xs">
+                                {getAyahDisplayNumber(ayah, index)}
+                              </Badge>
+                              {index === currentAyah && isPlaying && (
+                                <div className="flex items-center space-x-1">
+                                  <div className="w-1 h-4 bg-primary rounded animate-pulse"></div>
+                                  <div className="w-1 h-6 bg-primary rounded animate-pulse delay-100"></div>
+                                  <div className="w-1 h-4 bg-primary rounded animate-pulse delay-200"></div>
+                                </div>
+                              )}
+                            </div>
+                            <MushafVerse
+                              ayah={ayah}
+                              mistakes={index === currentAyah ? liveMistakes : []}
+                              overlayMode={mushafOverlayMode}
+                              fontSizeClass={fontSize}
+                              isMushafEnabled={useMushafTypography}
+                              weakestMetricLabel={weakestMetric?.label}
+                              fontsReady={areMushafFontsReady}
+                            />
+                            {showTranslation && ayah.translation && (
+                              <p className="text-sm text-muted-foreground leading-relaxed">{ayah.translation}</p>
                             )}
                           </div>
-                          <MushafVerse
-                            ayah={ayah}
-                            mistakes={index === currentAyah ? liveMistakes : []}
-                            overlayMode={mushafOverlayMode}
-                            fontSizeClass={fontSize}
-                            isMushafEnabled={useMushafTypography}
-                            weakestMetricLabel={weakestMetric?.label}
-                            fontsReady={areMushafFontsReady}
-                          />
-                          {showTranslation && ayah.translation && (
-                            <p className="text-sm text-muted-foreground leading-relaxed">{ayah.translation}</p>
-                          )}
-                        </div>
-                      ))
-                    )}
-                  </div>
+                        ))
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">
+                      Turn on the Show list toggle to browse every ayah in this surah.
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
