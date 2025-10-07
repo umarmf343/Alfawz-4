@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { createLiveSessionSummary } from "@/lib/tajweed-analysis"
 
 const DEFAULT_MODEL = process.env.WHISPER_MODEL ?? "whisper-1"
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
@@ -14,6 +15,16 @@ export async function POST(request: Request) {
 
     const formData = await request.formData()
     const audioFile = formData.get("audio")
+    const mode = typeof formData.get("mode") === "string" ? String(formData.get("mode")) : null
+    const expectedTextRaw = formData.get("expectedText")
+    const expectedText = typeof expectedTextRaw === "string" ? expectedTextRaw : ""
+    const ayahIdRaw = formData.get("ayahId")
+    const ayahId = typeof ayahIdRaw === "string" ? ayahIdRaw : undefined
+    const durationRaw = formData.get("durationSeconds") ?? formData.get("duration")
+    const durationSeconds =
+      typeof durationRaw === "string" && durationRaw.trim().length > 0
+        ? Number.parseFloat(durationRaw)
+        : undefined
 
     if (!audioFile || !(audioFile instanceof File)) {
       return NextResponse.json({ error: "Missing audio file" }, { status: 400 })
@@ -66,7 +77,22 @@ export async function POST(request: Request) {
       payload.segments?.map((segment) => segment.text).join(" ") ??
       ""
 
-    return NextResponse.json({ text })
+    const transcription = text.trim()
+
+    if (mode === "live") {
+      return NextResponse.json({ transcription })
+    }
+
+    if (expectedText.trim().length > 0) {
+      const summary = createLiveSessionSummary(transcription, expectedText, {
+        durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : undefined,
+        ayahId,
+      })
+
+      return NextResponse.json(summary)
+    }
+
+    return NextResponse.json({ transcription })
   } catch (error) {
     console.error("/api/transcribe error", error)
     return NextResponse.json(
