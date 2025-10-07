@@ -485,6 +485,19 @@ export interface TeacherClassSummary {
   studentCount: number
 }
 
+export interface TeacherStudentSummary {
+  id: string
+  name: string
+  email: string
+  classIds: string[]
+  classNames: string[]
+  streak: number
+  hasanat: number
+  memorizationProgress: number
+  recitationProgress: number
+  lastActiveAt?: string | null
+}
+
 export interface TeacherMemorizationPlanStats {
   verseCount: number
   assignedStudents: number
@@ -2250,6 +2263,55 @@ export function getMemorizationClasses(): ClassRecord[] {
 
 export function listClassesForTeacher(teacherId: string): TeacherClassSummary[] {
   return getTeacherClassRecords(teacherId).map((classRecord) => cloneTeacherClassSummary(classRecord))
+}
+
+export function listStudentsForTeacher(teacherId: string): TeacherStudentSummary[] {
+  const classes = getTeacherClassRecords(teacherId)
+  const classMap = new Map(classes.map((classRecord) => [classRecord.id, classRecord]))
+
+  const studentsById = new Map<string, Set<string>>()
+  classes.forEach((classRecord) => {
+    classRecord.studentIds.forEach((studentId) => {
+      if (!studentsById.has(studentId)) {
+        studentsById.set(studentId, new Set())
+      }
+      studentsById.get(studentId)?.add(classRecord.id)
+    })
+  })
+
+  const summaries: TeacherStudentSummary[] = []
+
+  studentsById.forEach((classIds, studentId) => {
+    const learner = getLearnerRecord(studentId)
+    if (!learner) {
+      return
+    }
+
+    const sortedClassIds = Array.from(classIds)
+    sortedClassIds.sort((a, b) => {
+      const aName = classMap.get(a)?.name ?? ""
+      const bName = classMap.get(b)?.name ?? ""
+      return aName.localeCompare(bName)
+    })
+
+    const lastActivity = learner.dashboard.activities[0]?.timestamp ?? null
+
+    summaries.push({
+      id: learner.profile.id,
+      name: learner.profile.name,
+      email: learner.profile.email,
+      classIds: sortedClassIds,
+      classNames: sortedClassIds.map((classId) => classMap.get(classId)?.name ?? classId),
+      streak: learner.stats.streak,
+      hasanat: learner.stats.hasanat,
+      memorizationProgress: learner.dashboard.memorizationPercentage,
+      recitationProgress: learner.dashboard.recitationPercentage,
+      lastActiveAt: lastActivity,
+    })
+  })
+
+  summaries.sort((a, b) => a.name.localeCompare(b.name))
+  return summaries
 }
 
 export function listTeacherMemorizationPlans(

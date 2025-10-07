@@ -2,7 +2,8 @@
 
 import type React from "react"
 
-import { useState, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
+import type { CheckedState } from "@radix-ui/react-checkbox"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -10,7 +11,18 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { BookOpen, Users, ImageIcon, Plus, ArrowLeft, Save, Send, Target } from "lucide-react"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  BookOpen,
+  Users,
+  ImageIcon,
+  ArrowLeft,
+  Save,
+  Send,
+  UploadCloud,
+  Trash2,
+  Loader2,
+} from "lucide-react"
 import Link from "next/link"
 import { HotspotEditor } from "@/components/hotspot-editor"
 import { useToast } from "@/hooks/use-toast"
@@ -37,17 +49,30 @@ const SURAH_OPTIONS = [
   { value: "an-nas", number: 114, label: "An-Nas (The Mankind)" },
 ] as const
 
-const CLASS_OPTIONS = [
-  { value: "class_beginner_a", label: "Beginner Class A" },
-  { value: "class_evening_memorization", label: "Evening Memorization Circle" },
-] as const
+interface ClassOption {
+  id: string
+  name: string
+  studentCount: number
+}
+
+interface StudentOption {
+  id: string
+  name: string
+  email: string
+  classNames: string[]
+}
+
+const SAMPLE_LIBRARY_IMAGES = [
+  "/arabic-calligraphy-with-quranic-verses.jpg",
+  "/islamic-geometric-patterns-with-arabic-text.jpg",
+  "/mushaf-page-with-highlighted-verses.jpg",
+]
 
 export default function CreateAssignmentPage() {
   const [activeTab, setActiveTab] = useState("basic")
   const [assignmentData, setAssignmentData] = useState({
     title: "",
     description: "",
-    class: "",
     dueDate: "",
     dueTime: "",
     surah: "",
@@ -57,36 +82,141 @@ export default function CreateAssignmentPage() {
   })
 
   const [hotspots, setHotspots] = useState<Hotspot[]>([])
-  const [selectedImage, setSelectedImage] = useState<string | null>("/arabic-calligraphy-with-quranic-verses.jpg")
-  const [isAddingHotspot, setIsAddingHotspot] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<string | null>(SAMPLE_LIBRARY_IMAGES[0] ?? null)
+  const [uploadedImageName, setUploadedImageName] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [assignmentId, setAssignmentId] = useState<string | null>(null)
-  const imageRef = useRef<HTMLDivElement>(null)
+  const [classOptions, setClassOptions] = useState<ClassOption[]>([])
+  const [studentOptions, setStudentOptions] = useState<StudentOption[]>([])
+  const [selectedClassIds, setSelectedClassIds] = useState<string[]>([])
+  const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([])
+  const [isLoadingDestinations, setIsLoadingDestinations] = useState(true)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const objectUrlRef = useRef<string | null>(null)
   const { toast } = useToast()
 
-  const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!isAddingHotspot || !imageRef.current) return
+  useEffect(() => {
+    let isMounted = true
 
-    const rect = imageRef.current.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
+    const loadDestinations = async () => {
+      setIsLoadingDestinations(true)
+      try {
+        const [classResponse, studentResponse] = await Promise.all([
+          fetch("/api/teacher/classes"),
+          fetch("/api/teacher/students"),
+        ])
 
-    const newHotspot: Hotspot = {
-      id: Date.now().toString(),
-      x,
-      y,
-      width: 0,
-      height: 0,
-      title: "New Hotspot",
-      description: "Click to edit this hotspot",
+        const classData = (await classResponse.json()) as { classes: { id: string; name: string; studentCount: number }[]; error?: string }
+        if (!classResponse.ok) {
+          throw new Error(classData.error ?? "Unable to load classes")
+        }
+
+        const studentData = (await studentResponse.json()) as {
+          students: { id: string; name: string; email: string; classNames: string[] }[]
+          error?: string
+        }
+        if (!studentResponse.ok) {
+          throw new Error(studentData.error ?? "Unable to load students")
+        }
+
+        if (!isMounted) return
+
+        const sortedClasses = [...(classData.classes ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+        const sortedStudents = [...(studentData.students ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+
+        setClassOptions(sortedClasses)
+        setStudentOptions(sortedStudents)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load roster information"
+        toast({
+          title: "Unable to load roster",
+          description: message,
+          variant: "destructive",
+        })
+      } finally {
+        if (isMounted) {
+          setIsLoadingDestinations(false)
+        }
+      }
     }
 
-    setHotspots([...hotspots, newHotspot])
-    setIsAddingHotspot(false)
+    loadDestinations()
+
+    return () => {
+      isMounted = false
+    }
+  }, [toast])
+
+  useEffect(() => {
+    return () => {
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current)
+        objectUrlRef.current = null
+      }
+    }
+  }, [])
+
+  const updateSelection = (
+    id: string,
+    checked: CheckedState,
+    setState: React.Dispatch<React.SetStateAction<string[]>>,
+  ) => {
+    setState((prev) => {
+      if (checked === true) {
+        if (prev.includes(id)) {
+          return prev
+        }
+        return [...prev, id]
+      }
+      return prev.filter((value) => value !== id)
+    })
   }
 
-  const removeHotspot = (id: string) => {
-    setHotspots(hotspots.filter((h) => h.id !== id))
+  const handleClassSelectionChange = (classId: string, checked: CheckedState) => {
+    updateSelection(classId, checked, setSelectedClassIds)
+  }
+
+  const handleStudentSelectionChange = (studentId: string, checked: CheckedState) => {
+    updateSelection(studentId, checked, setSelectedStudentIds)
+  }
+
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+
+    const objectUrl = URL.createObjectURL(file)
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+    }
+    objectUrlRef.current = objectUrl
+    setSelectedImage(objectUrl)
+    setUploadedImageName(file.name)
+    setHotspots([])
+    event.target.value = ""
+  }
+
+  const handleUseSampleImage = () => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+
+    const nextImage = SAMPLE_LIBRARY_IMAGES[Math.floor(Math.random() * SAMPLE_LIBRARY_IMAGES.length)] ?? null
+    setSelectedImage(nextImage)
+    setUploadedImageName(null)
+    setHotspots([])
+  }
+
+  const clearImage = () => {
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current)
+      objectUrlRef.current = null
+    }
+    setSelectedImage(null)
+    setUploadedImageName(null)
+    setHotspots([])
   }
 
   const handleSubmit = async (action: "save" | "publish") => {
@@ -111,6 +241,15 @@ export default function CreateAssignmentPage() {
       return
     }
 
+    if (selectedClassIds.length === 0 && selectedStudentIds.length === 0) {
+      toast({
+        title: "Choose who should receive this",
+        description: "Select at least one class or learner before publishing.",
+        variant: "destructive",
+      })
+      return
+    }
+
     setIsSubmitting(true)
     try {
       const payload: Record<string, unknown> = {
@@ -123,8 +262,8 @@ export default function CreateAssignmentPage() {
         ayahRange: assignmentData.ayahRange,
         dueDate: assignmentData.dueDate,
         dueTime: assignmentData.dueTime || undefined,
-        classIds: assignmentData.class ? [assignmentData.class] : [],
-        studentIds: [],
+        classIds: selectedClassIds,
+        studentIds: selectedStudentIds,
         imageUrl: selectedImage || undefined,
         hotspots: hotspots.map(({ title, description, x, y, width, height, audioUrl }) => ({
           title,
@@ -225,9 +364,8 @@ export default function CreateAssignmentPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="basic">Basic Details</TabsTrigger>
-            <TabsTrigger value="content">Content & Instructions</TabsTrigger>
             <TabsTrigger value="interactive">Interactive Elements</TabsTrigger>
           </TabsList>
 
@@ -251,20 +389,20 @@ export default function CreateAssignmentPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="class">Select Class</Label>
+                    <Label htmlFor="assignmentType">Assignment Type</Label>
                     <Select
-                      value={assignmentData.class}
-                      onValueChange={(value) => setAssignmentData((prev) => ({ ...prev, class: value }))}
+                      value={assignmentData.assignmentType}
+                      onValueChange={(value) => setAssignmentData((prev) => ({ ...prev, assignmentType: value }))}
                     >
                       <SelectTrigger className="h-11">
-                        <SelectValue placeholder="Choose a class" />
+                        <SelectValue placeholder="Select type" />
                       </SelectTrigger>
                       <SelectContent>
-                        {CLASS_OPTIONS.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
+                        <SelectItem value="memorization">Memorization</SelectItem>
+                        <SelectItem value="recitation">Recitation Practice</SelectItem>
+                        <SelectItem value="tajweed">Tajweed Rules</SelectItem>
+                        <SelectItem value="comprehension">Comprehension</SelectItem>
+                        <SelectItem value="mixed">Mixed Practice</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -305,22 +443,14 @@ export default function CreateAssignmentPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="assignmentType">Assignment Type</Label>
-                    <Select
-                      value={assignmentData.assignmentType}
-                      onValueChange={(value) => setAssignmentData((prev) => ({ ...prev, assignmentType: value }))}
-                    >
-                      <SelectTrigger className="h-11">
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="memorization">Memorization</SelectItem>
-                        <SelectItem value="recitation">Recitation Practice</SelectItem>
-                        <SelectItem value="tajweed">Tajweed Rules</SelectItem>
-                        <SelectItem value="comprehension">Comprehension</SelectItem>
-                        <SelectItem value="mixed">Mixed Practice</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="instructions">Instructions & Notes</Label>
+                    <Textarea
+                      id="instructions"
+                      placeholder="Clarify expectations, tajweed reminders, or submission guidance for learners."
+                      value={assignmentData.instructions}
+                      onChange={(e) => setAssignmentData((prev) => ({ ...prev, instructions: e.target.value }))}
+                      rows={4}
+                    />
                   </div>
                 </div>
 
@@ -357,71 +487,74 @@ export default function CreateAssignmentPage() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
 
-          <TabsContent value="content" className="space-y-6">
             <Card className="border-border/50 shadow-lg">
               <CardHeader>
-                <CardTitle className="text-xl">Instructions & Content</CardTitle>
-                <CardDescription>Provide detailed instructions and learning objectives</CardDescription>
+                <CardTitle className="text-xl flex items-center gap-2">
+                  <Users className="w-5 h-5 text-primary" /> Assign To
+                </CardTitle>
+                <CardDescription>Send this assignment to entire classes, specific students, or a mix of both.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="instructions">Detailed Instructions</Label>
-                  <Textarea
-                    id="instructions"
-                    placeholder="Provide step-by-step instructions for students. Include learning objectives, expectations, and any specific requirements..."
-                    value={assignmentData.instructions}
-                    onChange={(e) => setAssignmentData((prev) => ({ ...prev, instructions: e.target.value }))}
-                    rows={8}
-                  />
-                </div>
-
+              <CardContent className="grid gap-6 lg:grid-cols-2">
                 <div className="space-y-4">
-                  <Label>Learning Objectives</Label>
-                  <div className="space-y-3">
-                    <div className="flex items-center space-x-3 p-3 rounded-lg border border-border/50">
-                      <Target className="w-5 h-5 text-primary" />
-                      <div className="flex-1">
-                        <Input placeholder="Add a learning objective..." className="border-0 p-0 h-auto" />
-                      </div>
-                      <Button variant="outline" size="sm" className="bg-transparent">
-                        <Plus className="w-4 h-4" />
-                      </Button>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold">Classes</h3>
+                      <p className="text-sm text-muted-foreground">Select the cohorts that should receive this assignment.</p>
                     </div>
+                    {isLoadingDestinations && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                  </div>
+                  <div className="space-y-3 rounded-lg border border-border/60 p-4">
+                    {classOptions.length === 0 && !isLoadingDestinations ? (
+                      <p className="text-sm text-muted-foreground">No classes available yet.</p>
+                    ) : (
+                      classOptions.map((classOption) => (
+                        <label key={classOption.id} className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <Checkbox
+                              checked={selectedClassIds.includes(classOption.id)}
+                              onCheckedChange={(checked) => handleClassSelectionChange(classOption.id, checked)}
+                              id={`class-${classOption.id}`}
+                            />
+                            <div>
+                              <p className="font-medium leading-none">{classOption.name}</p>
+                              <p className="text-xs text-muted-foreground">{classOption.studentCount} students</p>
+                            </div>
+                          </div>
+                        </label>
+                      ))
+                    )}
                   </div>
                 </div>
 
                 <div className="space-y-4">
-                  <Label>Assessment Criteria</Label>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <Card className="border-border/30">
-                      <CardContent className="p-4">
-                        <div className="flex items-center space-x-3 mb-3">
-                          <div className="w-8 h-8 gradient-maroon rounded-lg flex items-center justify-center">
-                            <BookOpen className="w-4 h-4 text-white" />
+                  <div>
+                    <h3 className="font-semibold">Individual learners (optional)</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Layer on personal assignments or spotlight students who need extra coaching.
+                    </p>
+                  </div>
+                  <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border border-border/60 p-4">
+                    {studentOptions.length === 0 && !isLoadingDestinations ? (
+                      <p className="text-sm text-muted-foreground">No students found.</p>
+                    ) : (
+                      studentOptions.map((student) => (
+                        <label key={student.id} className="flex items-start gap-3">
+                          <Checkbox
+                            checked={selectedStudentIds.includes(student.id)}
+                            onCheckedChange={(checked) => handleStudentSelectionChange(student.id, checked)}
+                            id={`student-${student.id}`}
+                          />
+                          <div>
+                            <p className="font-medium leading-none">{student.name}</p>
+                            <p className="text-xs text-muted-foreground">{student.email}</p>
+                            {student.classNames.length > 0 && (
+                              <p className="text-xs text-muted-foreground">{student.classNames.join(", ")}</p>
+                            )}
                           </div>
-                          <h4 className="font-medium">Memorization</h4>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Students must demonstrate accurate memorization of the assigned ayahs
-                        </p>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-border/30">
-                      <CardContent className="p-4">
-                        <div className="flex items-center space-x-3 mb-3">
-                          <div className="w-8 h-8 gradient-gold rounded-lg flex items-center justify-center">
-                            <Users className="w-4 h-4 text-white" />
-                          </div>
-                          <h4 className="font-medium">Recitation</h4>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                          Proper pronunciation and Tajweed rules application
-                        </p>
-                      </CardContent>
-                    </Card>
+                        </label>
+                      ))
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -436,35 +569,50 @@ export default function CreateAssignmentPage() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <Label>Assignment Image</Label>
-                    <Button
-                      variant="outline"
-                      className="bg-transparent"
-                      onClick={() => {
-                        const images = [
-                          "/arabic-calligraphy-with-quranic-verses.jpg",
-                          "/islamic-geometric-patterns-with-arabic-text.jpg",
-                          "/mushaf-page-with-highlighted-verses.jpg",
-                        ]
-                        setSelectedImage(images[Math.floor(Math.random() * images.length)])
-                      }}
-                    >
-                      <ImageIcon className="w-4 h-4 mr-2" />
-                      Upload Image
-                    </Button>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <Label>Assignment Image</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Upload from your device or use a sample to anchor your hotspots.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleImageUpload}
+                      />
+                      <Button variant="outline" className="bg-transparent" onClick={() => fileInputRef.current?.click()}>
+                        <UploadCloud className="w-4 h-4 mr-2" />
+                        Upload from device
+                      </Button>
+                      <Button variant="outline" className="bg-transparent" onClick={handleUseSampleImage}>
+                        <ImageIcon className="w-4 h-4 mr-2" />
+                        Use sample
+                      </Button>
+                      {selectedImage && (
+                        <Button variant="ghost" className="text-red-600 hover:text-red-700" onClick={clearImage}>
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Remove
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
-                  {selectedImage && (
+                  {uploadedImageName && (
+                    <p className="text-xs text-muted-foreground">Selected: {uploadedImageName}</p>
+                  )}
+
+                  {selectedImage ? (
                     <HotspotEditor
                       imageUrl={selectedImage}
                       hotspots={hotspots}
                       onHotspotsChange={setHotspots}
                       mode="edit"
                     />
-                  )}
-
-                  {!selectedImage && (
+                  ) : (
                     <div className="border-2 border-dashed border-border rounded-lg p-12 text-center">
                       <ImageIcon className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                       <p className="text-muted-foreground">Upload an image to start adding interactive hotspots</p>
