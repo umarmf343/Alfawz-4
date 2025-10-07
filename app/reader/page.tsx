@@ -29,6 +29,9 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Loader2,
+  Headphones,
+  Disc3,
+  Clock3,
 } from "lucide-react"
 import Link from "next/link"
 import { MushafVerse } from "@/components/quran/mushaf-verse"
@@ -48,6 +51,8 @@ import {
 import { MUSHAF_FONTS_AVAILABLE, type MushafOverlayMode } from "@/lib/mushaf-fonts"
 
 const FALLBACK_AUDIO_BASE = "https://cdn.islamic.network/quran/audio/128/ar.alafasy"
+const GWANI_ARCHIVE_BASE_URL = "https://archive.org/download/MoshafGwaniDahir"
+const GWANI_RECITER_NAME = "Shaykh Gwani Dahir"
 
 type ReaderAyah = QuranAyah & {
   translation?: string
@@ -183,6 +188,17 @@ type TajweedMetric = {
   description: string
 }
 
+const formatTimeDisplay = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "0:00"
+  }
+
+  const minutes = Math.floor(seconds / 60)
+  const remainingSeconds = Math.floor(seconds % 60)
+
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`
+}
+
 
 export default function QuranReaderPage() {
   const { dashboard, incrementDailyTarget, submitRecitationResult } = useUser()
@@ -263,6 +279,13 @@ export default function QuranReaderPage() {
   const [isProcessingLiveChunk, setIsProcessingLiveChunk] = useState(false)
   const [isFinalizingLiveSession, setIsFinalizingLiveSession] = useState(false)
   const [liveSessionSummary, setLiveSessionSummary] = useState<LiveSessionSummary | null>(null)
+  const [gwaniSelectedSurah, setGwaniSelectedSurah] = useState<number>(FALLBACK_SURAH.metadata.number)
+  const [isGwaniPlaying, setIsGwaniPlaying] = useState(false)
+  const [gwaniCurrentTime, setGwaniCurrentTime] = useState(0)
+  const [gwaniDuration, setGwaniDuration] = useState(0)
+  const [isGwaniLoading, setIsGwaniLoading] = useState(false)
+  const [gwaniError, setGwaniError] = useState<string | null>(null)
+  const [gwaniVolume, setGwaniVolume] = useState<number[]>([80])
 
   const formatInferenceLatency = (latency: number | null | undefined) => {
     if (typeof latency !== "number" || Number.isNaN(latency) || latency <= 0) {
@@ -528,6 +551,7 @@ export default function QuranReaderPage() {
   const shouldFinalizeRef = useRef(false)
   const recordingStartRef = useRef<number | null>(null)
   const recorderMimeTypeRef = useRef<string | null>(null)
+  const gwaniAudioRef = useRef<HTMLAudioElement>(null)
   const activeAyah = surahData.ayahs[currentAyah]
   const expectedTextRef = useRef(activeAyah?.text ?? "")
   const ayahIdRef = useRef(
@@ -535,11 +559,118 @@ export default function QuranReaderPage() {
   )
   const totalAyahs = surahData.ayahs.length
   const activeAudioSrc = useMemo(() => ayahAudioUrls[currentAyah] ?? "", [ayahAudioUrls, currentAyah])
+  const gwaniAudioSrc = useMemo(() => {
+    const paddedNumber = gwaniSelectedSurah.toString().padStart(3, "0")
+    return `${GWANI_ARCHIVE_BASE_URL}/${paddedNumber}.mp3`
+  }, [gwaniSelectedSurah])
   const getAyahDisplayNumber = useCallback(
     (ayah: ReaderAyah | undefined, index: number) => ayah?.numberInSurah ?? ayah?.number ?? index + 1,
     [],
   )
   const ayahSelectValue = totalAyahs === 0 ? "" : getAyahDisplayNumber(activeAyah, currentAyah).toString()
+  const gwaniSurahDetails = useMemo(
+    () => surahList.find((surah) => surah.number === gwaniSelectedSurah) ?? FALLBACK_SURAH.metadata,
+    [gwaniSelectedSurah, surahList],
+  )
+  const gwaniProgressPercent = useMemo(() => {
+    if (!Number.isFinite(gwaniDuration) || gwaniDuration <= 0) {
+      return 0
+    }
+
+    return Math.min(100, Math.max(0, (gwaniCurrentTime / gwaniDuration) * 100))
+  }, [gwaniCurrentTime, gwaniDuration])
+
+  useEffect(() => {
+    const audio = gwaniAudioRef.current
+    if (!audio) {
+      return
+    }
+
+    const handleLoadedMetadata = () => {
+      setGwaniDuration(Number.isFinite(audio.duration) ? audio.duration : 0)
+      setIsGwaniLoading(false)
+    }
+
+    const handleTimeUpdate = () => {
+      setGwaniCurrentTime(Number.isFinite(audio.currentTime) ? audio.currentTime : 0)
+    }
+
+    const handlePlay = () => {
+      setIsGwaniPlaying(true)
+      setGwaniError(null)
+      setIsGwaniLoading(false)
+    }
+
+    const handlePause = () => {
+      setIsGwaniPlaying(false)
+    }
+
+    const handleWaiting = () => {
+      setIsGwaniLoading(true)
+    }
+
+    const handleCanPlay = () => {
+      setIsGwaniLoading(false)
+    }
+
+    const handleEnded = () => {
+      setIsGwaniPlaying(false)
+      setGwaniCurrentTime(Number.isFinite(audio.duration) ? audio.duration : 0)
+    }
+
+    const handleError = () => {
+      setIsGwaniPlaying(false)
+      setIsGwaniLoading(false)
+      setGwaniError("We couldn't stream this recitation. Please try again shortly.")
+    }
+
+    audio.addEventListener("loadedmetadata", handleLoadedMetadata)
+    audio.addEventListener("timeupdate", handleTimeUpdate)
+    audio.addEventListener("play", handlePlay)
+    audio.addEventListener("pause", handlePause)
+    audio.addEventListener("waiting", handleWaiting)
+    audio.addEventListener("canplay", handleCanPlay)
+    audio.addEventListener("ended", handleEnded)
+    audio.addEventListener("error", handleError)
+
+    return () => {
+      audio.removeEventListener("loadedmetadata", handleLoadedMetadata)
+      audio.removeEventListener("timeupdate", handleTimeUpdate)
+      audio.removeEventListener("play", handlePlay)
+      audio.removeEventListener("pause", handlePause)
+      audio.removeEventListener("waiting", handleWaiting)
+      audio.removeEventListener("canplay", handleCanPlay)
+      audio.removeEventListener("ended", handleEnded)
+      audio.removeEventListener("error", handleError)
+    }
+  }, [])
+
+  useEffect(() => {
+    const audio = gwaniAudioRef.current
+    if (!audio) {
+      return
+    }
+
+    audio.pause()
+    audio.currentTime = 0
+    setIsGwaniPlaying(false)
+    setGwaniCurrentTime(0)
+    setGwaniDuration(0)
+    setGwaniError(null)
+    setIsGwaniLoading(true)
+    audio.load()
+  }, [gwaniAudioSrc])
+
+  useEffect(() => {
+    const audio = gwaniAudioRef.current
+    if (!audio) {
+      return
+    }
+
+    const [volumeValue] = gwaniVolume
+    const normalizedVolume = Number.isFinite(volumeValue) ? volumeValue / 100 : 0.8
+    audio.volume = Math.min(1, Math.max(0, normalizedVolume))
+  }, [gwaniVolume])
 
   useEffect(() => {
     expectedTextRef.current = activeAyah?.text ?? ""
@@ -590,6 +721,56 @@ export default function QuranReaderPage() {
     if (currentAyah > 0) {
       setCurrentAyah(currentAyah - 1)
       setIsPlaying(false)
+    }
+  }
+
+  const handleGwaniPlayPause = async () => {
+    const audio = gwaniAudioRef.current
+    if (!audio) {
+      return
+    }
+
+    if (isGwaniPlaying) {
+      audio.pause()
+      return
+    }
+
+    try {
+      setGwaniError(null)
+      if (audio.readyState < 2) {
+        setIsGwaniLoading(true)
+      }
+      await audio.play()
+    } catch (error) {
+      console.error("Failed to start Gwani Dahir audio", error)
+      setIsGwaniPlaying(false)
+      setIsGwaniLoading(false)
+      setGwaniError("Playback was blocked. Tap play again or try another moment.")
+    }
+  }
+
+  const handleGwaniProgressChange = (value: number[]) => {
+    const audio = gwaniAudioRef.current
+    if (!audio || !Number.isFinite(gwaniDuration) || gwaniDuration <= 0) {
+      return
+    }
+
+    const [nextTime] = value
+    if (!Number.isFinite(nextTime)) {
+      return
+    }
+
+    const clampedTime = Math.min(Math.max(nextTime, 0), gwaniDuration)
+    audio.currentTime = clampedTime
+    setGwaniCurrentTime(clampedTime)
+  }
+
+  const handleSyncReaderWithGwani = () => {
+    setSelectedSurah(gwaniSelectedSurah)
+    setCurrentAyah(0)
+    setIsPlaying(false)
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" })
     }
   }
 
@@ -1817,6 +1998,122 @@ export default function QuranReaderPage() {
 
           {/* Sidebar Controls */}
           <div className="space-y-6">
+            <Card className="border-border/50 overflow-hidden">
+              <CardHeader className="pb-0">
+                <div className="rounded-xl bg-gradient-to-r from-maroon-600 to-maroon-700 p-5 text-white shadow-inner">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide">
+                        <Headphones className="h-3.5 w-3.5" /> Exclusive Audio Studio
+                      </div>
+                      <CardTitle className="text-xl font-semibold text-white">
+                        {GWANI_RECITER_NAME} Recitation
+                      </CardTitle>
+                      <p className="text-sm text-white/80">
+                        Stream the full mushaf recorded live in Kano and follow along as you recite.
+                      </p>
+                    </div>
+                    <Disc3 className="h-10 w-10 text-white/70" />
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-5 pt-5">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-muted-foreground">Choose Surah to Stream</label>
+                  <Select
+                    value={gwaniSelectedSurah.toString()}
+                    onValueChange={(value) => {
+                      const surahNumber = Number.parseInt(value)
+                      if (!Number.isNaN(surahNumber)) {
+                        setGwaniSelectedSurah(surahNumber)
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select Surah" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-64">
+                      {surahList.map((surah) => (
+                        <SelectItem key={`gwani-${surah.number}`} value={surah.number.toString()}>
+                          {surah.number}. {surah.englishName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Currently preparing <span className="font-medium text-foreground">{gwaniSurahDetails.englishName}</span>{" "}
+                    ({gwaniSurahDetails.name}).
+                  </p>
+                </div>
+
+                <div className="space-y-4 rounded-xl border border-border/70 bg-muted/40 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <Button
+                        onClick={handleGwaniPlayPause}
+                        size="icon"
+                        className="h-12 w-12 rounded-full bg-gradient-to-r from-maroon-600 to-maroon-700 text-white shadow-lg"
+                      >
+                        {isGwaniPlaying ? <Pause className="h-6 w-6" /> : <Play className="h-6 w-6 ml-0.5" />}
+                      </Button>
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{gwaniSurahDetails.englishName}</p>
+                        <p className="text-xs text-muted-foreground">{GWANI_RECITER_NAME}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                      <Clock3 className="h-4 w-4" />
+                      {isGwaniLoading
+                        ? "Buffering…"
+                        : `${formatTimeDisplay(gwaniCurrentTime)} / ${formatTimeDisplay(gwaniDuration)}`}
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    <Slider
+                      value={[Number.isFinite(gwaniCurrentTime) ? gwaniCurrentTime : 0]}
+                      max={Number.isFinite(gwaniDuration) && gwaniDuration > 0 ? gwaniDuration : 0}
+                      min={0}
+                      step={1}
+                      onValueChange={handleGwaniProgressChange}
+                      disabled={!Number.isFinite(gwaniDuration) || gwaniDuration <= 0}
+                    />
+                    <Progress value={gwaniProgressPercent} className="h-1.5" />
+                  </div>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <Volume2 className="h-4 w-4 text-muted-foreground" />
+                      <Slider
+                        value={gwaniVolume}
+                        onValueChange={setGwaniVolume}
+                        min={0}
+                        max={100}
+                        step={1}
+                        className="w-40"
+                      />
+                    </div>
+                    <Button variant="outline" size="sm" className="bg-transparent" onClick={handleSyncReaderWithGwani}>
+                      Sync reader to this surah
+                    </Button>
+                  </div>
+                </div>
+
+                {gwaniError && (
+                  <Alert variant="destructive" className="border-destructive/30 bg-destructive/10 text-destructive">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription className="text-xs leading-relaxed">{gwaniError}</AlertDescription>
+                    </div>
+                  </Alert>
+                )}
+
+                <div className="rounded-lg border border-dashed border-border/60 bg-background/80 p-3 text-xs text-muted-foreground">
+                  Streamed from the public archive in partnership with the Gwani Online Institute. Perfect for memorisation circles
+                  and home revision.
+                </div>
+              </CardContent>
+            </Card>
             <Card className="border-border/50">
               <CardHeader className="pb-4">
                 <CardTitle className="text-lg">Reader Panel</CardTitle>
@@ -2075,7 +2372,14 @@ export default function QuranReaderPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Hidden Audio Element */}
+      {/* Hidden Audio Elements */}
+      <audio
+        ref={gwaniAudioRef}
+        src={gwaniAudioSrc}
+        preload="metadata"
+        className="hidden"
+        aria-hidden="true"
+      />
       <audio
         ref={audioRef}
         src={activeAudioSrc || undefined}
