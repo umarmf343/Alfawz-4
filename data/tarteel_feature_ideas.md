@@ -1,5 +1,7 @@
 # Feature Ideas Inspired by TarteelAI Projects
 
+> For a catalog of the source repositories and integration touchpoints, see [`tarteelai_repo_audit.md`](./tarteelai_repo_audit.md).
+
 ## Quran Reading & Tajweed Data Infrastructure
 - **Centralized Quranic asset CMS** – Mirror QUL's Rails-powered admin that handles translations, tafsir text, Arabic scripts (ayah-by-ayah and word-by-word), Mushaf layouts, grammar/morphology datasets, and detailed version history to curate Tajweed annotations and reading plans collaboratively.【06f0ee†L1-L66】
 - **Audio segment management** – Adopt QUL's tooling for uploading both ayah-by-ayah and gapless recitations, defining precise segment metadata, and exporting datasets to power verse-level playback, tajweed highlights, or mistake-replay workflows.【06f0ee†L24-L42】
