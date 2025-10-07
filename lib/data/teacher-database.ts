@@ -376,7 +376,13 @@ export interface TeacherFeedbackNote {
   teacherId: string
   note: string
   createdAt: string
-  category: "tajweed" | "memorization" | "motivation"
+  category: "tajweed" | "memorization" | "motivation" | "reminder" | "communication"
+}
+
+export interface TeacherReminderResult {
+  success: boolean
+  note?: TeacherFeedbackNote
+  error?: string
 }
 
 export interface StudentDashboardRecord {
@@ -527,6 +533,23 @@ export interface TeacherStudentSummary {
   memorizationProgress: number
   recitationProgress: number
   lastActiveAt?: string | null
+}
+
+export interface TeacherRecitationTaskSummary {
+  id: string
+  studentId: string
+  studentName: string
+  studentEmail: string
+  classNames: string[]
+  surah: string
+  ayahRange: string
+  dueDate: string
+  status: RecitationTaskStatus
+  submittedAt?: string
+  reviewedAt?: string
+  lastScore?: number
+  assignmentId?: string
+  notes?: string
 }
 
 export interface TeacherMemorizationPlanStats {
@@ -1953,7 +1976,7 @@ function getTeacherClassRecords(teacherId: string): ClassRecord[] {
   return database.classes.filter((classRecord) => classRecord.teacherId === teacherId)
 }
 
-function getTeacherProfile(teacherId: string): TeacherProfile | undefined {
+export function getTeacherProfile(teacherId: string): TeacherProfile | undefined {
   const teacher = database.teachers.find((candidate) => candidate.id === teacherId)
   return teacher ? { ...teacher } : undefined
 }
@@ -2508,6 +2531,56 @@ export function listStudentsForTeacher(teacherId: string): TeacherStudentSummary
 
   summaries.sort((a, b) => a.name.localeCompare(b.name))
   return summaries
+}
+
+export function listTeacherRecitationTasks(teacherId: string): TeacherRecitationTaskSummary[] {
+  const classes = getTeacherClassRecords(teacherId)
+  const classMap = new Map(classes.map((classRecord) => [classRecord.id, classRecord]))
+  const classIdsByStudent = new Map<string, Set<string>>()
+
+  classes.forEach((classRecord) => {
+    classRecord.studentIds.forEach((studentId) => {
+      if (!classIdsByStudent.has(studentId)) {
+        classIdsByStudent.set(studentId, new Set())
+      }
+      classIdsByStudent.get(studentId)?.add(classRecord.id)
+    })
+  })
+
+  const tasks: TeacherRecitationTaskSummary[] = []
+
+  Object.values(database.learners).forEach((learner) => {
+    const relevantTasks = learner.dashboard.recitationTasks.filter((task) => task.teacherId === teacherId)
+    if (relevantTasks.length === 0) {
+      return
+    }
+
+    const classNames = Array.from(classIdsByStudent.get(learner.profile.id) ?? new Set<string>()).map(
+      (classId) => classMap.get(classId)?.name ?? classId,
+    )
+
+    relevantTasks.forEach((task) => {
+      tasks.push({
+        id: task.id,
+        studentId: learner.profile.id,
+        studentName: learner.profile.name,
+        studentEmail: learner.profile.email,
+        classNames,
+        surah: task.surah,
+        ayahRange: task.ayahRange,
+        dueDate: task.dueDate,
+        status: task.status,
+        submittedAt: task.submittedAt,
+        reviewedAt: task.reviewedAt,
+        lastScore: task.lastScore,
+        assignmentId: task.assignmentId,
+        notes: task.notes,
+      })
+    })
+  })
+
+  tasks.sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+  return tasks
 }
 
 export function listTeacherMemorizationPlans(
@@ -3574,6 +3647,80 @@ export function getTeacherNotes(studentId: string): TeacherFeedbackNote[] {
   const record = getLearnerRecord(studentId)
   if (!record) return []
   return record.dashboard.teacherNotes.map((note) => ({ ...note }))
+}
+
+export function addTeacherNote(
+  studentId: string,
+  teacherId: string,
+  note: string,
+  category: TeacherFeedbackNote["category"] = "communication",
+): TeacherFeedbackNote {
+  const record = getLearnerRecord(studentId)
+  if (!record) {
+    throw new Error("Student not found")
+  }
+
+  const trimmed = note.trim()
+  if (!trimmed) {
+    throw new Error("Note message is required")
+  }
+
+  const nowDate = new Date()
+  const teacherNote: TeacherFeedbackNote = {
+    id: `note_${nowDate.getTime()}`,
+    teacherId,
+    note: trimmed,
+    createdAt: iso(nowDate),
+    category,
+  }
+
+  record.dashboard.teacherNotes.unshift(teacherNote)
+  record.dashboard.teacherNotes = record.dashboard.teacherNotes.slice(0, MAX_TEACHER_NOTES)
+
+  return { ...teacherNote }
+}
+
+export function sendRecitationTaskReminder(
+  teacherId: string,
+  taskId: string,
+  message: string,
+): TeacherReminderResult {
+  const trimmed = message.trim()
+  if (!trimmed) {
+    return { success: false, error: "Reminder message is required" }
+  }
+
+  let targetRecord: LearnerRecord | undefined
+  let targetTask: RecitationTaskRecord | undefined
+
+  for (const learner of Object.values(database.learners)) {
+    const task = learner.dashboard.recitationTasks.find((entry) => entry.id === taskId)
+    if (task) {
+      targetRecord = learner
+      targetTask = task
+      break
+    }
+  }
+
+  if (!targetRecord || !targetTask) {
+    return { success: false, error: "Recitation task not found" }
+  }
+
+  if (targetTask.teacherId !== teacherId) {
+    return { success: false, error: "You do not have access to this recitation task" }
+  }
+
+  let note: TeacherFeedbackNote
+  try {
+    note = addTeacherNote(targetRecord.profile.id, teacherId, trimmed, "reminder")
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : "Unable to record reminder"
+    return { success: false, error: messageText }
+  }
+
+  targetTask.notes = trimmed
+
+  return { success: true, note }
 }
 
 export function completeHabitQuest(studentId: string, habitId: string): HabitCompletionResponse {
