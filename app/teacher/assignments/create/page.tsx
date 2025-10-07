@@ -3,6 +3,7 @@
 import type React from "react"
 
 import { useEffect, useRef, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import type { CheckedState } from "@radix-ui/react-checkbox"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -69,6 +70,7 @@ const SAMPLE_LIBRARY_IMAGES = [
 ]
 
 export default function CreateAssignmentPage() {
+  const searchParams = useSearchParams()
   const [activeTab, setActiveTab] = useState("basic")
   const [assignmentData, setAssignmentData] = useState({
     title: "",
@@ -94,6 +96,92 @@ export default function CreateAssignmentPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const objectUrlRef = useRef<string | null>(null)
   const { toast } = useToast()
+
+  useEffect(() => {
+    const assignmentIdParam = searchParams.get("assignmentId")
+    if (!assignmentIdParam || assignmentIdParam === assignmentId) {
+      return
+    }
+
+    let isMounted = true
+
+    const loadAssignment = async () => {
+      try {
+        const response = await fetch(`/api/teacher/assignments/${assignmentIdParam}`)
+        const data = (await response.json()) as {
+          assignment?: {
+            assignment?: {
+              title: string
+              description?: string
+              instructions?: string
+              assignmentType: string
+              surahName: string
+              surahNumber: number
+              ayahRange: string
+              dueDate: string
+              imageUrl?: string | null
+              classIds: string[]
+              studentIds: string[]
+              hotspots: Hotspot[]
+            }
+          }
+          error?: string
+        }
+
+        if (!response.ok) {
+          throw new Error(data.error ?? "Unable to load assignment")
+        }
+
+        const assignment = data.assignment?.assignment
+        if (!assignment || !isMounted) {
+          return
+        }
+
+        const dueDate = new Date(assignment.dueDate)
+        const dueDateValid = !Number.isNaN(dueDate.getTime())
+        const dueDateValue = dueDateValid ? dueDate.toISOString() : ""
+        const surahOption = SURAH_OPTIONS.find((option) => option.number === assignment.surahNumber)
+
+        setAssignmentId(assignmentIdParam)
+        setAssignmentData((prev) => ({
+          ...prev,
+          title: assignment.title ?? "",
+          description: assignment.description ?? "",
+          instructions: assignment.instructions ?? "",
+          assignmentType: assignment.assignmentType ?? prev.assignmentType,
+          surah: surahOption?.value ?? prev.surah,
+          ayahRange: assignment.ayahRange ?? "",
+          dueDate: dueDateValue ? dueDateValue.slice(0, 10) : "",
+          dueTime: dueDateValue ? dueDateValue.slice(11, 16) : "",
+        }))
+        setSelectedClassIds([...assignment.classIds])
+        setSelectedStudentIds([...assignment.studentIds])
+        setSelectedImage(assignment.imageUrl ?? null)
+        setUploadedImageName(null)
+        setHotspots(
+          (assignment.hotspots ?? []).map((hotspot, index) => ({
+            id: hotspot.id ?? `${assignmentIdParam}_hotspot_${index + 1}`,
+            title: hotspot.title ?? `Hotspot ${index + 1}`,
+            description: hotspot.description ?? "",
+            x: hotspot.x ?? 0,
+            y: hotspot.y ?? 0,
+            width: hotspot.width ?? 0,
+            height: hotspot.height ?? 0,
+            audioUrl: hotspot.audioUrl,
+          })),
+        )
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to load assignment"
+        toast({ title: "Could not load assignment", description: message, variant: "destructive" })
+      }
+    }
+
+    loadAssignment()
+
+    return () => {
+      isMounted = false
+    }
+  }, [assignmentId, searchParams, toast])
 
   useEffect(() => {
     let isMounted = true

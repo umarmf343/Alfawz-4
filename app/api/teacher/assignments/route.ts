@@ -62,7 +62,7 @@ function sanitizeHotspots(raw: unknown): AssignmentHotspotInput[] {
     .filter((hotspot): hotspot is AssignmentHotspotInput => hotspot !== null)
 }
 
-function serializeAssignment(summary: AssignmentWithStats) {
+export function serializeAssignment(summary: AssignmentWithStats) {
   return {
     assignment: {
       ...summary.assignment,
