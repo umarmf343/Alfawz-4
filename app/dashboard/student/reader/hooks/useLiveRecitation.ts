@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { useMicrophoneStream } from "@/hooks/useMicrophoneStream"
+import { encodePcmAsWav } from "@/lib/audio/pcm"
+
 export type LiveRecitationStatus =
   | "idle"
   | "requesting-permission"
@@ -355,21 +358,6 @@ export function useLiveRecitation(
 
   const expectedVerseMemo = useMemo(() => expectedVerse, [expectedVerse])
 
-  const stopRecordingInternal = useCallback(() => {
-    const recorder = mediaRecorderRef.current
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop()
-    }
-    mediaRecorderRef.current = null
-
-    const stream = streamRef.current
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop())
-    }
-    streamRef.current = null
-    setStatus((prev) => (prev === "error" ? prev : "idle"))
-  }, [])
-
   const performTranscription = useCallback(
     async (audioBlob: Blob) => {
       if (transcribe) {
@@ -408,14 +396,18 @@ export function useLiveRecitation(
       if (!mountedRef.current) return
       try {
         setStatus("processing")
-        const wavBlob = await convertTo16kWav(blob)
+        const wavBlob = blob.type === "audio/wav" ? blob : await convertTo16kWav(blob)
         const transcription = await performTranscription(wavBlob)
         const timestamp = Date.now()
         setResults((prev) => [...prev, { text: transcription, receivedAt: timestamp }])
         const alignment = alignWords(expectedVerseMemo, transcription)
         setFeedback(alignment.feedback)
         setExtras(alignment.extras)
-        setStatus(mediaRecorderRef.current ? "listening" : "idle")
+        const stillListening =
+          captureModeRef.current === "microphone-stream"
+            ? isStreamActive
+            : mediaRecorderRef.current != null
+        setStatus(stillListening ? "listening" : "idle")
         setError(null)
       } catch (err) {
         console.error("Live recitation chunk processing failed", err)
@@ -427,7 +419,7 @@ export function useLiveRecitation(
         }
       }
     },
-    [performTranscription, expectedVerseMemo],
+    [isStreamActive, performTranscription, expectedVerseMemo],
   )
 
   const enqueueChunk = useCallback(
@@ -437,8 +429,108 @@ export function useLiveRecitation(
     [processChunk],
   )
 
+  const aggregatorRef = useRef<{ buffers: Float32Array[]; totalSamples: number; sampleRate: number | null }>({
+    buffers: [],
+    totalSamples: 0,
+    sampleRate: null,
+  })
+  const captureModeRef = useRef<"microphone-stream" | "media-recorder" | null>(null)
+  const [captureMode, setCaptureMode] = useState<"microphone-stream" | "media-recorder" | null>(null)
+  const [inputVolume, setInputVolume] = useState(0)
+
+  const flushPendingFrames = useCallback(() => {
+    const aggregator = aggregatorRef.current
+    if (!aggregator.buffers.length || !aggregator.sampleRate) {
+      return
+    }
+    try {
+      const wavBlob = encodePcmAsWav(aggregator.buffers, aggregator.sampleRate)
+      aggregator.buffers = []
+      aggregator.totalSamples = 0
+      aggregator.sampleRate = null
+      enqueueChunk(wavBlob)
+    } catch (err) {
+      console.error("Failed to flush microphone frames", err)
+    }
+  }, [enqueueChunk])
+
+  const handleAudioFrame = useCallback(
+    (frame: Float32Array, metadata: { sampleRate: number }) => {
+      const aggregator = aggregatorRef.current
+      if (!aggregator.sampleRate) {
+        aggregator.sampleRate = metadata.sampleRate
+      }
+      aggregator.buffers.push(frame)
+      aggregator.totalSamples += frame.length
+      const durationMs = (aggregator.totalSamples / metadata.sampleRate) * 1000
+      if (durationMs >= chunkDurationMs) {
+        flushPendingFrames()
+      }
+    },
+    [chunkDurationMs, flushPendingFrames],
+  )
+
+  const handleVolume = useCallback((value: number) => {
+    setInputVolume(value)
+  }, [])
+
+  const {
+    start: startStream,
+    stop: stopStream,
+    isActive: isStreamActive,
+    isSupported: isStreamSupported,
+    permission: streamPermission,
+    error: streamError,
+  } = useMicrophoneStream({
+    bufferSize: 1024,
+    onAudioFrame: handleAudioFrame,
+    onVolume: handleVolume,
+  })
+
+  const stopRecordingInternal = useCallback(() => {
+    if (captureModeRef.current === "microphone-stream") {
+      flushPendingFrames()
+      stopStream()
+      captureModeRef.current = null
+      setCaptureMode(null)
+      setStatus((prev) => (prev === "error" ? prev : "idle"))
+      return
+    }
+
+    const recorder = mediaRecorderRef.current
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop()
+    }
+    mediaRecorderRef.current = null
+
+    const stream = streamRef.current
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop())
+    }
+    streamRef.current = null
+    captureModeRef.current = null
+    setCaptureMode(null)
+    setStatus((prev) => (prev === "error" ? prev : "idle"))
+  }, [flushPendingFrames, stopStream])
+
+  useEffect(() => {
+    if (captureMode === "microphone-stream" && streamPermission !== "unknown") {
+      setPermission(streamPermission)
+    }
+  }, [captureMode, streamPermission])
+
+  useEffect(() => {
+    if (captureMode === "microphone-stream" && streamError) {
+      setError(streamError)
+      setStatus("error")
+    }
+  }, [captureMode, streamError])
+
   const start = useCallback(async () => {
     if (typeof window === "undefined") {
+      return
+    }
+    if (captureModeRef.current === "microphone-stream" && isStreamActive) {
       return
     }
     if (mediaRecorderRef.current) {
@@ -446,6 +538,21 @@ export function useLiveRecitation(
     }
     setError(null)
     setStatus("requesting-permission")
+
+    if (isStreamSupported) {
+      try {
+        aggregatorRef.current.buffers = []
+        aggregatorRef.current.totalSamples = 0
+        aggregatorRef.current.sampleRate = null
+        await startStream()
+        captureModeRef.current = "microphone-stream"
+        setCaptureMode("microphone-stream")
+        setStatus("listening")
+        return
+      } catch (err) {
+        console.warn("Falling back to MediaRecorder capture", err)
+      }
+    }
 
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
@@ -485,7 +592,10 @@ export function useLiveRecitation(
 
       mediaRecorderRef.current = recorder
       streamRef.current = stream
+      captureModeRef.current = "media-recorder"
+      setCaptureMode("media-recorder")
       setPermission("granted")
+      setInputVolume(0)
       setStatus("listening")
       recorder.start(chunkDurationMs)
     } catch (err) {
@@ -495,10 +605,12 @@ export function useLiveRecitation(
         err instanceof Error && err.message.includes("not supported")
           ? err.message
           : "Microphone permission denied. Please enable access to continue."
+      captureModeRef.current = null
+      setCaptureMode(null)
       setStatus("permission-denied")
       setError(message)
     }
-  }, [chunkDurationMs, enqueueChunk])
+  }, [chunkDurationMs, enqueueChunk, isStreamActive, isStreamSupported, startStream])
 
   const stop = useCallback(() => {
     stopRecordingInternal()
@@ -510,6 +622,13 @@ export function useLiveRecitation(
     setExtras([])
     setError(null)
     setStatus("idle")
+    captureModeRef.current = null
+    setCaptureMode(null)
+    aggregatorRef.current.buffers = []
+    aggregatorRef.current.totalSamples = 0
+    aggregatorRef.current.sampleRate = null
+    setPermission("unknown")
+    setInputVolume(0)
   }, [])
 
   useEffect(() => {
@@ -534,6 +653,8 @@ export function useLiveRecitation(
     results,
     feedback,
     extras,
+    captureMode,
+    volume: inputVolume,
     isRecording: status === "listening" || status === "processing",
   }
 }
