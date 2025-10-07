@@ -21,6 +21,11 @@ This document captures a high-level study of the public repositories under the [
 - **High-fidelity Mushaf typography** – Distribute the Mushaf TTF-to-TTX exports from `quran-ttx` inside the Next.js `public/` directory and register them with `next/font/local`. Render surah pages using CSS grid that aligns with the glyph coordinates while layering tajweed color coding and mistake markers above the base text. This maintains the calligraphic fidelity of the Madani Mushaf while enabling interactive overlays.
 - **Mobile-first recitation client** – Scaffold an Expo-based client by reusing `tarteel-mobile`'s navigation, authentication flow, and microphone session management. Embed the `react-native-microphone-stream` module to capture live audio buffers, feed them into a websocket/HTTP streaming endpoint, and surface speech feedback (confidence scores, tajweed hints) in real time.
 
+### Implementation Status
+
+- ✅ Added `npm run fonts:mushaf` to sync representative `quran-ttx` exports into `public/fonts/mushaf/` with conversion guidance. The reader now swaps to the Mushaf font stack (with tajweed overlays) when the converted assets are present.
+- ✅ Introduced a mobile HUD (`<MobileRecitationClient />`) that mirrors the Expo microphone controls with live volume pulses, tajweed cue summaries, and permission/error messaging.
+
 ## Tracking Follow-up Work
 
 1. **Asset ingestion** – Create a task to import prioritized fonts and Quranic datasets into version control, confirming licensing alignment (see `quran-ttx` README for copyright).

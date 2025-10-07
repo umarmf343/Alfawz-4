@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Slider } from "@/components/ui/slider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Progress } from "@/components/ui/progress"
@@ -30,6 +31,10 @@ import {
   Loader2,
 } from "lucide-react"
 import Link from "next/link"
+import { MushafVerse } from "@/components/quran/mushaf-verse"
+import { MobileRecitationClient } from "@/components/recitation/mobile-recitation-client"
+import { useMushafFontLoader } from "@/hooks/useMushafFontLoader"
+import type { MicrophonePermissionStatus } from "@/hooks/useMicrophoneStream"
 import { quranAPI, type Surah as QuranSurah, type Ayah as QuranAyah } from "@/lib/quran-api"
 import {
   annotateTajweedMistakes,
@@ -38,6 +43,7 @@ import {
   type LiveMistake,
   type LiveSessionSummary,
 } from "@/lib/tajweed-analysis"
+import type { MushafOverlayMode } from "@/lib/mushaf-fonts"
 
 const FALLBACK_AUDIO_BASE = "https://cdn.islamic.network/quran/audio/128/ar.alafasy"
 
@@ -190,6 +196,10 @@ export default function QuranReaderPage() {
   const [showTranslation, setShowTranslation] = useState(true)
   const [showTransliteration, setShowTransliteration] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
+  const [useMushafTypography, setUseMushafTypography] = useState(true)
+  const [mushafOverlayMode, setMushafOverlayMode] = useState<MushafOverlayMode>("tajweed")
+  const [liveVolume, setLiveVolume] = useState(0)
+  const [microphonePermission, setMicrophonePermission] = useState<MicrophonePermissionStatus>("unknown")
   const [fontSize, setFontSize] = useState("text-4xl")
   const [reciter, setReciter] = useState<ReciterKey>("mishary")
   const [surahList, setSurahList] = useState<QuranSurah[]>([FALLBACK_SURAH.metadata])
@@ -245,6 +255,9 @@ export default function QuranReaderPage() {
   const [isProcessingLiveChunk, setIsProcessingLiveChunk] = useState(false)
   const [isFinalizingLiveSession, setIsFinalizingLiveSession] = useState(false)
   const [liveSessionSummary, setLiveSessionSummary] = useState<LiveSessionSummary | null>(null)
+  const { status: mushafFontStatus, isReady: areMushafFontsReady, error: mushafFontError } = useMushafFontLoader(
+    useMushafTypography,
+  )
 
   useEffect(() => {
     let isMounted = true
@@ -418,9 +431,25 @@ export default function QuranReaderPage() {
     return Math.round(total / tajweedMetrics.length)
   }, [tajweedMetrics])
 
+  const mushafFontSupportText = useMemo(() => {
+    if (!useMushafTypography || mushafFontStatus === "ready") {
+      return null
+    }
+
+    if (mushafFontStatus === "loading") {
+      return "Loading Mushaf font assets…"
+    }
+
+    const base = "Font files not found. Run npm run fonts:mushaf and convert the TTX exports to WOFF/WOFF2."
+    return mushafFontError ? `${base} ${mushafFontError}` : base
+  }, [mushafFontStatus, mushafFontError, useMushafTypography])
+
   const audioRef = useRef<HTMLAudioElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
+  const liveAudioContextRef = useRef<AudioContext | null>(null)
+  const liveVolumeProcessorRef = useRef<ScriptProcessorNode | null>(null)
+  const liveMeterGainRef = useRef<GainNode | null>(null)
   const chunkQueueRef = useRef<Blob[]>([])
   const isProcessingChunkRef = useRef(false)
   const sessionChunksRef = useRef<Blob[]>([])
@@ -725,6 +754,72 @@ export default function QuranReaderPage() {
     ],
   )
 
+  const teardownVolumeMeter = useCallback(() => {
+    liveVolumeProcessorRef.current?.disconnect()
+    liveVolumeProcessorRef.current = null
+
+    liveMeterGainRef.current?.disconnect()
+    liveMeterGainRef.current = null
+
+    if (liveAudioContextRef.current) {
+      liveAudioContextRef.current.close().catch(() => undefined)
+      liveAudioContextRef.current = null
+    }
+
+    setLiveVolume(0)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      teardownVolumeMeter()
+    }
+  }, [teardownVolumeMeter])
+
+  const setupVolumeMeter = useCallback(async (stream: MediaStream) => {
+    const AudioCtx =
+      typeof window !== "undefined"
+        ? window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+        : undefined
+
+    if (!AudioCtx) {
+      return
+    }
+
+    try {
+      const context = new AudioCtx()
+      liveAudioContextRef.current = context
+
+      if (context.state === "suspended") {
+        await context.resume().catch(() => undefined)
+      }
+
+      const source = context.createMediaStreamSource(stream)
+      const processor = context.createScriptProcessor(1024, 1, 1)
+      const gainNode = context.createGain()
+      gainNode.gain.value = 0
+
+      liveVolumeProcessorRef.current = processor
+      liveMeterGainRef.current = gainNode
+
+      processor.onaudioprocess = (event) => {
+        const channel = event.inputBuffer.getChannelData(0)
+        let sum = 0
+        for (let i = 0; i < channel.length; i += 1) {
+          const value = channel[i]
+          sum += value * value
+        }
+        const rms = Math.sqrt(sum / channel.length)
+        setLiveVolume((previous) => previous * 0.6 + rms * 0.4)
+      }
+
+      source.connect(processor)
+      processor.connect(gainNode)
+      gainNode.connect(context.destination)
+    } catch (error) {
+      console.error("Unable to initialise live volume meter", error)
+    }
+  }, [])
+
   const stopLiveRecording = useCallback(
     (options?: { collapse?: boolean; skipFinalize?: boolean }) => {
       shouldFinalizeRef.current = options?.skipFinalize ? false : true
@@ -742,6 +837,7 @@ export default function QuranReaderPage() {
         mediaStreamRef.current = null
       }
 
+      teardownVolumeMeter()
       mediaRecorderRef.current = null
       chunkQueueRef.current = []
       isProcessingChunkRef.current = false
@@ -759,7 +855,7 @@ export default function QuranReaderPage() {
         setAnalysisMessage("Compiling your recitation summary…")
       }
     },
-    [],
+    [teardownVolumeMeter],
   )
 
   const startLiveRecording = useCallback(async () => {
@@ -774,12 +870,16 @@ export default function QuranReaderPage() {
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setLiveAnalysisError("Microphone access is not available in this browser.")
+      setMicrophonePermission("denied")
       return
     }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       mediaStreamRef.current = stream
+      setMicrophonePermission("granted")
+
+      await setupVolumeMeter(stream)
 
       const recorder = new MediaRecorder(stream)
       mediaRecorderRef.current = recorder
@@ -835,9 +935,10 @@ export default function QuranReaderPage() {
     } catch (error) {
       console.error("Failed to start live recording", error)
       setLiveAnalysisError("We couldn't access your microphone. Please check permissions and try again.")
+      setMicrophonePermission("denied")
       stopLiveRecording({ collapse: false, skipFinalize: true })
     }
-  }, [finalizeLiveSession, isRecording, processChunkQueue, weakestMetric, stopLiveRecording])
+  }, [finalizeLiveSession, isRecording, processChunkQueue, weakestMetric, stopLiveRecording, setupVolumeMeter])
 
   const handleLiveAnalysisToggle = useCallback(() => {
     if (!isAnalysisStarted && !isRecording) {
@@ -1228,6 +1329,20 @@ export default function QuranReaderPage() {
                     </Button>
                 </div>
 
+                <MobileRecitationClient
+                  className="md:hidden"
+                  isRecording={isRecording}
+                  isLiveAnalysisActive={isLiveAnalysisActive}
+                  onToggle={handleLiveAnalysisToggle}
+                  statusMessage={analysisMessage}
+                  transcription={liveTranscription}
+                  mistakes={liveMistakes}
+                  volumeLevel={liveVolume}
+                  overlayMode={mushafOverlayMode}
+                  permissionStatus={microphonePermission}
+                  errorMessage={isLiveAnalysisActive ? liveAnalysisError : null}
+                />
+
                 {isLiveAnalysisActive && (
                   <div className="space-y-5 rounded-xl border border-primary/30 bg-background/80 p-6 shadow-inner">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1494,7 +1609,15 @@ export default function QuranReaderPage() {
                               </div>
                             )}
                           </div>
-                          <div className="arabic-text text-xl leading-relaxed text-primary mb-2">{ayah.text}</div>
+                          <MushafVerse
+                            ayah={ayah}
+                            mistakes={index === currentAyah ? liveMistakes : []}
+                            overlayMode={mushafOverlayMode}
+                            fontSizeClass={fontSize}
+                            isMushafEnabled={useMushafTypography}
+                            weakestMetricLabel={weakestMetric?.label}
+                            fontsReady={areMushafFontsReady}
+                          />
                           {showTranslation && ayah.translation && (
                             <p className="text-sm text-muted-foreground leading-relaxed">{ayah.translation}</p>
                           )}
@@ -1624,6 +1747,37 @@ export default function QuranReaderPage() {
                     />
                     <span className="text-sm">Show Transliteration</span>
                   </label>
+                </div>
+
+                <div className="space-y-4 rounded-lg border border-border/60 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium">Mushaf typography</p>
+                      <p className="text-xs text-muted-foreground">
+                        Render āyāt using the Madinah Mushaf outlines layered with tajweed cues.
+                      </p>
+                    </div>
+                    <Switch checked={useMushafTypography} onCheckedChange={setUseMushafTypography} />
+                  </div>
+                  {mushafFontSupportText && (
+                    <p className="text-xs text-amber-700">{mushafFontSupportText}</p>
+                  )}
+                  <div>
+                    <label className="text-xs font-medium text-muted-foreground">Overlay mode</label>
+                    <Select
+                      value={mushafOverlayMode}
+                      onValueChange={(value) => setMushafOverlayMode(value as MushafOverlayMode)}
+                    >
+                      <SelectTrigger className="mt-2">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="tajweed">Tajweed guidance</SelectItem>
+                        <SelectItem value="mistakes">Pronunciation issues</SelectItem>
+                        <SelectItem value="none">Hide overlays</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </CardContent>
             </Card>

@@ -3,6 +3,16 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@font-face {
+  font-family: "Mushaf Madinah";
+  src:
+    url("/fonts/mushaf/mushaf-madinah.woff2") format("woff2"),
+    url("/fonts/mushaf/mushaf-madinah.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* Updated theme to match Islamic educational platform with maroon and cream colors */
   --background: oklch(0.98 0.01 45); /* Warm cream background */
@@ -146,6 +156,16 @@
     font-feature-settings: "liga" 1, "dlig" 1, "kern" 1, "mark" 1, "mkmk" 1;
     text-rendering: optimizeLegibility;
     letter-spacing: 0.02em;
+  }
+
+  .font-mushaf {
+    font-family: "Mushaf Madinah", "Scheherazade New", "Amiri", "Noto Naskh Arabic", serif;
+    direction: rtl;
+    text-align: right;
+    line-height: 2.8;
+    font-feature-settings: "liga" 1, "dlig" 1, "kern" 1, "mark" 1, "mkmk" 1;
+    text-rendering: optimizeLegibility;
+    letter-spacing: 0.015em;
   }
 
   /* RTL layout utilities */
