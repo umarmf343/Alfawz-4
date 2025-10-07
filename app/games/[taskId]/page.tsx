@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import {
@@ -13,9 +13,8 @@ import {
   Gamepad2,
   ListChecks,
   Mic,
-  NotebookPen,
+  BookOpen,
   Sparkles,
-  Target,
   Timer,
   Trophy,
 } from "lucide-react"
@@ -64,6 +63,79 @@ const FALLBACK_TAJWEED_SESSION = {
   ],
 } as const
 
+const DAILY_QURAN_WORDS = [
+  {
+    word: "رَحْمَة",
+    transliteration: "rahmah",
+    meaning: "mercy, compassion",
+    context: "Allah's encompassing mercy that comforts and protects believers.",
+  },
+  {
+    word: "هُدًى",
+    transliteration: "hudā",
+    meaning: "guidance",
+    context: "The divine direction that keeps one firm on the straight path.",
+  },
+  {
+    word: "نُور",
+    transliteration: "nūr",
+    meaning: "light",
+    context: "A spiritual illumination that removes doubt and fear.",
+  },
+  {
+    word: "سَكِينَة",
+    transliteration: "sakīnah",
+    meaning: "tranquility, serenity",
+    context: "The calmness Allah sends into hearts during moments of difficulty.",
+  },
+  {
+    word: "فَلَاح",
+    transliteration: "falāḥ",
+    meaning: "everlasting success",
+    context: "True prosperity granted to those who remain mindful of Allah.",
+  },
+] as const
+
+const DAILY_VERSE_MEANINGS = [
+  {
+    reference: "Surah Al-Baqarah 2:286",
+    excerpt: "لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا",
+    translation: "Allah does not burden a soul beyond what it can bear.",
+    insight: "Trust that every challenge carries the strength to overcome it.",
+  },
+  {
+    reference: "Surah Ash-Sharh 94:5",
+    excerpt: "فَإِنَّ مَعَ الْعُسْرِ يُسْرًا",
+    translation: "Indeed, with hardship comes ease.",
+    insight: "Ease accompanies hardship, not just after it—keep looking for it.",
+  },
+  {
+    reference: "Surah Al-Ikhlas 112:1",
+    excerpt: "قُلْ هُوَ اللَّهُ أَحَدٌ",
+    translation: "Say, He is Allah, the One.",
+    insight: "Affirming Allah's oneness centers the heart with purpose and clarity.",
+  },
+  {
+    reference: "Surah Maryam 19:96",
+    excerpt: "إِنَّ الَّذِينَ آمَنُوا وَعَمِلُوا الصَّالِحَاتِ سَيَجْعَلُ لَهُمُ الرَّحْمَٰنُ وُدًّا",
+    translation: "Indeed, those who believe and do righteous deeds—the Most Merciful will appoint for them affection.",
+    insight: "Righteous actions open hearts to love and divine gentleness.",
+  },
+  {
+    reference: "Surah Al-Ankabut 29:69",
+    excerpt: "وَالَّذِينَ جَاهَدُوا فِينَا لَنَهْدِيَنَّهُمْ سُبُلَنَا",
+    translation: "As for those who strive in Us, We will surely guide them to Our paths.",
+    insight: "Every sincere effort is met with Allah's personalized guidance.",
+  },
+] as const
+
+function getDayOfYear(date = new Date()): number {
+  const startOfYear = new Date(date.getFullYear(), 0, 0)
+  const diff = date.getTime() - startOfYear.getTime()
+  const oneDay = 1000 * 60 * 60 * 24
+  return Math.floor(diff / oneDay)
+}
+
 function normalizeTaskId(raw: string | string[] | undefined): string | null {
   if (!raw) return null
   return Array.isArray(raw) ? raw[0] ?? null : raw
@@ -80,6 +152,50 @@ type HabitQuestGameProps = {
 function HabitQuestGame({ task, onComplete, isCompleting, steps, habitTitle }: HabitQuestGameProps) {
   const [completedSteps, setCompletedSteps] = useState<boolean[]>(() => steps.map(() => false))
   const allStepsComplete = completedSteps.every(Boolean)
+  const [wordRevealed, setWordRevealed] = useState(false)
+  const [verseRevealed, setVerseRevealed] = useState(false)
+  const [celebrationMessage, setCelebrationMessage] = useState<string | null>(null)
+  const dayOfYear = useMemo(() => getDayOfYear(), [])
+  const wordOfDay = useMemo(
+    () => DAILY_QURAN_WORDS[dayOfYear % DAILY_QURAN_WORDS.length],
+    [dayOfYear],
+  )
+  const verseOfDay = useMemo(
+    () => DAILY_VERSE_MEANINGS[dayOfYear % DAILY_VERSE_MEANINGS.length],
+    [dayOfYear],
+  )
+
+  const triggerCelebration = useCallback(async () => {
+    const confetti = (await import("canvas-confetti")).default
+    confetti({
+      particleCount: 120,
+      spread: 90,
+      origin: { y: 0.7 },
+      ticks: 180,
+    })
+    confetti({
+      particleCount: 80,
+      spread: 120,
+      origin: { y: 0.6 },
+      scalar: 0.9,
+      startVelocity: 45,
+      ticks: 200,
+    })
+  }, [])
+
+  const handleRevealWord = useCallback(async () => {
+    if (wordRevealed) return
+    setWordRevealed(true)
+    setCelebrationMessage("Maasha Allah! You unlocked today's Qur'an word.")
+    await triggerCelebration()
+  }, [triggerCelebration, wordRevealed])
+
+  const handleRevealVerse = useCallback(async () => {
+    if (verseRevealed) return
+    setVerseRevealed(true)
+    setCelebrationMessage("Maasha Allah! You uncovered today's ayah meaning.")
+    await triggerCelebration()
+  }, [triggerCelebration, verseRevealed])
 
   return (
     <Card className="border-maroon-100 shadow-lg">
@@ -114,12 +230,27 @@ function HabitQuestGame({ task, onComplete, isCompleting, steps, habitTitle }: H
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="rounded-lg border border-dashed border-maroon-200 bg-white p-4 space-y-3">
+          <div className="rounded-lg border border-dashed border-maroon-200 bg-white p-4 space-y-4">
             <h4 className="text-sm font-semibold text-maroon-800 flex items-center gap-2">
-              <NotebookPen className="h-4 w-4" /> Reflection journal
+              <BookOpen className="h-4 w-4" /> Qur&apos;an word of the day
             </h4>
-            <Textarea placeholder="What did you focus on today?" className="min-h-[120px]" />
-            <p className="text-xs text-gray-500">Your notes stay private to help you improve tomorrow&apos;s quest.</p>
+            <div className="rounded-md border border-maroon-100 bg-maroon-50/60 p-3">
+              <p className="text-xs uppercase text-maroon-600">Arabic</p>
+              <p className="text-2xl font-bold text-maroon-900">{wordOfDay.word}</p>
+              <p className="text-sm text-maroon-700 italic">{wordOfDay.transliteration}</p>
+            </div>
+            {wordRevealed ? (
+              <div className="space-y-2 text-sm text-maroon-800">
+                <p>
+                  <span className="font-semibold">Meaning:</span> {wordOfDay.meaning}
+                </p>
+                <p className="text-maroon-600">{wordOfDay.context}</p>
+              </div>
+            ) : (
+              <Button variant="outline" onClick={handleRevealWord} className="border-maroon-200 text-maroon-700">
+                Reveal meaning
+              </Button>
+            )}
           </div>
           <div className="rounded-lg border border-dashed border-maroon-200 bg-white p-4 space-y-4">
             <div>
@@ -134,6 +265,38 @@ function HabitQuestGame({ task, onComplete, isCompleting, steps, habitTitle }: H
             </div>
           </div>
         </div>
+
+        <div className="rounded-lg border border-dashed border-maroon-200 bg-white p-4 space-y-4">
+          <h4 className="text-sm font-semibold text-maroon-800 flex items-center gap-2">
+            <Sparkles className="h-4 w-4" /> Verse meaning spotlight
+          </h4>
+          <div className="rounded-md border border-maroon-100 bg-maroon-50/60 p-3">
+            <p className="text-xs uppercase text-maroon-600">{verseOfDay.reference}</p>
+            <p className="text-maroon-900 font-semibold">{verseOfDay.excerpt}</p>
+          </div>
+          {verseRevealed ? (
+            <div className="space-y-2 text-sm text-maroon-800">
+              <p>
+                <span className="font-semibold">Meaning:</span> {verseOfDay.translation}
+              </p>
+              <p className="text-maroon-600">{verseOfDay.insight}</p>
+            </div>
+          ) : (
+            <Button onClick={handleRevealVerse} className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0 w-fit">
+              Unlock today&apos;s meaning
+            </Button>
+          )}
+        </div>
+
+        {celebrationMessage && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 flex items-center gap-3">
+            <Sparkles className="h-5 w-5 text-emerald-500" />
+            <div>
+              <p className="font-semibold">{celebrationMessage}</p>
+              <p className="text-xs text-emerald-600">Let the meaning settle in your heart before moving on.</p>
+            </div>
+          </div>
+        )}
 
         <Button
           onClick={onComplete}
@@ -331,7 +494,7 @@ function createHabitSteps(task: GamificationTaskRecord, habitTitle: string): str
       "Warm up with three deep breaths while reciting basmala.",
       "Recite today&apos;s assigned ayahs aloud focusing on tajweed cues.",
       "Record a quick audio snippet and listen back for clarity.",
-      "Log a reflection about improvements for tomorrow.",
+      "Study today&apos;s Qur&apos;an word and verse meaning before logging completion.",
     ]
   }
   if (normalizedTitle.includes("memorization")) {
@@ -339,13 +502,13 @@ function createHabitSteps(task: GamificationTaskRecord, habitTitle: string): str
       "Review the last ayah from memory without looking.",
       "Listen to a reciter and shadow the articulation.",
       "Recite independently while tracking mistakes.",
-      "Update your memorization journal with challenges encountered.",
+      "Anchor the session by learning today&apos;s featured word and ayah meaning.",
     ]
   }
   return [
     "Review teacher instructions and set your intention.",
     "Complete the practical activity for this habit.",
-    "Reflect and note down one improvement for next time.",
+    "Learn today&apos;s highlighted word and ayah meaning to cement the lesson.",
   ]
 }
 
