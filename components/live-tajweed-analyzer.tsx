@@ -11,6 +11,8 @@ import { Loader2, Mic, Square, RotateCcw, AlertCircle, Sparkles } from "lucide-r
 import type { RecitationVerseRecord } from "@/lib/data/teacher-database"
 import { cn } from "@/lib/utils"
 import { useSpeechRecognition, type SpeechRecognitionResultPayload } from "@/hooks/useSpeechRecognition"
+import { useMicrophoneStream } from "@/hooks/useMicrophoneStream"
+import { encodePcmAsWav } from "@/lib/audio/pcm"
 
 interface LiveTajweedAnalyzerProps {
   surah: string
@@ -59,6 +61,7 @@ const ARABIC_TATWEEL = /\u0640/g
 const NON_ARABIC = /[^\u0621-\u064A\s]/g
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
   "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY to enable live tajweed analysis."
+const STREAM_CHUNK_TARGET_MS = 2500
 
 function normalizeArabic(input: string): string {
   return input
@@ -154,6 +157,8 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
   const [isFinalizing, setIsFinalizing] = useState(false)
   const [finalSummary, setFinalSummary] = useState<LiveSummary | null>(null)
   const [speechRecognitionError, setSpeechRecognitionError] = useState<string | null>(null)
+  const [captureMode, setCaptureMode] = useState<"microphone-stream" | "media-recorder" | null>(null)
+  const [inputVolume, setInputVolume] = useState(0)
 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -165,6 +170,16 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
   const recorderMimeTypeRef = useRef("audio/webm")
   const shouldFinalizeRef = useRef(false)
   const stopSpeechRecognitionRef = useRef<() => void>(() => {})
+  const flushPendingFramesRef = useRef<() => void>(() => {})
+  const stopStreamRef = useRef<() => void>(() => {})
+  const captureModeRef = useRef<"microphone-stream" | "media-recorder" | null>(null)
+  const aggregatorRef = useRef<{ buffers: Float32Array[]; totalSamples: number; sampleRate: number | null }>({
+    buffers: [],
+    totalSamples: 0,
+    sampleRate: null,
+  })
+  const sessionFramesRef = useRef<Float32Array[]>([])
+  const sessionSampleRateRef = useRef<number | null>(null)
 
   const expectedTokens = useMemo(() => buildTokens(verses), [verses])
   const expectedFullText = useMemo(() => verses.map((verse) => verse.arabic).join(" "), [verses])
@@ -187,18 +202,40 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     displayHistoryRef.current = []
     chunkQueueRef.current = []
     allChunksRef.current = []
+    aggregatorRef.current.buffers = []
+    aggregatorRef.current.totalSamples = 0
+    aggregatorRef.current.sampleRate = null
+    sessionFramesRef.current = []
+    sessionSampleRateRef.current = null
+    captureModeRef.current = null
     setTranscript("")
     setInterimTranscript("")
     setRecognizedTokens([])
     setFinalSummary(null)
     setHasActivated(false)
+    setCaptureMode(null)
+    setInputVolume(0)
   }, [versesFingerprint])
 
   const cleanupStream = useCallback(() => {
+    if (captureModeRef.current === "microphone-stream") {
+      flushPendingFramesRef.current?.()
+      stopStreamRef.current?.()
+      captureModeRef.current = null
+      setCaptureMode(null)
+      aggregatorRef.current.buffers = []
+      aggregatorRef.current.totalSamples = 0
+      aggregatorRef.current.sampleRate = null
+      sessionFramesRef.current = []
+      sessionSampleRateRef.current = null
+      setInputVolume(0)
+    }
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
     }
+
     stopSpeechRecognitionRef.current?.()
     setInterimTranscript("")
   }, [])
@@ -311,7 +348,12 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
 
     try {
       const chunkType = (nextChunk as Blob).type || recorderMimeTypeRef.current || "audio/webm"
-      const chunkFile = new File([nextChunk], `live-chunk-${Date.now()}.webm`, { type: chunkType })
+      const extension = chunkType.includes("wav")
+        ? "wav"
+        : chunkType.includes("ogg")
+          ? "ogg"
+          : "webm"
+      const chunkFile = new File([nextChunk], `live-chunk-${Date.now()}.${extension}`, { type: chunkType })
       const formData = new FormData()
       formData.append("audio", chunkFile)
       formData.append("mode", "live")
@@ -357,7 +399,95 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
         }, 150)
       }
     }
-  }, [updateTranscriptFromChunk])
+  }, [cleanupStream, updateTranscriptFromChunk])
+
+  const flushPendingFrames = useCallback(() => {
+    const aggregator = aggregatorRef.current
+    if (!aggregator.buffers.length || !aggregator.sampleRate) {
+      return
+    }
+
+    try {
+      const wavBlob = encodePcmAsWav(aggregator.buffers, aggregator.sampleRate)
+      chunkQueueRef.current.push(wavBlob)
+      if (chunkQueueRef.current.length > 6) {
+        chunkQueueRef.current.splice(0, chunkQueueRef.current.length - 6)
+      }
+      aggregator.buffers = []
+      aggregator.totalSamples = 0
+      aggregator.sampleRate = null
+      void processQueue()
+    } catch (caught) {
+      console.error("Failed to encode microphone frames", caught)
+    }
+  }, [processQueue])
+
+  useEffect(() => {
+    flushPendingFramesRef.current = flushPendingFrames
+  }, [flushPendingFrames])
+
+  const handleAudioFrame = useCallback(
+    (frame: Float32Array, metadata: { sampleRate: number }) => {
+      const aggregator = aggregatorRef.current
+      if (!aggregator.sampleRate) {
+        aggregator.sampleRate = metadata.sampleRate
+      }
+
+      if (!sessionSampleRateRef.current) {
+        sessionSampleRateRef.current = metadata.sampleRate
+      }
+
+      aggregator.buffers.push(frame)
+      aggregator.totalSamples += frame.length
+      sessionFramesRef.current.push(frame)
+
+      const durationMs = (aggregator.totalSamples / metadata.sampleRate) * 1000
+      if (durationMs >= STREAM_CHUNK_TARGET_MS) {
+        flushPendingFrames()
+      }
+    },
+    [flushPendingFrames],
+  )
+
+  const handleVolume = useCallback((value: number) => {
+    setInputVolume(value)
+  }, [])
+
+  const {
+    start: startStream,
+    stop: stopStream,
+    isSupported: isStreamSupported,
+    permission: streamPermission,
+    error: streamError,
+  } = useMicrophoneStream({
+    bufferSize: 1024,
+    onAudioFrame: handleAudioFrame,
+    onVolume: handleVolume,
+  })
+
+  useEffect(() => {
+    stopStreamRef.current = stopStream
+  }, [stopStream])
+
+  useEffect(() => {
+    if (captureMode === "microphone-stream" && streamError) {
+      setError(streamError)
+      setIsListening(false)
+    }
+  }, [captureMode, streamError])
+
+  useEffect(() => {
+    if (streamPermission === "denied") {
+      setError("Microphone permission denied. Please enable access to continue.")
+      setIsListening(false)
+    }
+  }, [streamPermission])
+
+  useEffect(() => {
+    if (isStreamSupported) {
+      setIsSupported(true)
+    }
+  }, [isStreamSupported])
   const finalizeAnalysis = useCallback(
     async (audioBlob: Blob) => {
       if (!expectedFullText) {
@@ -367,7 +497,12 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
       setIsFinalizing(true)
       try {
         const fileType = audioBlob.type || recorderMimeTypeRef.current || "audio/webm"
-        const file = new File([audioBlob], "live-session.webm", { type: fileType })
+        const extension = fileType.includes("wav")
+          ? "wav"
+          : fileType.includes("ogg")
+            ? "ogg"
+            : "webm"
+        const file = new File([audioBlob], `live-session.${extension}`, { type: fileType })
         const formData = new FormData()
         formData.append("audio", file)
         formData.append("expectedText", expectedFullText)
@@ -408,7 +543,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
       return
     }
 
-    if (!isSupported) {
+    if (!isSupported && !isStreamSupported) {
       setError("Your browser does not support live tajweed analysis. Please try a modern Chromium-based browser.")
       return
     }
@@ -418,7 +553,57 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
       return
     }
 
+    chunkQueueRef.current = []
+    allChunksRef.current = []
+    aggregatorRef.current.buffers = []
+    aggregatorRef.current.totalSamples = 0
+    aggregatorRef.current.sampleRate = null
+    sessionFramesRef.current = []
+    sessionSampleRateRef.current = null
+    recognitionHistoryRef.current = []
+    displayHistoryRef.current = []
+    captureModeRef.current = null
+    shouldFinalizeRef.current = false
+    setRecognizedTokens([])
+    setTranscript("")
+    setInterimTranscript("")
+    setFinalSummary(null)
+    setError(null)
+    setSpeechRecognitionError(null)
+    setHasActivated(true)
+    setIsProcessingChunk(false)
+    setInputVolume(0)
+    setCaptureMode(null)
+
+    if (isStreamSupported) {
+      try {
+        await startStream()
+        captureModeRef.current = "microphone-stream"
+        setCaptureMode("microphone-stream")
+        setIsListening(true)
+        if (isSpeechRecognitionSupported) {
+          setSpeechRecognitionError(null)
+          void startSpeechRecognition().catch((caught) => {
+            console.error("Speech recognition failed to start", caught)
+            setSpeechRecognitionError(
+              "Browser speech recognition could not start. Live feedback will rely on server transcription only.",
+            )
+          })
+        }
+        return
+      } catch (caught) {
+        console.warn("Low-latency microphone stream unavailable, falling back to MediaRecorder", caught)
+        setError(
+          "Low-latency microphone streaming isn't available. Falling back to the browser recorder.",
+        )
+      }
+    }
+
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Microphone is not supported in this browser")
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -434,15 +619,8 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
 
       recorderMimeTypeRef.current = recorder.mimeType || "audio/webm"
       recorderRef.current = recorder
-      chunkQueueRef.current = []
-      allChunksRef.current = []
-      recognitionHistoryRef.current = []
-      displayHistoryRef.current = []
-      setRecognizedTokens([])
-      setTranscript("")
-      setFinalSummary(null)
-      setError(null)
-      setHasActivated(true)
+      setCaptureMode("media-recorder")
+      captureModeRef.current = "media-recorder"
 
       recorder.onstart = () => {
         shouldFinalizeRef.current = false
@@ -462,8 +640,8 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
         if (event.data && event.data.size > 0) {
           chunkQueueRef.current.push(event.data)
           allChunksRef.current.push(event.data)
-          if (chunkQueueRef.current.length > 4) {
-            chunkQueueRef.current.splice(0, chunkQueueRef.current.length - 4)
+          if (chunkQueueRef.current.length > 6) {
+            chunkQueueRef.current.splice(0, chunkQueueRef.current.length - 6)
           }
           void processQueue()
         }
@@ -502,31 +680,59 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     finalizeAnalysis,
     isListening,
     isSpeechRecognitionSupported,
+    isStreamSupported,
     isSupported,
     processQueue,
     startSpeechRecognition,
+    startStream,
   ])
 
   const stopListening = useCallback(() => {
-    if (!recorderRef.current) {
+    shouldFinalizeRef.current = true
+
+    if (captureModeRef.current === "microphone-stream") {
+      flushPendingFramesRef.current?.()
+      stopStreamRef.current?.()
+      const frames = sessionFramesRef.current.slice()
+      const sampleRate = sessionSampleRateRef.current
+      setIsListening(false)
+      cleanupStream()
+      if (frames.length > 0 && sampleRate) {
+        try {
+          const finalBlob = encodePcmAsWav(frames, sampleRate)
+          void finalizeAnalysis(finalBlob)
+        } catch (caught) {
+          console.error("Failed to finalise microphone session", caught)
+        }
+      }
       return
     }
-    shouldFinalizeRef.current = true
+
+    const recorder = recorderRef.current
+    if (!recorder) {
+      return
+    }
+
     try {
-      if (recorderRef.current.state !== "inactive") {
-        recorderRef.current.stop()
+      if (recorder.state !== "inactive") {
+        recorder.stop()
       }
     } catch (caught) {
       console.error("Unable to stop live recorder", caught)
       cleanupStream()
     }
-  }, [cleanupStream])
+  }, [cleanupStream, finalizeAnalysis])
 
   const resetAnalysis = () => {
     recognitionHistoryRef.current = []
     displayHistoryRef.current = []
     chunkQueueRef.current = []
     allChunksRef.current = []
+    aggregatorRef.current.buffers = []
+    aggregatorRef.current.totalSamples = 0
+    aggregatorRef.current.sampleRate = null
+    sessionFramesRef.current = []
+    sessionSampleRateRef.current = null
     setRecognizedTokens([])
     setTranscript("")
     setInterimTranscript("")
@@ -535,6 +741,9 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     setSpeechRecognitionError(null)
     if (!isListening) {
       setHasActivated(false)
+      captureModeRef.current = null
+      setCaptureMode(null)
+      setInputVolume(0)
     }
   }
 
@@ -628,6 +837,15 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
       ? "bg-maroon-600 text-white"
       : "bg-maroon-100 text-maroon-700"
 
+  const captureModeLabel =
+    captureMode === "microphone-stream"
+      ? "Low-latency stream"
+      : captureMode === "media-recorder"
+        ? "Recorder capture"
+        : null
+
+  const inputLevel = Math.min(100, Math.round(inputVolume * 140))
+
   const statusStyles: Record<TokenStatus, string> = {
     correct: "bg-emerald-100 text-emerald-800 border border-emerald-200",
     needs_attention: "bg-amber-100 text-amber-800 border border-amber-200",
@@ -695,6 +913,25 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                 </Button>
               </div>
             </div>
+
+            {isListening && (
+              <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
+                {captureModeLabel && (
+                  <Badge variant="outline" className="border-maroon-200 text-maroon-700">
+                    {captureModeLabel}
+                  </Badge>
+                )}
+                <div className="flex items-center gap-2">
+                  <span>Mic level</span>
+                  <div className="h-2 w-28 overflow-hidden rounded-full bg-gray-200">
+                    <div
+                      className="h-2 bg-emerald-500 transition-[width] duration-200 ease-out"
+                      style={{ width: `${inputLevel}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {error && (
               <Alert className="border-amber-200 bg-amber-50/80 text-amber-800">
