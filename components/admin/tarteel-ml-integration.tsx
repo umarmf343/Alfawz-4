@@ -21,6 +21,8 @@ import {
   BookOpen,
   Box,
   CheckCircle2,
+  Cpu,
+  Gauge,
   GitCommit,
   Link2,
   Package,
@@ -33,6 +35,11 @@ import {
 const statusStyles: Record<string, string> = {
   available: "bg-emerald-50 text-emerald-700 border border-emerald-200",
   missing: "bg-red-50 text-red-700 border border-red-200",
+}
+
+const detectionStatusStyles: Record<"production" | "beta", string> = {
+  production: "bg-emerald-100 text-emerald-800 border border-emerald-200",
+  beta: "bg-amber-100 text-amber-800 border border-amber-200",
 }
 
 type FetchState =
@@ -248,7 +255,7 @@ export function TarteelMlIntegrationPanel() {
     )
   }
 
-  const { repository, scripts, requirements, quickstart } = state.data
+  const { repository, scripts, requirements, quickstart, inferenceProfile, mistakeDetection } = state.data
   const scriptGrid = scripts.map((script) => buildScriptStatus(script))
 
   return (
@@ -380,6 +387,82 @@ export function TarteelMlIntegrationPanel() {
             </div>
           </CardContent>
         </Card>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card className="border border-emerald-200 bg-emerald-50/70">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base text-emerald-900">
+                <Cpu className="h-4 w-4" /> Real-time inference profile
+              </CardTitle>
+              <CardDescription>{inferenceProfile.description}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge className="flex items-center gap-1 bg-white text-emerald-700 shadow-sm">
+                  <Gauge className="h-3.5 w-3.5" /> {inferenceProfile.latencyMs} ms p95
+                </Badge>
+                <Badge variant="outline" className="border-emerald-300 text-xs text-emerald-800">
+                  Powered by {inferenceProfile.poweredBy}
+                </Badge>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Stack</p>
+                <div className="flex flex-wrap gap-2">
+                  {inferenceProfile.stack.map((layer) => (
+                    <Badge key={layer} variant="secondary" className="bg-white/80 text-emerald-800">
+                      {layer}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">Telemetry</p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {inferenceProfile.telemetry.map((metric) => (
+                    <div
+                      key={metric.label}
+                      className="rounded-lg border border-emerald-200 bg-white/80 p-3 text-center shadow-sm"
+                    >
+                      <p className="text-xs font-semibold uppercase text-emerald-800">{metric.label}</p>
+                      <p className="mt-1 text-lg font-bold text-emerald-700">{metric.value}</p>
+                      <p className="text-[11px] text-emerald-800/80">{metric.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border border-primary/30 bg-primary/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base text-primary">
+                <Box className="h-4 w-4" /> Mistake detection coverage
+              </CardTitle>
+              <CardDescription>{mistakeDetection.overview}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {mistakeDetection.categories.map((category) => (
+                <div
+                  key={category.id}
+                  className="rounded-lg border border-primary/20 bg-background/80 p-3 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-maroon-900">{category.label}</p>
+                    <Badge className={cn("text-xs", detectionStatusStyles[category.status])}>
+                      {category.status === "production" ? "Production" : "Beta"}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{category.description}</p>
+                  <ul className="mt-2 list-inside list-disc space-y-1 text-xs text-muted-foreground">
+                    {category.highlights.map((highlight) => (
+                      <li key={highlight}>{highlight}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <Button asChild variant="secondary" size="sm">

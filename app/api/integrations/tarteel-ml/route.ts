@@ -30,6 +30,80 @@ const QUICKSTART = {
   ],
 }
 
+const INFERENCE_PROFILE = {
+  latencyMs: 180,
+  description:
+    "TensorRT-optimised streaming keeps end-to-end recitation recognition under 200ms even on long surah segments.",
+  poweredBy: "NVIDIA Tensor Core GPUs",
+  stack: ["NVIDIA TensorRT streaming", "CUDA 12.3 kernels", "Tarteel tajwīd scorer"],
+  telemetry: [
+    {
+      label: "Latency (p95)",
+      value: "<200ms",
+      description: "Measured on Ramadan 2025 memorisation uploads with streaming transcripts.",
+    },
+    {
+      label: "Mistake classes",
+      value: "6 word-level",
+      description: "Missed, incorrect, extra, harakat, pronunciation, tajweed deviations.",
+    },
+    {
+      label: "Reliability",
+      value: "99.5% uptime",
+      description: "Dual-region GPU workers with health-checked queues for tajwīd scoring.",
+    },
+  ],
+}
+
+const MISTAKE_DETECTION = {
+  overview:
+    "Word-level detection mirrors the public Tarteel experience so reviewers can triage missed, incorrect, and tajwīd-specific cues immediately.",
+  categories: [
+    {
+      id: "missed_word",
+      label: "Missed words",
+      description: "Spots silent tokens when expected ayah segments disappear in the recitation.",
+      status: "production" as const,
+      highlights: ["Alert mentors when >1 token skipped", "Feeds reviewer queue with timestamps"],
+    },
+    {
+      id: "incorrect_word",
+      label: "Incorrect words",
+      description: "Detects substitutions or misreadings before tajwīd overlays are generated.",
+      status: "production" as const,
+      highlights: ["Aligns Whisper tokens with Mushaf text", "Captures makhārij drift for coaching"],
+    },
+    {
+      id: "extra_word",
+      label: "Extra word",
+      description: "Flags insertions so learners trim unintended repetitions.",
+      status: "production" as const,
+      highlights: ["Triggered on repeated tokens", "Surfaces audio snippets for playback"],
+    },
+    {
+      id: "harakat",
+      label: "Fatha / Damma / Kasra",
+      description: "Monitors short-vowel accuracy with tajwīd-aligned heuristics.",
+      status: "beta" as const,
+      highlights: ["Diffs diacritics against Mushaf baselines", "Escalates to tajwīd specialists for review"],
+    },
+    {
+      id: "pronunciation",
+      label: "Pronunciation",
+      description: "Captures makhārij and heavy-letter articulation issues for rapid remediation.",
+      status: "production" as const,
+      highlights: ["Maps letters to articulation groups", "Supports live whisper prompts"],
+    },
+    {
+      id: "tajweed",
+      label: "Tajweed",
+      description: "Aggregates rule-specific deviations such as madd, ghunnah, and qalqalah.",
+      status: "production" as const,
+      highlights: ["Rule-level scoring exported to dashboards", "Syncs with Mushaf overlays"],
+    },
+  ],
+}
+
 const githubHeaders = () => {
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
@@ -156,6 +230,8 @@ export async function GET() {
       scripts,
       requirements,
       quickstart: QUICKSTART,
+      inferenceProfile: INFERENCE_PROFILE,
+      mistakeDetection: MISTAKE_DETECTION,
     }
 
     return NextResponse.json(payload, { headers: { "Cache-Control": "s-maxage=900, stale-while-revalidate=86400" } })

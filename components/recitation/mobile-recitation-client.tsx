@@ -5,7 +5,7 @@ import { useMemo } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import type { LiveMistake } from "@/lib/tajweed-analysis"
+import { MISTAKE_CATEGORY_META, type LiveMistake } from "@/lib/tajweed-analysis"
 import type { MushafOverlayMode } from "@/lib/mushaf-fonts"
 import { cn } from "@/lib/utils"
 import { Activity, Mic, MicOff, Sparkles } from "lucide-react"
@@ -45,6 +45,7 @@ export function MobileRecitationClient({
   const volumeScale = 1 + normalizedVolume * 0.35
   const latestMistake = mistakes[0]
   const statusTone = isRecording ? "bg-emerald-600" : "bg-muted"
+  const latestCategories = latestMistake?.categories ?? []
 
   const overlaySummary = useMemo(() => {
     if (overlayMode === "none") {
@@ -133,6 +134,18 @@ export function MobileRecitationClient({
                   ? latestMistake.tajweedRules.join(", ")
                   : "We detected a pronunciation issue. Review and try again."}
               </p>
+              {latestCategories.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {latestCategories.map((category) => (
+                    <span
+                      key={category}
+                      className="rounded-full bg-white/60 px-2 py-1 text-[10px] font-semibold uppercase text-amber-800"
+                    >
+                      {MISTAKE_CATEGORY_META[category]?.label ?? category}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
