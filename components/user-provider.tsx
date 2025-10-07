@@ -27,6 +27,9 @@ import {
   type SubscriptionPlan,
   type RecitationSubmissionInput,
   type MemorizationReviewInput,
+  recordDailySurahCompletion as persistDailySurahCompletion,
+  type DailySurahCompletionInput,
+  type DailySurahCompletionResult,
 } from "@/lib/data/teacher-database"
 import { getActiveSession } from "@/lib/data/auth"
 
@@ -59,6 +62,7 @@ interface UserContextValue {
   submitRecitationResult: (submission: RecitationSubmissionInput) => void
   completeRecitationAssignment: (taskId: string) => void
   reviewMemorizationTask: (review: MemorizationReviewInput) => void
+  completeDailySurahRecitation: (completion: DailySurahCompletionInput) => DailySurahCompletionResult
 }
 
 const perksByPlan: Record<SubscriptionPlan, string[]> = {
@@ -145,6 +149,7 @@ function createFallbackDashboardRecord(studentId: string): StudentDashboardRecor
       boosts: [],
       leaderboard: { rank: 0, nextReward: 0, classRank: 0 },
     },
+    dailySurahLog: [],
   }
 }
 
@@ -338,6 +343,17 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     [applyLearnerState, studentId],
   )
 
+  const completeDailySurahRecitation = useCallback(
+    (completion: DailySurahCompletionInput) => {
+      const response = persistDailySurahCompletion(studentId, completion)
+      if (response.state) {
+        applyLearnerState(response.state)
+      }
+      return response.result
+    },
+    [applyLearnerState, studentId],
+  )
+
   const completeRecitationAssignment = useCallback(
     (taskId: string) => {
       const task = dashboard?.recitationTasks.find((entry) => entry.id === taskId)
@@ -434,6 +450,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       submitRecitationResult,
       completeRecitationAssignment,
       reviewMemorizationTask,
+      completeDailySurahRecitation,
       upgradeToPremium,
       downgradeToFree,
     }),
@@ -459,6 +476,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       submitRecitationResult,
       completeRecitationAssignment,
       reviewMemorizationTask,
+      completeDailySurahRecitation,
       upgradeToPremium,
       downgradeToFree,
     ],

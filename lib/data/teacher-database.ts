@@ -70,6 +70,16 @@ export interface ActivityEntry {
   timestamp: string
 }
 
+export interface DailySurahLogEntry {
+  id: string
+  slug: string
+  surahNumber: number
+  title: string
+  encouragement: string
+  hasanatAwarded: number
+  completedAt: string
+}
+
 export interface GoalRecord {
   id: string
   title: string
@@ -314,6 +324,7 @@ export interface StudentDashboardRecord {
   memorizationSummary: MemorizationSummaryRecord
   tajweedFocus: TajweedFocusRecord[]
   gamePanel: GamificationPanelRecord
+  dailySurahLog: DailySurahLogEntry[]
 }
 
 export type TajweedFocusStatus = "needs_support" | "improving" | "mastered"
@@ -421,6 +432,27 @@ export interface CompleteHabitResult {
 
 export interface HabitCompletionResponse {
   result: CompleteHabitResult
+  state?: LearnerState
+}
+
+export interface DailySurahCompletionInput {
+  slug: string
+  surahNumber: number
+  title: string
+  encouragement: string
+  hasanatAwarded: number
+  ayahsRead?: number
+  studyMinutes?: number
+}
+
+export interface DailySurahCompletionResult {
+  success: boolean
+  hasanatAwarded: number
+  alreadyCompleted: boolean
+}
+
+export interface DailySurahCompletionResponse {
+  result: DailySurahCompletionResult
   state?: LearnerState
 }
 
@@ -609,6 +641,7 @@ function createEmptyDashboardRecord(
         classRank: 0,
       },
     },
+    dailySurahLog: [],
   }
 }
 
@@ -1388,6 +1421,7 @@ database.learners["user_001"] = {
         },
       ],
     },
+    dailySurahLog: [],
   },
   meta: {
     lastHabitActivityDate: yesterdayKey,
@@ -2051,6 +2085,68 @@ export function resetDailyProgress(studentId: string): LearnerState | undefined 
     }
   }
   return cloneLearnerState(record)
+}
+
+export function recordDailySurahCompletion(
+  studentId: string,
+  completion: DailySurahCompletionInput,
+): DailySurahCompletionResponse {
+  const record = getLearnerRecord(studentId)
+  if (!record) {
+    return { result: { success: false, hasanatAwarded: 0, alreadyCompleted: false } }
+  }
+
+  const nowDate = new Date()
+  const todayKey = iso(nowDate).slice(0, 10)
+  const alreadyLogged = record.dashboard.dailySurahLog.find(
+    (entry) => entry.slug === completion.slug && entry.completedAt.slice(0, 10) === todayKey,
+  )
+
+  if (alreadyLogged) {
+    return {
+      state: cloneLearnerState(record),
+      result: { success: true, hasanatAwarded: 0, alreadyCompleted: true },
+    }
+  }
+
+  record.stats.hasanat += completion.hasanatAwarded
+  if (completion.ayahsRead) {
+    record.stats.ayahsRead += completion.ayahsRead
+  }
+  if (completion.studyMinutes) {
+    record.stats.studyMinutes += completion.studyMinutes
+  }
+
+  const logEntry: DailySurahLogEntry = {
+    id: `daily_surah_${nowDate.getTime()}`,
+    slug: completion.slug,
+    surahNumber: completion.surahNumber,
+    title: completion.title,
+    encouragement: completion.encouragement,
+    hasanatAwarded: completion.hasanatAwarded,
+    completedAt: iso(nowDate),
+  }
+
+  record.dashboard.dailySurahLog.unshift(logEntry)
+  if (record.dashboard.dailySurahLog.length > 30) {
+    record.dashboard.dailySurahLog.length = 30
+  }
+
+  record.dashboard.activities.unshift({
+    id: `activity_${nowDate.getTime()}_daily_surah`,
+    type: "reading",
+    surah: completion.title,
+    ayahs: completion.ayahsRead,
+    timestamp: iso(nowDate),
+  })
+  if (record.dashboard.activities.length > MAX_ACTIVITY_ENTRIES) {
+    record.dashboard.activities = record.dashboard.activities.slice(0, MAX_ACTIVITY_ENTRIES)
+  }
+
+  return {
+    state: cloneLearnerState(record),
+    result: { success: true, hasanatAwarded: completion.hasanatAwarded, alreadyCompleted: false },
+  }
 }
 
 export function setPreferredHabit(studentId: string, habitId: string): LearnerState | undefined {
