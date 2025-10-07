@@ -487,10 +487,10 @@ export function useLiveRecitation(
     onVolume: handleVolume,
   })
 
-  const stopRecordingInternal = useCallback(() => {
+  const stopRecordingInternal = useCallback(async () => {
     if (captureModeRef.current === "microphone-stream") {
       flushPendingFrames()
-      stopStream()
+      await stopStream()
       captureModeRef.current = null
       setCaptureMode(null)
       setStatus((prev) => (prev === "error" ? prev : "idle"))
@@ -612,8 +612,8 @@ export function useLiveRecitation(
     }
   }, [chunkDurationMs, enqueueChunk, isStreamActive, isStreamSupported, startStream])
 
-  const stop = useCallback(() => {
-    stopRecordingInternal()
+  const stop = useCallback(async () => {
+    await stopRecordingInternal()
   }, [stopRecordingInternal])
 
   const reset = useCallback(() => {
@@ -635,7 +635,7 @@ export function useLiveRecitation(
     mountedRef.current = true
     return () => {
       mountedRef.current = false
-      stopRecordingInternal()
+      void stopRecordingInternal()
     }
   }, [stopRecordingInternal])
 
