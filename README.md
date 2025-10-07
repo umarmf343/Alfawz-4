@@ -48,7 +48,7 @@ hooks/
    ```bash
    npm run rundev
    ```
-   Visit `http://localhost:3000` to explore the dashboards and Habit Quest Arena.
+   Visit `http://localhost:3001` to explore the dashboards and Habit Quest Arena.
 3. **Run lint checks**
    ```bash
    npm run lint
