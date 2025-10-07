@@ -26,6 +26,7 @@ export function GET(_request: Request, { params }: RouteContext) {
       progress: planContext.progress,
       classes: planContext.classes.map(({ studentIds: _studentIds, ...rest }) => ({ ...rest })),
       teacher: planContext.teacher ? { ...planContext.teacher } : undefined,
+      isActive: planContext.isActive,
     },
   }
 

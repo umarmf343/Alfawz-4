@@ -2,7 +2,6 @@ import { NextResponse } from "next/server"
 import { getActiveSession } from "@/lib/data/auth"
 import {
   createPersonalMemorizationPlan,
-  getStudentActiveMemorizationPlanId,
   listStudentMemorizationPlans,
   setStudentActiveMemorizationPlan,
 } from "@/lib/data/teacher-database"
@@ -16,7 +15,9 @@ export function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 
-  const plans = listStudentMemorizationPlans(session.userId).map((context) => ({
+  const planContexts = listStudentMemorizationPlans(session.userId)
+  const activePlanId = planContexts.find((context) => context.isActive)?.plan.id
+  const plans = planContexts.map((context) => ({
     plan: context.plan,
     progress: context.progress,
     classes: context.classes.map(({ studentIds, ...rest }) => {
@@ -24,9 +25,8 @@ export function GET() {
       return { ...rest }
     }),
     teacher: context.teacher ? { ...context.teacher } : undefined,
+    isActive: context.isActive,
   }))
-
-  const activePlanId = getStudentActiveMemorizationPlanId(session.userId)
 
   return NextResponse.json({ plans, activePlanId })
 }
@@ -69,6 +69,7 @@ export async function POST(request: Request) {
           return { ...rest }
         }),
         teacher: planContext.teacher ? { ...planContext.teacher } : undefined,
+        isActive: planContext.isActive,
       },
     })
   } catch (error) {
@@ -103,6 +104,7 @@ export async function PATCH(request: Request) {
           return { ...rest }
         }),
         teacher: planContext.teacher ? { ...planContext.teacher } : undefined,
+        isActive: planContext.isActive,
       },
     })
   } catch (error) {

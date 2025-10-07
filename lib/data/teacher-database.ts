@@ -606,6 +606,7 @@ export interface StudentMemorizationPlanContext {
   progress: StudentMemorizationProgressRecord
   classes: ClassRecord[]
   teacher?: TeacherProfile
+  isActive: boolean
 }
 
 interface LearnerRecord {
@@ -2446,6 +2447,7 @@ export function createPersonalMemorizationPlan(
     progress: cloneProgressRecord(progress),
     classes: [cloneTeacherClassSummary(classRecord)],
     teacher: undefined,
+    isActive: true,
   }
 }
 
@@ -2862,6 +2864,8 @@ export function listStudentMemorizationPlans(
   studentId: string,
 ): StudentMemorizationPlanContext[] {
   ensureProgressRecordsForStudent(studentId)
+  const learner = getLearnerRecord(studentId)
+  const activePlanId = learner?.meta.activeMemorizationPlanId
   const accessiblePlans = database.memorizationPlans.filter((plan) =>
     studentHasAccessToPlan(studentId, plan),
   )
@@ -2883,6 +2887,7 @@ export function listStudentMemorizationPlans(
       progress: cloneProgressRecord(progress),
       classes,
       teacher: teacher ? { ...teacher } : undefined,
+      isActive: plan.id === activePlanId,
     }
   })
 }
@@ -2923,6 +2928,8 @@ export function getStudentMemorizationPlanContext(
   }
 
   const progress = ensureProgressRecordForPlan(studentId, plan)
+  const learner = getLearnerRecord(studentId)
+  const activePlanId = learner?.meta.activeMemorizationPlanId
   const classes = plan.classIds
     .map((classId) => getClassRecord(classId))
     .filter((classRecord): classRecord is ClassRecord => Boolean(classRecord))
@@ -2938,6 +2945,7 @@ export function getStudentMemorizationPlanContext(
     progress: cloneProgressRecord(progress),
     classes,
     teacher: teacher ? { ...teacher } : undefined,
+    isActive: plan.id === activePlanId,
   }
 }
 
