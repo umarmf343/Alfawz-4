@@ -5,8 +5,9 @@ import type React from "react"
 import { cn } from "@/lib/utils"
 import { forwardRef } from "react"
 
-interface ArabicTextProps extends React.HTMLAttributes<HTMLDivElement> {
-  variant?: "quran" | "modern" | "traditional"
+interface ArabicTextProps extends React.HTMLAttributes<HTMLElement> {
+  as?: "div" | "p" | "span"
+  variant?: "quran" | "modern" | "traditional" | "mushaf"
   size?: "sm" | "base" | "lg" | "xl" | "2xl" | "3xl" | "responsive"
   diacritics?: boolean
   animate?: boolean
@@ -14,9 +15,10 @@ interface ArabicTextProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode
 }
 
-const ArabicText = forwardRef<HTMLDivElement, ArabicTextProps>(
+const ArabicText = forwardRef<HTMLElement, ArabicTextProps>(
   (
     {
+      as = "div",
       className,
       variant = "traditional",
       size = "base",
@@ -34,6 +36,7 @@ const ArabicText = forwardRef<HTMLDivElement, ArabicTextProps>(
       quran: "font-quran",
       modern: "font-arabic-modern",
       traditional: "font-arabic",
+      mushaf: "font-mushaf",
     }
 
     const sizeClasses = {
@@ -50,8 +53,10 @@ const ArabicText = forwardRef<HTMLDivElement, ArabicTextProps>(
     const animateClass = animate ? "arabic-fade-in" : ""
     const highlightClass = highlight ? "arabic-highlight" : ""
 
+    const Component = as
+
     return (
-      <div
+      <Component
         ref={ref}
         className={cn(
           baseClasses,
@@ -65,7 +70,7 @@ const ArabicText = forwardRef<HTMLDivElement, ArabicTextProps>(
         {...props}
       >
         {children}
-      </div>
+      </Component>
     )
   },
 )
