@@ -1,3 +1,4 @@
+import OpenAI from "openai"
 import { NextResponse } from "next/server"
 import { createLiveSessionSummary } from "@/lib/tajweed-analysis"
 
@@ -5,6 +6,20 @@ const DEFAULT_MODEL = process.env.WHISPER_MODEL ?? "whisper-1"
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 
 export const dynamic = "force-dynamic"
+export const runtime = "nodejs"
+
+const determineFileName = (file: File) => {
+  if (file.name && file.name !== "blob") {
+    return file.name
+  }
+
+  const extensionFromType = file.type?.split("/")[1]
+  if (extensionFromType) {
+    return `chunk.${extensionFromType}`
+  }
+
+  return "chunk.wav"
+}
 
 export async function POST(request: Request) {
   try {
@@ -45,33 +60,24 @@ export async function POST(request: Request) {
       )
     }
 
-    const openAIForm = new FormData()
-    openAIForm.append("model", DEFAULT_MODEL)
-    openAIForm.append("language", "ar")
-    openAIForm.append("temperature", "0")
-    openAIForm.append("response_format", "json")
-    openAIForm.append("file", audioFile, audioFile.name || "chunk.wav")
-
-    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: openAIForm,
+    const client = new OpenAI({
+      apiKey,
+      baseURL: process.env.OPENAI_BASE_URL ?? undefined,
     })
 
-    if (!response.ok) {
-      const errorPayload = await response.text()
-      return NextResponse.json(
-        {
-          error: "Whisper API call failed",
-          details: errorPayload,
-        },
-        { status: 502 },
-      )
-    }
+    const audioBuffer = await audioFile.arrayBuffer()
+    const normalizedFile = new File([new Uint8Array(audioBuffer)], determineFileName(audioFile), {
+      type: audioFile.type || "audio/wav",
+    })
 
-    const payload = (await response.json()) as { text?: string; segments?: Array<{ text: string }> }
+    const payload = await client.audio.transcriptions.create({
+      file: normalizedFile,
+      model: DEFAULT_MODEL,
+      language: "ar",
+      temperature: 0,
+      response_format: "json",
+    })
+
     const text =
       payload.text ??
       payload.segments?.map((segment) => segment.text).join(" ") ??
@@ -95,9 +101,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ transcription })
   } catch (error) {
     console.error("/api/transcribe error", error)
+
+    const status = error instanceof OpenAI.APIError ? error.status ?? 500 : 500
+    if (error instanceof OpenAI.APIError) {
+      return NextResponse.json(
+        {
+          error: "Whisper API call failed",
+          details: error.error,
+        },
+        { status },
+      )
+    }
+
     return NextResponse.json(
       { error: "Failed to transcribe audio" },
-      { status: 500 },
+      { status },
     )
   }
 }
