@@ -1197,14 +1197,14 @@ export default function DashboardPage() {
 
                 <div className="flex flex-wrap justify-end gap-3">
                   <Button variant="outline" asChild>
-                    <Link href="/memorization">Open Memorization Center</Link>
+                    <Link href="/student/memorization">Open Memorization Panel</Link>
                   </Button>
                   {nextMemorizationTask && (
                     <Button
                       className="bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
                       asChild
                     >
-                      <Link href={`/memorization?focus=${nextMemorizationTask.id}`}>Start Focus Session</Link>
+                      <Link href={`/student/memorization?focus=${nextMemorizationTask.id}`}>Start Focus Session</Link>
                     </Button>
                   )}
                 </div>

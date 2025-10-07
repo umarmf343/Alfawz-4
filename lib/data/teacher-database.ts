@@ -345,6 +345,60 @@ interface LearnerMeta {
   completedGameTasks: CompletedGameTaskLog[]
 }
 
+export interface ClassRecord {
+  id: string
+  name: string
+  description?: string
+  teacherId: string
+  schedule?: string
+  studentIds: string[]
+}
+
+export interface MemorizationPlanRecord {
+  id: string
+  title: string
+  verseKeys: string[]
+  teacherId: string
+  classIds: string[]
+  createdAt: string
+  notes?: string
+}
+
+export interface MemorizationHistoryEntry {
+  verseKey: string
+  repetitions: number
+  completedAt: string
+}
+
+export interface StudentMemorizationProgressRecord {
+  studentId: string
+  planId: string
+  currentVerseIndex: number
+  repetitionsDone: number
+  totalRepetitions: number
+  startedAt: string
+  updatedAt: string
+  lastRepetitionAt: string | null
+  completedAt: string | null
+  history: MemorizationHistoryEntry[]
+}
+
+export interface MemorizationCompletionLogEntry {
+  id: string
+  planId: string
+  studentId: string
+  completedAt: string
+  verseCount: number
+  totalRepetitions: number
+}
+
+export interface StudentMemorizationPlanContext {
+  plan: MemorizationPlanRecord
+  progress: StudentMemorizationProgressRecord
+  classes: ClassRecord[]
+  teacher?: TeacherProfile
+}
+
 interface LearnerRecord {
   profile: LearnerProfile
   stats: LearnerStats
@@ -373,6 +427,10 @@ export interface HabitCompletionResponse {
 interface TeacherDatabaseSchema {
   teachers: TeacherProfile[]
   learners: Record<string, LearnerRecord>
+  classes: ClassRecord[]
+  memorizationPlans: MemorizationPlanRecord[]
+  studentMemorizationProgress: StudentMemorizationProgressRecord[]
+  memorizationCompletions: MemorizationCompletionLogEntry[]
 }
 
 const now = new Date()
@@ -388,6 +446,8 @@ const MAX_TEACHER_NOTES = 20
 const GAME_BASE_LEVEL_STEP = 320
 const GAME_LEVEL_MULTIPLIER = 1.15
 const MAX_GAMIFICATION_LOG = 100
+const MEMORIZATION_REPETITION_TARGET = 20
+const MAX_MEMORIZATION_COMPLETIONS = 100
 
 const database: TeacherDatabaseSchema = {
   teachers: [
@@ -407,6 +467,50 @@ const database: TeacherDatabaseSchema = {
     },
   ],
   learners: {},
+  classes: [
+    {
+      id: "class_beginner_a",
+      name: "Beginner Class A",
+      description: "Foundations of Juz' Amma memorization",
+      teacherId: "teacher_001",
+      schedule: "Sundays & Wednesdays",
+      studentIds: ["user_001"],
+    },
+    {
+      id: "class_evening_memorization",
+      name: "Evening Memorization Circle",
+      description: "Community review and hifz support",
+      teacherId: "teacher_002",
+      schedule: "Weeknight gatherings",
+      studentIds: [],
+    },
+  ],
+  memorizationPlans: [
+    {
+      id: "plan_ikhlas_kursi",
+      title: "Surah Al-Ikhlas & Ayat al-Kursi",
+      verseKeys: ["112:1", "112:2", "112:3", "112:4", "2:255"],
+      teacherId: "teacher_001",
+      classIds: ["class_beginner_a"],
+      createdAt: "2024-02-20T07:30:00Z",
+      notes: "Center the heart on tawhid before entering the Throne verse.",
+    },
+  ],
+  studentMemorizationProgress: [
+    {
+      studentId: "user_001",
+      planId: "plan_ikhlas_kursi",
+      currentVerseIndex: 0,
+      repetitionsDone: 0,
+      totalRepetitions: 0,
+      startedAt: "2024-02-20T07:35:00Z",
+      updatedAt: "2024-02-20T07:35:00Z",
+      lastRepetitionAt: null,
+      completedAt: null,
+      history: [],
+    },
+  ],
+  memorizationCompletions: [],
 }
 
 const rolePrefixes: Record<UserRole, string> = {
@@ -586,6 +690,14 @@ export function createLearnerAccount(input: CreateLearnerInput): LearnerState {
   }
 
   database.learners[learnerId] = record
+
+  if (role === "student") {
+    const defaultClass = database.classes[0]
+    if (defaultClass && !defaultClass.studentIds.includes(learnerId)) {
+      defaultClass.studentIds.push(learnerId)
+    }
+    ensureProgressRecordsForStudent(learnerId)
+  }
 
   return cloneLearnerState(record)
 }
@@ -1292,6 +1404,8 @@ database.learners["user_001"] = {
   },
 }
 
+ensureProgressRecordsForStudent("user_001")
+
 function cloneLearnerState(record: LearnerRecord): LearnerState {
   return {
     profile: { ...record.profile },
@@ -1320,6 +1434,108 @@ function applyLevelProgression(stats: LearnerStats, xpGain: number) {
     xpToNext += LEVEL_XP_STEP
   }
   stats.xpToNext = xpToNext
+}
+
+function cloneProgressRecord(
+  record: StudentMemorizationProgressRecord,
+): StudentMemorizationProgressRecord {
+  return JSON.parse(JSON.stringify(record)) as StudentMemorizationProgressRecord
+}
+
+function getClassIdsForStudent(studentId: string): string[] {
+  return database.classes
+    .filter((classRecord) => classRecord.studentIds.includes(studentId))
+    .map((classRecord) => classRecord.id)
+}
+
+function getClassRecord(classId: string): ClassRecord | undefined {
+  return database.classes.find((classRecord) => classRecord.id === classId)
+}
+
+function findMemorizationPlan(planId: string): MemorizationPlanRecord | undefined {
+  return database.memorizationPlans.find((plan) => plan.id === planId)
+}
+
+function findProgressRecord(
+  studentId: string,
+  planId: string,
+): StudentMemorizationProgressRecord | undefined {
+  return database.studentMemorizationProgress.find(
+    (record) => record.studentId === studentId && record.planId === planId,
+  )
+}
+
+function studentHasAccessToPlan(studentId: string, plan: MemorizationPlanRecord): boolean {
+  const studentClassIds = new Set(getClassIdsForStudent(studentId))
+  return plan.classIds.some((classId) => studentClassIds.has(classId))
+}
+
+function ensureProgressRecordForPlan(
+  studentId: string,
+  plan: MemorizationPlanRecord,
+): StudentMemorizationProgressRecord {
+  const existing = findProgressRecord(studentId, plan.id)
+  if (existing) {
+    return existing
+  }
+
+  const nowIso = iso(new Date())
+  const record: StudentMemorizationProgressRecord = {
+    studentId,
+    planId: plan.id,
+    currentVerseIndex: 0,
+    repetitionsDone: 0,
+    totalRepetitions: 0,
+    startedAt: nowIso,
+    updatedAt: nowIso,
+    lastRepetitionAt: null,
+    completedAt: null,
+    history: [],
+  }
+
+  database.studentMemorizationProgress.push(record)
+  return record
+}
+
+function ensureProgressRecordsForStudent(studentId: string) {
+  const classIds = new Set(getClassIdsForStudent(studentId))
+  database.memorizationPlans.forEach((plan) => {
+    if (plan.classIds.some((classId) => classIds.has(classId))) {
+      ensureProgressRecordForPlan(studentId, plan)
+    }
+  })
+}
+
+function logMemorizationCompletion(
+  studentId: string,
+  plan: MemorizationPlanRecord,
+  progress: StudentMemorizationProgressRecord,
+) {
+  const entry: MemorizationCompletionLogEntry = {
+    id: `mem_completion_${Date.now()}`,
+    planId: plan.id,
+    studentId,
+    completedAt: progress.completedAt ?? iso(new Date()),
+    verseCount: plan.verseKeys.length,
+    totalRepetitions: progress.totalRepetitions,
+  }
+
+  database.memorizationCompletions.unshift(entry)
+  if (database.memorizationCompletions.length > MAX_MEMORIZATION_COMPLETIONS) {
+    database.memorizationCompletions.length = MAX_MEMORIZATION_COMPLETIONS
+  }
+}
+
+function touchStudentMemorizationSummary(
+  studentId: string,
+  plan: MemorizationPlanRecord,
+  verseKey: string,
+) {
+  const record = getLearnerRecord(studentId)
+  if (!record) return
+  const nowIso = iso(new Date())
+  record.dashboard.memorizationSummary.lastReviewedOn = nowIso
+  record.dashboard.memorizationSummary.focusArea = `${plan.title} • ${verseKey}`
 }
 
 function clampHabitCompletion(record: LearnerRecord) {
@@ -1547,6 +1763,174 @@ function recalculateMemorizationSummary(record: LearnerRecord) {
       ? 0
       : queue.reduce((total, task) => total + task.memorizationConfidence, 0) / queue.length
   record.dashboard.memorizationPercentage = Math.round(Math.max(0, Math.min(1, averageConfidence)) * 100)
+}
+
+export function getMemorizationClasses(): ClassRecord[] {
+  return database.classes.map((classRecord) => ({
+    ...classRecord,
+    studentIds: [...classRecord.studentIds],
+  }))
+}
+
+export function listStudentMemorizationPlans(
+  studentId: string,
+): StudentMemorizationPlanContext[] {
+  ensureProgressRecordsForStudent(studentId)
+  const accessiblePlans = database.memorizationPlans.filter((plan) =>
+    studentHasAccessToPlan(studentId, plan),
+  )
+
+  return accessiblePlans.map((plan) => {
+    const progress = ensureProgressRecordForPlan(studentId, plan)
+    const classes = plan.classIds
+      .map((classId) => getClassRecord(classId))
+      .filter((classRecord): classRecord is ClassRecord => Boolean(classRecord))
+      .map((classRecord) => ({ ...classRecord, studentIds: [...classRecord.studentIds] }))
+    const teacher = database.teachers.find((candidate) => candidate.id === plan.teacherId)
+
+    return {
+      plan: {
+        ...plan,
+        verseKeys: [...plan.verseKeys],
+        classIds: [...plan.classIds],
+      },
+      progress: cloneProgressRecord(progress),
+      classes,
+      teacher: teacher ? { ...teacher } : undefined,
+    }
+  })
+}
+
+export function getStudentMemorizationPlanContext(
+  studentId: string,
+  planId: string,
+): StudentMemorizationPlanContext | undefined {
+  const plan = findMemorizationPlan(planId)
+  if (!plan) {
+    return undefined
+  }
+  if (!studentHasAccessToPlan(studentId, plan)) {
+    return undefined
+  }
+
+  const progress = ensureProgressRecordForPlan(studentId, plan)
+  const classes = plan.classIds
+    .map((classId) => getClassRecord(classId))
+    .filter((classRecord): classRecord is ClassRecord => Boolean(classRecord))
+    .map((classRecord) => ({ ...classRecord, studentIds: [...classRecord.studentIds] }))
+  const teacher = database.teachers.find((candidate) => candidate.id === plan.teacherId)
+
+  return {
+    plan: {
+      ...plan,
+      verseKeys: [...plan.verseKeys],
+      classIds: [...plan.classIds],
+    },
+    progress: cloneProgressRecord(progress),
+    classes,
+    teacher: teacher ? { ...teacher } : undefined,
+  }
+}
+
+export function recordMemorizationRepetition(
+  studentId: string,
+  planId: string,
+): StudentMemorizationProgressRecord {
+  const plan = findMemorizationPlan(planId)
+  if (!plan) {
+    throw new Error("Memorization plan not found")
+  }
+  if (plan.verseKeys.length === 0) {
+    throw new Error("Memorization plan has no verses")
+  }
+  if (!studentHasAccessToPlan(studentId, plan)) {
+    throw new Error("You are not assigned to this memorization plan")
+  }
+
+  const progress = ensureProgressRecordForPlan(studentId, plan)
+  if (progress.completedAt) {
+    return cloneProgressRecord(progress)
+  }
+  if (progress.repetitionsDone >= MEMORIZATION_REPETITION_TARGET) {
+    return cloneProgressRecord(progress)
+  }
+
+  progress.repetitionsDone += 1
+  progress.totalRepetitions += 1
+  const nowIso = iso(new Date())
+  progress.updatedAt = nowIso
+  progress.lastRepetitionAt = nowIso
+
+  const verseIndex = Math.min(progress.currentVerseIndex, plan.verseKeys.length - 1)
+  const verseKey = plan.verseKeys[verseIndex]
+  if (verseKey) {
+    touchStudentMemorizationSummary(studentId, plan, verseKey)
+  }
+
+  return cloneProgressRecord(progress)
+}
+
+export function advanceMemorizationVerse(
+  studentId: string,
+  planId: string,
+): StudentMemorizationProgressRecord {
+  const plan = findMemorizationPlan(planId)
+  if (!plan) {
+    throw new Error("Memorization plan not found")
+  }
+  if (plan.verseKeys.length === 0) {
+    throw new Error("Memorization plan has no verses")
+  }
+  if (!studentHasAccessToPlan(studentId, plan)) {
+    throw new Error("You are not assigned to this memorization plan")
+  }
+
+  const progress = ensureProgressRecordForPlan(studentId, plan)
+  if (progress.completedAt) {
+    return cloneProgressRecord(progress)
+  }
+  if (progress.repetitionsDone < MEMORIZATION_REPETITION_TARGET) {
+    throw new Error("Complete the repetitions before advancing")
+  }
+
+  const nowIso = iso(new Date())
+  const verseIndex = Math.min(progress.currentVerseIndex, plan.verseKeys.length - 1)
+  const verseKey = plan.verseKeys[verseIndex]
+
+  if (verseKey) {
+    progress.history.push({
+      verseKey,
+      repetitions: progress.repetitionsDone,
+      completedAt: nowIso,
+    })
+    if (progress.history.length > 100) {
+      progress.history = progress.history.slice(-100)
+    }
+  }
+
+  progress.updatedAt = nowIso
+  progress.lastRepetitionAt = nowIso
+
+  if (progress.currentVerseIndex >= plan.verseKeys.length - 1) {
+    progress.completedAt = nowIso
+    logMemorizationCompletion(studentId, plan, progress)
+    if (verseKey) {
+      touchStudentMemorizationSummary(studentId, plan, verseKey)
+    }
+  } else {
+    progress.currentVerseIndex += 1
+    progress.repetitionsDone = 0
+    const nextVerse = plan.verseKeys[progress.currentVerseIndex]
+    if (nextVerse) {
+      touchStudentMemorizationSummary(studentId, plan, nextVerse)
+    }
+  }
+
+  return cloneProgressRecord(progress)
+}
+
+export function getMemorizationCompletions(): MemorizationCompletionLogEntry[] {
+  return database.memorizationCompletions.map((entry) => ({ ...entry }))
 }
 
 export function getTeacherProfiles(): TeacherProfile[] {
