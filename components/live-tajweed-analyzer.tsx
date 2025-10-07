@@ -790,6 +790,34 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     return Array.from(buckets.entries()).sort((a, b) => a[0] - b[0])
   }, [expectedTokens, tokenStatuses])
 
+  const translationByAyah = useMemo(() => {
+    const map = new Map<number, string>()
+    verses.forEach((verse) => {
+      if (verse.translation && verse.translation.trim()) {
+        map.set(verse.ayah, verse.translation.trim())
+      }
+    })
+    return map
+  }, [verses])
+
+  const activeAyahForTranslation = useMemo(() => {
+    for (const [ayah, tokens] of groupedTokens) {
+      if (tokens.some((token) => token.status === "current")) {
+        return ayah
+      }
+    }
+    if (recognizedTokens.length > 0) {
+      const lastRecognizedIndex = Math.min(recognizedTokens.length - 1, expectedTokens.length - 1)
+      const fallbackToken = expectedTokens[lastRecognizedIndex]
+      if (fallbackToken) {
+        return fallbackToken.ayah
+      }
+    }
+    return groupedTokens[0]?.[0] ?? null
+  }, [groupedTokens, recognizedTokens, expectedTokens])
+
+  const activeTranslation = activeAyahForTranslation != null ? translationByAyah.get(activeAyahForTranslation) : undefined
+
   const analysisIssues: IssueDescriptor[] = useMemo(() => {
     return expectedTokens.flatMap((token, index) => {
       const status = tokenStatuses[index]
@@ -975,6 +1003,13 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                   </div>
                 </div>
 
+                {activeTranslation && (
+                  <div className="rounded-xl border border-maroon-100 bg-white/80 p-4" dir="ltr">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-maroon-600">Active ayah meaning</p>
+                    <p className="mt-2 text-sm leading-relaxed text-maroon-900">{activeTranslation}</p>
+                  </div>
+                )}
+
                 <div className="space-y-2">
                   <Progress value={progress} className="h-2" />
                   <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
@@ -1003,39 +1038,47 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                   </h4>
                   {analysisIssues.length > 0 ? (
                     <div className="space-y-3">
-                      {analysisIssues.map((issue) => (
-                        <div
-                          key={issue.id}
-                          className={cn(
-                            "rounded-lg border p-3",
-                            issue.severity === "mistake"
-                              ? "border-rose-200 bg-rose-50/80"
-                              : "border-amber-200 bg-amber-50/80",
-                          )}
-                        >
-                          <div className="flex items-center justify-between text-xs text-gray-600" dir="ltr">
-                            <span>Ayah {issue.ayah}</span>
-                            <Badge
-                              variant="secondary"
-                              className={cn(
-                                "text-xs",
-                                issue.severity === "mistake"
-                                  ? "bg-rose-100 text-rose-700"
-                                  : "bg-amber-100 text-amber-700",
-                              )}
-                            >
-                              {issue.severity === "mistake" ? "Needs correction" : "Refine"}
-                            </Badge>
+                      {analysisIssues.map((issue) => {
+                        const translationForIssue = translationByAyah.get(issue.ayah)
+                        return (
+                          <div
+                            key={issue.id}
+                            className={cn(
+                              "rounded-lg border p-3",
+                              issue.severity === "mistake"
+                                ? "border-rose-200 bg-rose-50/80"
+                                : "border-amber-200 bg-amber-50/80",
+                            )}
+                          >
+                            <div className="flex items-center justify-between text-xs text-gray-600" dir="ltr">
+                              <span>Ayah {issue.ayah}</span>
+                              <Badge
+                                variant="secondary"
+                                className={cn(
+                                  "text-xs",
+                                  issue.severity === "mistake"
+                                    ? "bg-rose-100 text-rose-700"
+                                    : "bg-amber-100 text-amber-700",
+                                )}
+                              >
+                                {issue.severity === "mistake" ? "Needs correction" : "Refine"}
+                              </Badge>
+                            </div>
+                            <p className="mt-2 text-base font-arabic text-maroon-900" dir="rtl">
+                              {issue.expected}
+                            </p>
+                            {translationForIssue && (
+                              <p className="mt-1 text-xs text-slate-600" dir="ltr">
+                                {translationForIssue}
+                              </p>
+                            )}
+                            <p className="mt-1 text-xs text-gray-600" dir="ltr">
+                              Heard: {issue.heard ? issue.heard : "—"}
+                            </p>
+                            <p className="mt-2 text-xs text-maroon-700 leading-relaxed">{issue.hint}</p>
                           </div>
-                          <p className="mt-2 text-base font-arabic text-maroon-900" dir="rtl">
-                            {issue.expected}
-                          </p>
-                          <p className="mt-1 text-xs text-gray-600" dir="ltr">
-                            Heard: {issue.heard ? issue.heard : "—"}
-                          </p>
-                          <p className="mt-2 text-xs text-maroon-700 leading-relaxed">{issue.hint}</p>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   ) : (
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm text-emerald-700">

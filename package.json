@@ -10,7 +10,8 @@
     "rundev": "npm run dev",
     "start": "npm run build && next start -p 3001",
     "start:standalone": "node .next/standalone/server.js",
-    "fonts:mushaf": "node ./scripts/sync-mushaf-fonts.mjs"
+    "fonts:mushaf": "node ./scripts/sync-mushaf-fonts.mjs",
+    "sync:quran-assets": "node ./scripts/sync-quran-assets.mjs"
   },
   "engines": {
     "node": ">=18.18.0",

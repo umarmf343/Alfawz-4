@@ -1,11 +1,11 @@
-import { getSurahInfo, getVerseText } from "@/lib/quran-data"
+import { getSurahInfo, getVerseText, getVerseTranslation } from "@/lib/quran-data"
 
 export interface DailySurahSection {
   surahNumber: number
   arabicName: string
   englishName: string
   ayahCount: number
-  verses: { key: string; text: string }[]
+  verses: { key: string; text: string; translation?: string }[]
 }
 
 export interface DailySurahRecommendation {
@@ -75,11 +75,11 @@ type RecommendationKey = keyof typeof BASE_RECOMMENDATIONS
 function getVersesForSurah(surahNumber: number): DailySurahSection {
   const surahInfo = getSurahInfo(surahNumber)
   const ayahCount = surahInfo?.ayahCount ?? 0
-  const verses: { key: string; text: string }[] = []
+  const verses: { key: string; text: string; translation?: string }[] = []
 
   for (let ayah = 1; ayah <= ayahCount; ayah += 1) {
     const key = `${surahNumber}:${ayah}`
-    verses.push({ key, text: getVerseText(key) })
+    verses.push({ key, text: getVerseText(key), translation: getVerseTranslation(key) })
   }
 
   return {

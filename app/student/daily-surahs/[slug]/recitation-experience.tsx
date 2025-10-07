@@ -167,7 +167,12 @@ export function DailySurahRecitationExperience({ detail }: DailySurahRecitationE
                   {section.verses.map((verse) => (
                     <li key={verse.key} className="space-y-1">
                       <p>{verse.text}</p>
-                      <p className="text-left text-xs text-gray-500">{verse.key}</p>
+                      {verse.translation && (
+                        <p className="text-left text-xs italic text-slate-600" dir="ltr">
+                          {verse.translation}
+                        </p>
+                      )}
+                      <p className="text-left text-[11px] uppercase tracking-wide text-gray-400">{verse.key}</p>
                     </li>
                   ))}
                 </ol>

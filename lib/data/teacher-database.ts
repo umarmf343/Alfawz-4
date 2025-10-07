@@ -1,5 +1,5 @@
 import { expandVerseRange, normalizeVerseKey, validateVerseKeys } from "../verse-validator"
-import { getVerseText } from "../quran-data"
+import { getVerseText, getVerseTranslation } from "../quran-data"
 
 export type TeacherRole = "head" | "assistant"
 
@@ -2957,7 +2957,7 @@ export function createTeacherAssignment(
       return {
         ayah: Number.isFinite(ayah) ? ayah : 0,
         arabic: getVerseText(key),
-        translation: "",
+        translation: getVerseTranslation(key),
       }
     })
 

@@ -3,6 +3,7 @@
 
 import localQuranText from "@/data/quran-uthmani.json"
 import localSurahMeta from "@/data/quran.json"
+import enSahihTranslations from "@/data/quran-assets/translation-en-sahih.json"
 
 export interface Surah {
   number: number
@@ -67,11 +68,16 @@ type LocalSurahMetadata = {
 const ESTIMATED_AYAH_PER_PAGE = 10
 const verseTextFallback = localQuranText as Record<string, string>
 const localSurahMetadata = localSurahMeta as LocalSurahMetadata[]
+const offlineTranslationMatrix = enSahihTranslations as string[][]
 
-const fallbackSurahContent = new Map<
-  number,
-  { surah: Surah; ayahs: Ayah[]; recitation?: string }
->()
+type FallbackSurahContentEntry = {
+  surah: Surah
+  ayahs: Ayah[]
+  recitation?: string
+  translations?: string[]
+}
+
+const fallbackSurahContent = new Map<number, FallbackSurahContentEntry>()
 
 const fallbackSurahList: Surah[] = []
 
@@ -115,6 +121,7 @@ for (const surah of localSurahMetadata) {
     surah: normalizedSurah,
     ayahs,
     recitation: surah.recitation,
+    translations: offlineTranslationMatrix[surah.number_of_surah - 1]?.slice() ?? [],
   })
 
   fallbackSurahList.push(normalizedSurah)
@@ -232,11 +239,49 @@ class QuranCloudAPI {
     } catch (error) {
       console.error("Error fetching surah:", error)
       const fallback = fallbackSurahContent.get(surahNumber)
-      if (fallback) {
+      if (!fallback) {
+        return null
+      }
+
+      if (edition === "quran-uthmani") {
         this.setCache(cacheKey, fallback)
         return fallback
       }
-      return null
+
+      if (edition === "en.sahih") {
+        const translationAyahs = fallback.translations ?? []
+        const translatedResult = {
+          surah: fallback.surah,
+          ayahs: fallback.ayahs.map((ayah, index) => ({
+            ...ayah,
+            text: translationAyahs[index] ?? "",
+          })),
+        }
+        this.setCache(cacheKey, translatedResult)
+        return translatedResult
+      }
+
+      if (edition === "en.transliteration") {
+        const transliterationPlaceholder = {
+          surah: fallback.surah,
+          ayahs: fallback.ayahs.map((ayah) => ({
+            ...ayah,
+            text: "Transliteration unavailable offline.",
+          })),
+        }
+        this.setCache(cacheKey, transliterationPlaceholder)
+        return transliterationPlaceholder
+      }
+
+      const placeholder = {
+        surah: fallback.surah,
+        ayahs: fallback.ayahs.map((ayah) => ({
+          ...ayah,
+          text: `Edition \"${edition}\" is unavailable offline.`,
+        })),
+      }
+      this.setCache(cacheKey, placeholder)
+      return placeholder
     }
   }
 
@@ -302,11 +347,22 @@ class QuranCloudAPI {
 
       const translations = editions
         .filter((edition) => edition !== "quran-uthmani")
-        .map((edition) => ({
-          text: "Translation unavailable in offline mode.",
-          language: edition.split(".")[0] ?? "en",
-          translator: "Offline placeholder",
-        }))
+        .map((edition) => {
+          if (edition === "en.sahih") {
+            const translationText =
+              offlineTranslationMatrix[surahNumber - 1]?.[ayahNumber - 1] ?? "Translation unavailable in offline mode."
+            return {
+              text: translationText,
+              language: "en",
+              translator: "Saheeh International",
+            }
+          }
+          return {
+            text: "Translation unavailable in offline mode.",
+            language: edition.split(".")[0] ?? "en",
+            translator: "Offline placeholder",
+          }
+        })
 
       const fallbackResult = {
         arabic: ayah,
