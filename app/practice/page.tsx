@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { RecordingInterface } from "@/components/recording-interface"
 import { QuranFlipBook } from "@/components/quran-flipbook"
+import { calculateHasanatForText } from "@/lib/hasanat"
 import { useUser } from "@/hooks/use-user"
 import {
   Award,
@@ -182,10 +183,7 @@ export default function PracticePage() {
     setCountedVerses(new Array(activeTask.verses.length).fill(false))
   }, [activeTask.id, activeTask.verses.length])
 
-  const calculateVerseHasanat = useCallback((text: string) => {
-    const matches = text.match(/[\u0621-\u063A\u0641-\u064A]/g)
-    return (matches?.length ?? 0) * 10
-  }, [])
+  const calculateVerseHasanat = useCallback((text: string) => calculateHasanatForText(text), [])
 
   const handlePreviousVerse = useCallback(() => {
     setCurrentVerseIndex((prev) => (prev > 0 ? prev - 1 : prev))

@@ -70,6 +70,7 @@ export interface ActivityEntry {
   ayahs?: number
   progress?: number
   score?: number
+  hasanatAwarded?: number
   timestamp: string
 }
 
@@ -652,6 +653,27 @@ export interface DailySurahCompletionResult {
 
 export interface DailySurahCompletionResponse {
   result: DailySurahCompletionResult
+  state?: LearnerState
+}
+
+export interface QuranReaderRecitationInput {
+  verseKey: string
+  surah: string
+  ayahNumber: number
+  pageNumber?: number
+  lettersCount: number
+  hasanatAwarded: number
+}
+
+export interface QuranReaderRecitationResult {
+  success: boolean
+  hasanatAwarded: number
+  lettersCount: number
+  cumulativeHasanat: number
+}
+
+export interface QuranReaderRecitationResponse {
+  result: QuranReaderRecitationResult
   state?: LearnerState
 }
 
@@ -3226,6 +3248,103 @@ export function recordDailySurahCompletion(
   return {
     state: cloneLearnerState(record),
     result: { success: true, hasanatAwarded: completion.hasanatAwarded, alreadyCompleted: false },
+  }
+}
+
+export function recordQuranReaderRecitation(
+  studentId: string,
+  input: QuranReaderRecitationInput,
+): QuranReaderRecitationResponse {
+  const record = getLearnerRecord(studentId)
+  if (!record) {
+    return {
+      result: { success: false, hasanatAwarded: 0, lettersCount: 0, cumulativeHasanat: 0 },
+    }
+  }
+
+  const lettersCount = Math.max(0, Math.floor(input.lettersCount))
+  const hasanatAwarded = Math.max(0, Math.floor(input.hasanatAwarded))
+
+  if (lettersCount === 0 || hasanatAwarded === 0) {
+    return {
+      state: cloneLearnerState(record),
+      result: {
+        success: false,
+        hasanatAwarded: 0,
+        lettersCount: 0,
+        cumulativeHasanat: record.stats.hasanat,
+      },
+    }
+  }
+
+  const nowDate = new Date()
+  const nowIso = iso(nowDate)
+
+  record.stats.hasanat += hasanatAwarded
+  record.stats.ayahsRead += 1
+
+  record.dashboard.dailyTarget.completedAyahs += 1
+  record.dashboard.dailyTarget.lastUpdated = nowIso
+
+  const activity: ActivityEntry = {
+    id: `activity_${nowDate.getTime()}_${input.verseKey}`,
+    type: "reading",
+    surah: input.surah,
+    ayahs: 1,
+    hasanatAwarded,
+    timestamp: nowIso,
+  }
+  record.dashboard.activities.unshift(activity)
+  if (record.dashboard.activities.length > MAX_ACTIVITY_ENTRIES) {
+    record.dashboard.activities = record.dashboard.activities.slice(0, MAX_ACTIVITY_ENTRIES)
+  }
+
+  record.dashboard.lastRead = {
+    surah: input.surah,
+    ayah: input.ayahNumber,
+    totalAyahs: Math.max(record.dashboard.lastRead.totalAyahs, input.ayahNumber),
+  }
+
+  for (const entry of record.dashboard.leaderboard) {
+    if (entry.name.toLowerCase() === "you" || entry.id.endsWith("_user")) {
+      entry.points += hasanatAwarded
+      if (typeof entry.trend === "number") {
+        entry.trend = Math.max(0, entry.trend) + 1
+      } else {
+        entry.trend = 1
+      }
+    }
+  }
+
+  applyGamificationEvent(record, {
+    type: "daily_target",
+    completedAyahs: record.dashboard.dailyTarget.completedAyahs,
+    targetAyahs: record.dashboard.dailyTarget.targetAyahs,
+  })
+
+  if (record.dashboard.gamePanel) {
+    const panel = record.dashboard.gamePanel
+    for (const task of panel.tasks) {
+      if (task.type === "daily_target") {
+        task.progress = Math.min(task.target, record.dashboard.dailyTarget.completedAyahs)
+        task.lastUpdated = nowIso
+        if (task.progress >= task.target && task.status === "locked") {
+          task.status = "in_progress"
+        }
+      }
+    }
+  }
+
+  const cumulativeHasanat = record.stats.hasanat
+
+  return {
+    state: cloneLearnerState(record),
+    result: {
+      success: true,
+      hasanatAwarded,
+      lettersCount,
+      cumulativeHasanat,
+    },
   }
 }
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, Volume2 } from "lucide-react"
 
 import pages from "@/data/mushaf-pages.json"
@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useQuranReader, type VerseSelection } from "@/hooks/use-quran-reader"
+import { useUser } from "@/hooks/use-user"
+import { calculateHasanatForText, countArabicLetters } from "@/lib/hasanat"
 
 const TOTAL_PAGES = 604
 const MAX_ODD_PAGE = TOTAL_PAGES % 2 === 0 ? TOTAL_PAGES - 1 : TOTAL_PAGES
@@ -25,6 +27,13 @@ type VerseDisplay = {
   surahName: string
   englishName?: string
   isSurahStart: boolean
+}
+
+type HasanatPopup = {
+  id: number
+  amount: number
+  verseKey: string
+  surah: string
 }
 
 function clampOddPage(pageNumber: number): number {
@@ -48,10 +57,75 @@ function createSelection(verse: VerseDisplay): VerseSelection {
 
 export function QuranBookViewer() {
   const { currentVerse, setCurrentVerse } = useQuranReader()
+  const { recordQuranReaderProgress } = useUser()
   const [currentOddPage, setCurrentOddPage] = useState<number>(1)
   const [pageInput, setPageInput] = useState<string>("1")
   const [isAnimating, setIsAnimating] = useState(false)
   const [flipDirection, setFlipDirection] = useState<"forward" | "backward" | null>(null)
+  const [sessionHasanat, setSessionHasanat] = useState(0)
+  const [hasanatPopups, setHasanatPopups] = useState<HasanatPopup[]>([])
+  const popupTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  const awardedVersesRef = useRef<Set<string>>(new Set())
+
+  const spawnHasanatPopup = useCallback(
+    (amount: number, verse: VerseSelection) => {
+      const id = Date.now() + Math.random()
+      setHasanatPopups((previous) => [
+        ...previous,
+        {
+          id,
+          amount,
+          verseKey: verse.verseKey,
+          surah: verse.surahName,
+        },
+      ])
+
+      const timeoutId = window.setTimeout(() => {
+        setHasanatPopups((previous) => previous.filter((popup) => popup.id !== id))
+        popupTimeoutsRef.current = popupTimeoutsRef.current.filter((entry) => entry !== timeoutId)
+      }, 1600)
+      popupTimeoutsRef.current.push(timeoutId)
+    },
+    [],
+  )
+
+  const awardHasanatForCurrentVerse = useCallback(() => {
+    if (!currentVerse) {
+      return
+    }
+    if (awardedVersesRef.current.has(currentVerse.verseKey)) {
+      return
+    }
+
+    const lettersCount = countArabicLetters(currentVerse.text)
+    const hasanatAwarded = calculateHasanatForText(currentVerse.text)
+
+    if (lettersCount === 0 || hasanatAwarded === 0) {
+      return
+    }
+
+    awardedVersesRef.current.add(currentVerse.verseKey)
+    spawnHasanatPopup(hasanatAwarded, currentVerse)
+    setSessionHasanat((previous) => previous + hasanatAwarded)
+
+    recordQuranReaderProgress({
+      verseKey: currentVerse.verseKey,
+      surah: currentVerse.surahName,
+      ayahNumber: currentVerse.ayahNumber,
+      pageNumber: currentVerse.pageNumber,
+      lettersCount,
+      hasanatAwarded,
+    })
+  }, [currentVerse, recordQuranReaderProgress, spawnHasanatPopup])
+
+  useEffect(() => {
+    return () => {
+      popupTimeoutsRef.current.forEach((timeoutId) => {
+        clearTimeout(timeoutId)
+      })
+      popupTimeoutsRef.current = []
+    }
+  }, [])
 
   const leftPageNumber = useMemo(() => {
     const candidate = currentOddPage + 1
@@ -131,8 +205,9 @@ export function QuranBookViewer() {
 
   const handleNext = useCallback(() => {
     if (currentOddPage >= MAX_ODD_PAGE) return
+    awardHasanatForCurrentVerse()
     handleSpreadChange("forward")
-  }, [currentOddPage, handleSpreadChange])
+  }, [awardHasanatForCurrentVerse, currentOddPage, handleSpreadChange])
 
   const handlePrevious = useCallback(() => {
     if (currentOddPage <= 1) return
@@ -200,7 +275,21 @@ export function QuranBookViewer() {
     : ""
 
   return (
-    <article className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8">
+    <article className="relative mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8">
+      <div
+        className="pointer-events-none absolute right-4 top-4 z-40 flex flex-col items-end gap-2"
+        aria-live="polite"
+      >
+        {hasanatPopups.map((popup) => (
+          <div
+            key={popup.id}
+            className="animate-hasanat-float rounded-full bg-emerald-500/95 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30"
+          >
+            +{popup.amount.toLocaleString()} hasanat
+            <span className="ml-2 text-xs font-medium text-emerald-100">{popup.surah}</span>
+          </div>
+        ))}
+      </div>
       <header className="space-y-2 text-center">
         <p className="text-sm font-medium uppercase tracking-[0.3em] text-amber-700">Student Quran Reader</p>
         <h1 className="text-3xl font-semibold text-slate-800 sm:text-4xl">مصحف المدينة المنورة</h1>
@@ -304,6 +393,13 @@ export function QuranBookViewer() {
             الصفحة التالية
             <ChevronRight className="h-4 w-4" aria-hidden />
           </Button>
+        </div>
+
+        <div className="flex flex-col items-center text-sm text-slate-500 sm:items-start">
+          <span className="text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-amber-600">Session hasanat</span>
+          <span className="text-xl font-semibold text-emerald-600">
+            +{sessionHasanat.toLocaleString()}
+          </span>
         </div>
 
         <div className="flex items-center gap-3 text-sm text-slate-600">
