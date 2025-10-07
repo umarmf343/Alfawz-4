@@ -32,6 +32,9 @@ import {
   Headphones,
   Disc3,
   Clock3,
+  Egg,
+  Target,
+  Timer,
 } from "lucide-react"
 import Link from "next/link"
 import { MushafVerse } from "@/components/quran/mushaf-verse"
@@ -181,6 +184,12 @@ const DEFAULT_ANALYSIS_PROMPT = "Start the live analysis to receive tajweed feed
 
 const TRANSCRIPTION_AVAILABLE = process.env.NEXT_PUBLIC_TRANSCRIPTION_ENABLED === "true"
 
+const INITIAL_CHALLENGE_DURATION = 60
+const MIN_CHALLENGE_DURATION = 30
+const CHALLENGE_DURATION_STEP = 5
+const INITIAL_CHALLENGE_TARGET = 3
+const CHALLENGE_TARGET_STEP = 2
+
 type TajweedMetric = {
   id: string
   label: string
@@ -287,6 +296,44 @@ export default function QuranReaderPage() {
   const [isGwaniLoading, setIsGwaniLoading] = useState(false)
   const [gwaniError, setGwaniError] = useState<string | null>(null)
   const [gwaniVolume, setGwaniVolume] = useState<number[]>([80])
+  const [eggLevel, setEggLevel] = useState(1)
+  const [versesRecited, setVersesRecited] = useState(0)
+  const [timeRemaining, setTimeRemaining] = useState(INITIAL_CHALLENGE_DURATION)
+  const [isTimerActive, setIsTimerActive] = useState(true)
+  const [challengeStatus, setChallengeStatus] = useState<"idle" | "cracked" | "failed">("idle")
+
+  const currentChallengeTarget = useMemo(
+    () => INITIAL_CHALLENGE_TARGET + (eggLevel - 1) * CHALLENGE_TARGET_STEP,
+    [eggLevel],
+  )
+
+  const challengeProgress = useMemo(() => {
+    if (currentChallengeTarget === 0) {
+      return 0
+    }
+    return Math.min(100, Math.round((versesRecited / currentChallengeTarget) * 100))
+  }, [currentChallengeTarget, versesRecited])
+
+  const formattedTimer = useMemo(() => {
+    const minutes = Math.floor(timeRemaining / 60)
+    const seconds = timeRemaining % 60
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`
+  }, [timeRemaining])
+
+  const challengeMessage = useMemo(() => {
+    if (challengeStatus === "cracked") {
+      return "Mashallah! You cracked the egg. A tougher challenge is hatching."
+    }
+    if (challengeStatus === "failed") {
+      return "Time's up. Reset to try cracking the egg again."
+    }
+    const versesRemaining = Math.max(currentChallengeTarget - versesRecited, 0)
+    if (versesRemaining === 0) {
+      return "Ready to hatch the next challenge?"
+    }
+    const verseLabel = versesRemaining === 1 ? "verse" : "verses"
+    return `Recite ${versesRemaining} more ${verseLabel} to break the egg.`
+  }, [challengeStatus, currentChallengeTarget, versesRecited])
 
   const gwaniTheme = useMemo(() => {
     if (gwaniError) {
@@ -897,7 +944,84 @@ export default function QuranReaderPage() {
     setSessionRecited((count) => count + 1)
     setIsPlaying(false)
     setCurrentAyah((index) => (index < totalAyahs - 1 ? index + 1 : index))
+    setVersesRecited((previous) => {
+      const baseCount = challengeStatus === "failed" ? 0 : previous
+      const nextCount = Math.min(baseCount + 1, currentChallengeTarget)
+      return nextCount
+    })
+
+    if (challengeStatus === "failed") {
+      setTimeRemaining(
+        Math.max(
+          MIN_CHALLENGE_DURATION,
+          INITIAL_CHALLENGE_DURATION - (eggLevel - 1) * CHALLENGE_DURATION_STEP,
+        ),
+      )
+      setChallengeStatus("idle")
+      setIsTimerActive(true)
+    } else if (!isTimerActive) {
+      setIsTimerActive(true)
+    }
   }
+
+  useEffect(() => {
+    if (!isTimerActive) {
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      setTimeRemaining((previous) => {
+        if (previous <= 1) {
+          window.clearInterval(intervalId)
+          setIsTimerActive(false)
+          setChallengeStatus((status) => (status === "cracked" ? status : "failed"))
+          return 0
+        }
+        return previous - 1
+      })
+    }, 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [isTimerActive])
+
+  useEffect(() => {
+    if (challengeStatus !== "idle") {
+      return
+    }
+
+    if (versesRecited >= currentChallengeTarget) {
+      setChallengeStatus("cracked")
+      setIsTimerActive(false)
+    }
+  }, [challengeStatus, currentChallengeTarget, versesRecited])
+
+  useEffect(() => {
+    if (challengeStatus !== "cracked") {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setEggLevel((previousLevel) => {
+        const nextLevel = previousLevel + 1
+        setVersesRecited(0)
+        setTimeRemaining(
+          Math.max(
+            MIN_CHALLENGE_DURATION,
+            INITIAL_CHALLENGE_DURATION - (nextLevel - 1) * CHALLENGE_DURATION_STEP,
+          ),
+        )
+        setChallengeStatus("idle")
+        setIsTimerActive(true)
+        return nextLevel
+      })
+    }, 1600)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [challengeStatus])
 
   const processChunkQueue = useCallback(async () => {
     if (isProcessingChunkRef.current || chunkQueueRef.current.length === 0) {
@@ -1626,6 +1750,72 @@ export default function QuranReaderPage() {
               </CardHeader>
 
               <CardContent className="space-y-8">
+                <section className="relative overflow-hidden rounded-2xl border border-amber-100 bg-gradient-to-r from-amber-50 via-white to-amber-100/70 p-5 shadow-sm">
+                  <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+                    <div className="flex flex-1 items-start gap-4">
+                      <div
+                        className={cn(
+                          "relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full border-4 text-amber-800 transition-colors",
+                          challengeStatus === "cracked"
+                            ? "border-emerald-400 bg-emerald-50 text-emerald-700"
+                            : challengeStatus === "failed"
+                              ? "border-rose-300 bg-rose-50 text-rose-600"
+                              : "border-amber-300 bg-amber-50",
+                        )}
+                      >
+                        <Egg className="h-8 w-8" aria-hidden />
+                        <span className="absolute -bottom-2 right-0 rounded-full bg-amber-500 px-2 py-0.5 text-xs font-semibold text-white shadow">
+                          Lv. {eggLevel}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                          <p className="text-base font-semibold text-slate-800">Break the Egg Challenge</p>
+                          <div className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-700">
+                            <Target className="h-3.5 w-3.5" aria-hidden />
+                            {currentChallengeTarget} verses
+                          </div>
+                        </div>
+                        <p className="max-w-xl text-sm text-slate-600" aria-live="polite">
+                          {challengeMessage}
+                        </p>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs font-medium uppercase tracking-wide text-slate-500">
+                            <span>Progress</span>
+                            <span>{challengeProgress}%</span>
+                          </div>
+                          <Progress value={challengeProgress} className="h-2" aria-hidden={false} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex w-full flex-col gap-3 md:w-48">
+                      <div className="flex items-center justify-between rounded-2xl border border-amber-200 bg-white/80 px-4 py-3 text-sm font-semibold text-amber-700 shadow-sm">
+                        <span className="inline-flex items-center gap-2">
+                          <Timer className="h-4 w-4" aria-hidden />
+                          Timer
+                        </span>
+                        <span className="font-mono text-base">{formattedTimer}</span>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setVersesRecited(0)
+                          setTimeRemaining(
+                            Math.max(
+                              MIN_CHALLENGE_DURATION,
+                              INITIAL_CHALLENGE_DURATION - (eggLevel - 1) * CHALLENGE_DURATION_STEP,
+                            ),
+                          )
+                          setChallengeStatus("idle")
+                          setIsTimerActive(true)
+                        }}
+                      >
+                        Reset Challenge
+                      </Button>
+                    </div>
+                  </div>
+                </section>
                 {/* Current Ayah Display */}
                 <div className="text-center space-y-6 py-8">
                   <div
