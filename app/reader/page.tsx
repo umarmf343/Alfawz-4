@@ -27,7 +27,6 @@ import {
   Activity,
   ArrowUpRight,
   ArrowDownRight,
-  CheckCircle2,
   Loader2,
 } from "lucide-react"
 import Link from "next/link"
@@ -36,7 +35,6 @@ import {
   annotateTajweedMistakes,
   analyzeMistakes,
   calculateTajweedMetricScores,
-  removeDiacritics,
   type LiveMistake,
   type LiveSessionSummary,
 } from "@/lib/tajweed-analysis"
@@ -946,6 +944,60 @@ export default function QuranReaderPage() {
     }
   }, [dailyTargetCompleted, dailyTargetGoal, sessionRecited, hasCelebrated])
 
+  useEffect(() => {
+    if (!isCelebrationOpen) {
+      return
+    }
+
+    let isCancelled = false
+    let intervalId: number | undefined
+    let timeoutId: number | undefined
+
+    const launchConfetti = async () => {
+      const confetti = (await import("canvas-confetti")).default
+
+      const fire = (particleCount: number, y: number) => {
+        confetti({
+          particleCount,
+          spread: 85,
+          origin: { x: Math.random() * 0.6 + 0.2, y },
+          gravity: 1.1,
+          scalar: 1.05,
+        })
+      }
+
+      fire(120, 0.05)
+      intervalId = window.setInterval(() => {
+        if (isCancelled) {
+          if (intervalId) {
+            window.clearInterval(intervalId)
+          }
+          return
+        }
+        fire(70, Math.random() * 0.1 + 0.05)
+      }, 320)
+
+      timeoutId = window.setTimeout(() => {
+        if (intervalId) {
+          window.clearInterval(intervalId)
+        }
+        fire(160, 0.2)
+      }, 1800)
+    }
+
+    void launchConfetti()
+
+    return () => {
+      isCancelled = true
+      if (intervalId) {
+        window.clearInterval(intervalId)
+      }
+      if (timeoutId) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [isCelebrationOpen])
+
   const isLiveAnalysisActive = isRecording || isAnalysisStarted
   const highlightedTranscription = useMemo(() => {
     const trimmed = liveTranscription.trim()
@@ -1647,16 +1699,24 @@ export default function QuranReaderPage() {
     </div>
 
       <Dialog open={isCelebrationOpen} onOpenChange={setIsCelebrationOpen}>
-        <DialogContent className="max-w-sm text-center">
-          <DialogHeader className="space-y-2">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
-              <CheckCircle2 className="h-7 w-7 text-emerald-600" />
+        <DialogContent className="max-w-md text-center border-0 bg-white/95 backdrop-blur-md">
+          <DialogHeader className="space-y-3">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-emerald-200 shadow-inner">
+              <Sparkles className="h-7 w-7 text-emerald-700" />
             </div>
-            <DialogTitle className="text-2xl font-semibold text-maroon-900">Masha’Allah!</DialogTitle>
-            <DialogDescription className="text-sm text-muted-foreground">
-              You’ve completed today’s target of {dailyTargetGoal} ayahs. Keep reciting to deepen your mastery.
+            <DialogTitle className="text-3xl font-semibold text-maroon-900">Masha’Allah!</DialogTitle>
+            <DialogDescription className="text-base text-maroon-700">
+              You just secured today’s goal of {dailyTargetGoal} ayahs. May Allah shower you with barakah—keep the flow going!
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Total recited today: <span className="font-semibold text-maroon-900">{dailyTargetCompleted}</span> ayahs
+            </p>
+            <p className="text-xs text-emerald-700">
+              Every ayah beyond the goal still counts toward your mastery and teacher reports.
+            </p>
+          </div>
           <DialogFooter className="flex flex-col gap-2 sm:flex-row">
             <Button variant="outline" className="flex-1" onClick={() => setIsCelebrationOpen(false)}>
               Keep Reciting
