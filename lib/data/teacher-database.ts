@@ -455,6 +455,14 @@ export interface ClassRecord {
   studentIds: string[]
 }
 
+export interface CreateMemorizationClassInput {
+  name: string
+  teacherId: string
+  description?: string
+  schedule?: string
+  studentIds?: string[]
+}
+
 export interface PersonalPlanSettings {
   intention?: string
   habitCue?: string
@@ -484,6 +492,28 @@ export interface TeacherClassSummary {
   schedule?: string
   studentIds: string[]
   studentCount: number
+}
+
+export interface AdminClassStudentSummary {
+  id: string
+  name: string
+  email: string
+  streak: number
+  memorizationProgress: number
+  recitationProgress: number
+}
+
+export interface AdminClassSummary {
+  class: TeacherClassSummary
+  teacher: TeacherProfile
+  students: AdminClassStudentSummary[]
+}
+
+export interface LearnerDirectoryEntry {
+  id: string
+  name: string
+  email: string
+  role: UserRole
 }
 
 export interface TeacherStudentSummary {
@@ -706,6 +736,7 @@ const MAX_MEMORIZATION_COMPLETIONS = 100
 const PLAN_CREATION_DAILY_LIMIT = 10
 
 let assignmentSequence = 0
+let classSequence = 0
 
 const database: TeacherDatabaseSchema = {
   teachers: [
@@ -774,6 +805,7 @@ const database: TeacherDatabaseSchema = {
 }
 
 assignmentSequence = database.assignments.length
+classSequence = database.classes.length
 
 const planCreationTracker = new Map<string, { date: string; count: number }>()
 let planSequence = 0
@@ -792,6 +824,32 @@ function generateLearnerId(prefix: string): string {
     counter += 1
     candidate = `${prefix}_${counter.toString().padStart(3, "0")}`
   }
+  return candidate
+}
+
+function generateClassId(name: string): string {
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+  const base = normalized ? `class_${normalized}` : "class_cohort"
+
+  let candidate = base
+  if (database.classes.some((classRecord) => classRecord.id === candidate)) {
+    let suffix = 1
+    do {
+      suffix += 1
+      candidate = `${base}_${suffix}`
+    } while (database.classes.some((classRecord) => classRecord.id === candidate))
+  }
+
+  classSequence += 1
+  const sequenceSuffix = classSequence.toString().padStart(3, "0")
+  if (!candidate.endsWith(sequenceSuffix)) {
+    candidate = `${candidate}_${sequenceSuffix}`
+  }
+
   return candidate
 }
 
@@ -1895,6 +1953,11 @@ function getTeacherClassRecords(teacherId: string): ClassRecord[] {
   return database.classes.filter((classRecord) => classRecord.teacherId === teacherId)
 }
 
+function getTeacherProfile(teacherId: string): TeacherProfile | undefined {
+  const teacher = database.teachers.find((candidate) => candidate.id === teacherId)
+  return teacher ? { ...teacher } : undefined
+}
+
 function getPlanStudentIds(plan: MemorizationPlanRecord): string[] {
   const studentIds = new Set<string>()
   plan.classIds.forEach((classId) => {
@@ -2282,6 +2345,116 @@ export function getMemorizationClasses(): ClassRecord[] {
     ...classRecord,
     studentIds: [...classRecord.studentIds],
   }))
+}
+
+export function listLearners(options?: { role?: UserRole }): LearnerDirectoryEntry[] {
+  const entries = Object.values(database.learners).map((record) => ({
+    id: record.profile.id,
+    name: record.profile.name,
+    email: record.profile.email,
+    role: record.profile.role,
+  }))
+
+  const filtered = options?.role ? entries.filter((entry) => entry.role === options.role) : entries
+
+  return filtered.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export function getAdminClassSummaries(): AdminClassSummary[] {
+  return database.classes.map((classRecord) => {
+    const classSummary = cloneTeacherClassSummary(classRecord)
+    const teacherProfile = getTeacherProfile(classRecord.teacherId) ?? {
+      id: classRecord.teacherId,
+      name: "Unassigned Instructor",
+      email: "",
+      role: "assistant",
+      specialization: "Memorization",
+    }
+
+    const students: AdminClassStudentSummary[] = classRecord.studentIds
+      .map((studentId) => getLearnerRecord(studentId))
+      .filter((record): record is LearnerRecord => Boolean(record))
+      .map((record) => ({
+        id: record.profile.id,
+        name: record.profile.name,
+        email: record.profile.email,
+        streak: record.stats.streak,
+        memorizationProgress: record.dashboard.memorizationPercentage,
+        recitationProgress: record.dashboard.recitationPercentage,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+
+    return {
+      class: classSummary,
+      teacher: teacherProfile,
+      students,
+    }
+  })
+}
+
+export function createMemorizationClass(
+  input: CreateMemorizationClassInput,
+): AdminClassSummary {
+  const name = input.name.trim()
+  if (!name) {
+    throw new Error("Class name is required")
+  }
+
+  const teacher = getTeacherProfile(input.teacherId)
+  if (!teacher) {
+    throw new Error("Assigned teacher not found")
+  }
+
+  const description = input.description?.trim() || undefined
+  const schedule = input.schedule?.trim() || undefined
+
+  const providedStudentIds = Array.isArray(input.studentIds) ? input.studentIds : []
+  const normalizedStudentIds = Array.from(
+    new Set(providedStudentIds.map((studentId) => studentId.trim()).filter(Boolean)),
+  )
+
+  const studentRecords: LearnerRecord[] = []
+
+  normalizedStudentIds.forEach((studentId) => {
+    const learner = getLearnerRecord(studentId)
+    if (!learner) {
+      throw new Error(`Learner ${studentId} was not found`)
+    }
+    if (learner.profile.role !== "student") {
+      throw new Error(`Only students can be enrolled in a class (${learner.profile.name})`)
+    }
+    studentRecords.push(learner)
+  })
+
+  const classId = generateClassId(name)
+
+  const classRecord: ClassRecord = {
+    id: classId,
+    name,
+    description,
+    teacherId: teacher.id,
+    schedule,
+    studentIds: studentRecords.map((record) => record.profile.id),
+  }
+
+  database.classes.push(classRecord)
+
+  const classSummary = cloneTeacherClassSummary(classRecord)
+
+  const students: AdminClassStudentSummary[] = studentRecords.map((record) => ({
+    id: record.profile.id,
+    name: record.profile.name,
+    email: record.profile.email,
+    streak: record.stats.streak,
+    memorizationProgress: record.dashboard.memorizationPercentage,
+    recitationProgress: record.dashboard.recitationPercentage,
+  }))
+
+  return {
+    class: classSummary,
+    teacher,
+    students: students.sort((a, b) => a.name.localeCompare(b.name)),
+  }
 }
 
 export function listClassesForTeacher(teacherId: string): TeacherClassSummary[] {
