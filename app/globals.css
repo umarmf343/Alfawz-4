@@ -155,7 +155,30 @@
     line-height: 2.8;
     font-feature-settings: "liga" 1, "dlig" 1, "kern" 1, "mark" 1, "mkmk" 1;
     text-rendering: optimizeLegibility;
-    letter-spacing: 0.015em;
+    letter-spacing: normal;
+  }
+
+  .mushaf-word {
+    display: inline-flex;
+    align-items: baseline;
+    position: relative;
+    transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+    padding-inline: 0.05em;
+    padding-block: 0.05em;
+    margin-inline-end: 0.35em;
+  }
+
+  .mushaf-word:last-of-type {
+    margin-inline-end: 0;
+  }
+
+  .mushaf-word[data-highlighted="true"] {
+    padding-inline: 0.25em;
+    padding-block: 0.1em;
+    border-radius: 0.5em;
+    background-color: var(--mushaf-highlight-bg, rgba(248, 113, 113, 0.18));
+    box-shadow: 0 0 0 1px var(--mushaf-highlight-border, rgba(248, 113, 113, 0.6));
+    color: var(--mushaf-highlight-text, inherit);
   }
 
   /* RTL layout utilities */
