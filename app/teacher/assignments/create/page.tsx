@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { BookOpen, Users, ImageIcon, Plus, ArrowLeft, Save, Send, Target } from "lucide-react"
 import Link from "next/link"
 import { HotspotEditor } from "@/components/hotspot-editor"
+import { useToast } from "@/hooks/use-toast"
 
 interface Hotspot {
   id: string
@@ -25,6 +26,22 @@ interface Hotspot {
   audioUrl?: string
 }
 
+const SURAH_OPTIONS = [
+  { value: "al-fatiha", number: 1, label: "Al-Fatiha (The Opening)" },
+  { value: "al-baqarah", number: 2, label: "Al-Baqarah (The Cow)" },
+  { value: "al-imran", number: 3, label: "Al-Imran (The Family of Imran)" },
+  { value: "an-nisa", number: 4, label: "An-Nisa (The Women)" },
+  { value: "al-maidah", number: 5, label: "Al-Maidah (The Table)" },
+  { value: "al-ikhlas", number: 112, label: "Al-Ikhlas (The Sincerity)" },
+  { value: "al-falaq", number: 113, label: "Al-Falaq (The Daybreak)" },
+  { value: "an-nas", number: 114, label: "An-Nas (The Mankind)" },
+] as const
+
+const CLASS_OPTIONS = [
+  { value: "class_beginner_a", label: "Beginner Class A" },
+  { value: "class_evening_memorization", label: "Evening Memorization Circle" },
+] as const
+
 export default function CreateAssignmentPage() {
   const [activeTab, setActiveTab] = useState("basic")
   const [assignmentData, setAssignmentData] = useState({
@@ -35,14 +52,17 @@ export default function CreateAssignmentPage() {
     dueTime: "",
     surah: "",
     ayahRange: "",
-    assignmentType: "",
+    assignmentType: "recitation",
     instructions: "",
   })
 
   const [hotspots, setHotspots] = useState<Hotspot[]>([])
   const [selectedImage, setSelectedImage] = useState<string | null>("/arabic-calligraphy-with-quranic-verses.jpg")
   const [isAddingHotspot, setIsAddingHotspot] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [assignmentId, setAssignmentId] = useState<string | null>(null)
   const imageRef = useRef<HTMLDivElement>(null)
+  const { toast } = useToast()
 
   const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!isAddingHotspot || !imageRef.current) return
@@ -69,12 +89,92 @@ export default function CreateAssignmentPage() {
     setHotspots(hotspots.filter((h) => h.id !== id))
   }
 
-  const handleSubmit = (action: "save" | "publish") => {
-    console.log("Assignment data:", assignmentData)
-    console.log("Hotspots:", hotspots)
-    console.log("Action:", action)
-    // In real app, this would save to database
-    alert(`Assignment ${action === "save" ? "saved as draft" : "published"} successfully!`)
+  const handleSubmit = async (action: "save" | "publish") => {
+    if (!assignmentData.title.trim()) {
+      toast({ title: "Add a title", description: "Please provide a clear assignment title before continuing.", variant: "destructive" })
+      return
+    }
+
+    if (!assignmentData.dueDate) {
+      toast({ title: "Missing due date", description: "Choose when this assignment should be due.", variant: "destructive" })
+      return
+    }
+
+    const surahOption = SURAH_OPTIONS.find((option) => option.value === assignmentData.surah)
+    if (!surahOption) {
+      toast({ title: "Select a surah", description: "Pick the surah your students should focus on.", variant: "destructive" })
+      return
+    }
+
+    if (!assignmentData.ayahRange.trim()) {
+      toast({ title: "Add an ayah range", description: "Specify the ayah range the students should work on.", variant: "destructive" })
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const payload: Record<string, unknown> = {
+        title: assignmentData.title,
+        description: assignmentData.description,
+        instructions: assignmentData.instructions,
+        assignmentType: assignmentData.assignmentType || "recitation",
+        surahName: surahOption.label,
+        surahNumber: surahOption.number,
+        ayahRange: assignmentData.ayahRange,
+        dueDate: assignmentData.dueDate,
+        dueTime: assignmentData.dueTime || undefined,
+        classIds: assignmentData.class ? [assignmentData.class] : [],
+        studentIds: [],
+        imageUrl: selectedImage || undefined,
+        hotspots: hotspots.map(({ title, description, x, y, width, height, audioUrl }) => ({
+          title,
+          description,
+          x,
+          y,
+          width,
+          height,
+          audioUrl,
+        })),
+        publish: action === "publish",
+      }
+
+      if (assignmentId) {
+        payload.assignmentId = assignmentId
+      }
+
+      const response = await fetch("/api/teacher/assignments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+
+      const data = (await response.json()) as { error?: string; assignment?: { assignment?: { id?: string } } }
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to save assignment")
+      }
+
+      const createdId = data.assignment?.assignment?.id ?? null
+      if (createdId) {
+        setAssignmentId(createdId)
+      }
+
+      toast({
+        title: action === "save" ? "Draft saved" : "Assignment published",
+        description:
+          action === "save"
+            ? "Your draft is stored safely. You can keep refining it and publish when ready."
+            : "Students now have this assignment in their recitation panel.",
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Please try again later."
+      toast({
+        title: "Unable to save assignment",
+        description: message,
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -101,11 +201,20 @@ export default function CreateAssignmentPage() {
             </div>
 
             <div className="flex items-center space-x-3">
-              <Button variant="outline" onClick={() => handleSubmit("save")} className="bg-transparent">
+              <Button
+                variant="outline"
+                onClick={() => handleSubmit("save")}
+                className="bg-transparent"
+                disabled={isSubmitting}
+              >
                 <Save className="w-4 h-4 mr-2" />
                 Save Draft
               </Button>
-              <Button onClick={() => handleSubmit("publish")} className="gradient-maroon text-white border-0">
+              <Button
+                onClick={() => handleSubmit("publish")}
+                className="gradient-maroon text-white border-0"
+                disabled={isSubmitting}
+              >
                 <Send className="w-4 h-4 mr-2" />
                 Publish Assignment
               </Button>
@@ -151,12 +260,11 @@ export default function CreateAssignmentPage() {
                         <SelectValue placeholder="Choose a class" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="beginner-a">Beginner Class A</SelectItem>
-                        <SelectItem value="beginner-b">Beginner Class B</SelectItem>
-                        <SelectItem value="intermediate-a">Intermediate Class A</SelectItem>
-                        <SelectItem value="intermediate-b">Intermediate Class B</SelectItem>
-                        <SelectItem value="advanced-a">Advanced Class A</SelectItem>
-                        <SelectItem value="advanced-b">Advanced Class B</SelectItem>
+                        {CLASS_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -227,14 +335,11 @@ export default function CreateAssignmentPage() {
                         <SelectValue placeholder="Select Surah" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="al-fatiha">Al-Fatiha (The Opening)</SelectItem>
-                        <SelectItem value="al-baqarah">Al-Baqarah (The Cow)</SelectItem>
-                        <SelectItem value="al-imran">Al-Imran (The Family of Imran)</SelectItem>
-                        <SelectItem value="an-nisa">An-Nisa (The Women)</SelectItem>
-                        <SelectItem value="al-maidah">Al-Maidah (The Table)</SelectItem>
-                        <SelectItem value="al-ikhlas">Al-Ikhlas (The Sincerity)</SelectItem>
-                        <SelectItem value="al-falaq">Al-Falaq (The Daybreak)</SelectItem>
-                        <SelectItem value="an-nas">An-Nas (The Mankind)</SelectItem>
+                        {SURAH_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
