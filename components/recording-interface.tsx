@@ -1,21 +1,23 @@
 "use client"
 
-import { Label } from "@/components/ui/label"
-
 import { useState, useRef, useEffect } from "react"
+import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
 import { Mic, Square, Play, Pause, RotateCcw, Upload, Award } from "lucide-react"
+import { createLiveSessionSummary, type LiveSessionSummary } from "@/lib/tajweed-analysis"
+import { createBrowserVoiceEngine, BrowserVoiceEngine } from "@/lib/voice/browser-voice-engine"
+
+const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
+  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY and refresh to enable AI feedback."
 
 interface RecordingInterfaceProps {
   expectedText: string
   ayahId: string
-  onTranscriptionComplete?: (result: any) => void
+  onTranscriptionComplete?: (result: LiveSessionSummary) => void
 }
-
-const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
-  "AI transcription isn't configured on this server yet. Add an OPENAI_API_KEY and refresh to enable AI feedback."
 
 export function RecordingInterface({ expectedText, ayahId, onTranscriptionComplete }: RecordingInterfaceProps) {
   const [isRecording, setIsRecording] = useState(false)
@@ -23,8 +25,17 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [isTranscribing, setIsTranscribing] = useState(false)
-  const [transcriptionResult, setTranscriptionResult] = useState<any>(null)
+  const [transcriptionResult, setTranscriptionResult] = useState<LiveSessionSummary | null>(null)
+  const [resultSource, setResultSource] = useState<"browser" | "server" | null>(null)
   const [recordingTime, setRecordingTime] = useState(0)
+  const [voiceEngine, setVoiceEngine] = useState<BrowserVoiceEngine | null>(null)
+  const [isVoiceAvailable, setIsVoiceAvailable] = useState(false)
+  const [useOnDeviceAI, setUseOnDeviceAI] = useState(false)
+  const [liveTranscript, setLiveTranscript] = useState("")
+  const [interimTranscript, setInterimTranscript] = useState("")
+  const [voiceStatus, setVoiceStatus] = useState<"idle" | "listening" | "error">("idle")
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const lastAnalyzedTranscriptRef = useRef("")
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -34,6 +45,15 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const engine = createBrowserVoiceEngine()
+    setVoiceEngine(engine)
+    setIsVoiceAvailable(engine.isAvailable())
+    setUseOnDeviceAI(engine.isAvailable())
+
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop())
@@ -41,8 +61,70 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
       }
+      engine.destroy()
     }
   }, [])
+
+  useEffect(() => {
+    if (!voiceEngine) return
+
+    voiceEngine.removeAllListeners()
+
+    voiceEngine.onSpeechStart = () => {
+      setVoiceStatus("listening")
+      setVoiceError(null)
+      setLiveTranscript("")
+      setInterimTranscript("")
+    }
+
+    voiceEngine.onSpeechPartialResults = (event) => {
+      const transcript = (event?.bestTranscription ?? event?.value?.join(" ") ?? "").trim()
+      if (transcript) {
+        setInterimTranscript(transcript)
+      }
+    }
+
+    voiceEngine.onSpeechResults = (event) => {
+      const transcript = (event?.bestTranscription ?? event?.value?.join(" ") ?? "").trim()
+      if (transcript) {
+        setLiveTranscript(transcript)
+        setInterimTranscript(transcript)
+      }
+    }
+
+    voiceEngine.onSpeechError = (event) => {
+      const message =
+        typeof event?.error === "string"
+          ? event.error
+          : event?.error?.message ?? event?.message ?? "Speech recognition error"
+      setVoiceError(message)
+      setVoiceStatus("error")
+    }
+
+    voiceEngine.onSpeechEnd = () => {
+      setVoiceStatus("idle")
+    }
+
+    return () => {
+      voiceEngine.cancel()
+      voiceEngine.removeAllListeners()
+    }
+  }, [voiceEngine])
+
+  useEffect(() => {
+    if (!isVoiceAvailable) {
+      setUseOnDeviceAI(false)
+    }
+  }, [isVoiceAvailable])
+
+  useEffect(() => {
+    if (!useOnDeviceAI) {
+      setLiveTranscript("")
+      setInterimTranscript("")
+      setVoiceStatus("idle")
+      setVoiceError(null)
+    }
+  }, [useOnDeviceAI])
 
   const startRecording = async () => {
     try {
@@ -82,6 +164,20 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
       setIsRecording(true)
       setRecordingTime(0)
 
+      if (voiceEngine && useOnDeviceAI && voiceEngine.isAvailable()) {
+        try {
+          await voiceEngine.start({
+            locale: "ar-SA",
+            continuous: true,
+            interimResults: true,
+          })
+        } catch (error) {
+          console.error("Error starting browser speech recognition", error)
+          setVoiceError("Browser speech recognition could not be started. We'll use server transcription instead.")
+          setUseOnDeviceAI(false)
+        }
+      }
+
       // Start timer and waveform animation
       intervalRef.current = setInterval(() => {
         setRecordingTime((prev) => prev + 1)
@@ -100,6 +196,10 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
       if (intervalRef.current) {
         clearInterval(intervalRef.current)
       }
+    }
+
+    if (voiceEngine && useOnDeviceAI) {
+      voiceEngine.stop()
     }
   }
 
@@ -145,12 +245,19 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     setAudioBlob(null)
     setAudioUrl(null)
     setTranscriptionResult(null)
+    setResultSource(null)
     setRecordingTime(0)
     if (audioRef.current) {
       audioRef.current.pause()
       audioRef.current.currentTime = 0
     }
     setIsPlaying(false)
+    setLiveTranscript("")
+    setInterimTranscript("")
+    setVoiceError(null)
+    setVoiceStatus("idle")
+    lastAnalyzedTranscriptRef.current = ""
+    voiceEngine?.cancel()
   }
 
   const submitForTranscription = async () => {
@@ -162,6 +269,7 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
       formData.append("audio", audioBlob, "recording.wav")
       formData.append("expectedText", expectedText)
       formData.append("ayahId", ayahId)
+      formData.append("durationSeconds", (recordingTime / 10).toFixed(1))
 
       const response = await fetch("/api/transcribe", {
         method: "POST",
@@ -177,8 +285,9 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
         throw new Error("Transcription failed")
       }
 
-      const result = await response.json()
+      const result = (await response.json()) as LiveSessionSummary
       setTranscriptionResult(result)
+      setResultSource("server")
       onTranscriptionComplete?.(result)
     } catch (error) {
       console.error("Transcription error:", error)
@@ -198,6 +307,30 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
+  const analyzedTranscript = (liveTranscript || interimTranscript).trim()
+
+  useEffect(() => {
+    if (!useOnDeviceAI || isRecording) {
+      return
+    }
+
+    const transcriptToAnalyze = analyzedTranscript
+    if (!transcriptToAnalyze || lastAnalyzedTranscriptRef.current === transcriptToAnalyze) {
+      return
+    }
+
+    lastAnalyzedTranscriptRef.current = transcriptToAnalyze
+    const durationSeconds = Number.isFinite(recordingTime) ? recordingTime / 10 : undefined
+    const summary = createLiveSessionSummary(transcriptToAnalyze, expectedText, {
+      durationSeconds: typeof durationSeconds === "number" ? Number(durationSeconds.toFixed(1)) : undefined,
+      ayahId,
+    })
+
+    setTranscriptionResult(summary)
+    setResultSource("browser")
+    onTranscriptionComplete?.(summary)
+  }, [useOnDeviceAI, isRecording, analyzedTranscript, recordingTime, expectedText, ayahId, onTranscriptionComplete])
+
   const getScoreColor = (score: number) => {
     if (score >= 90) return "text-green-600"
     if (score >= 75) return "text-blue-600"
@@ -210,6 +343,12 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     if (score >= 75) return "bg-blue-100 text-blue-800"
     if (score >= 60) return "bg-yellow-100 text-yellow-800"
     return "bg-red-100 text-red-800"
+  }
+
+  const getResultSourceBadge = () => {
+    if (resultSource === "browser") return "bg-emerald-100 text-emerald-800"
+    if (resultSource === "server") return "bg-indigo-100 text-indigo-800"
+    return "bg-gray-100 text-gray-700"
   }
 
   return (
@@ -232,6 +371,39 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
           <CardTitle className="text-lg text-maroon-800">Record Your Recitation</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Live Transcript & AI Toggle */}
+          <div className="rounded-lg border border-maroon-100 bg-cream-50 p-4 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-maroon-800">Live AI Transcript</p>
+                <p className="text-xs text-gray-600">
+                  {isVoiceAvailable
+                    ? "Powered by on-device speech recognition. Works instantly on supported browsers."
+                    : "Your browser does not support on-device speech recognition. Use server AI after recording."}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="use-on-device-ai"
+                  checked={useOnDeviceAI}
+                  onCheckedChange={(checked) => setUseOnDeviceAI(Boolean(checked))}
+                  disabled={!isVoiceAvailable}
+                />
+                <Label htmlFor="use-on-device-ai" className="text-xs text-gray-600">
+                  Enable on-device AI
+                </Label>
+              </div>
+            </div>
+            <div className="mt-3 min-h-[3.5rem] rounded-md border border-maroon-100 bg-white p-3 text-right text-lg font-arabic shadow-inner">
+              {analyzedTranscript
+                ? analyzedTranscript
+                : voiceStatus === "listening"
+                  ? "..."
+                  : "Start recording to view the live transcript."}
+            </div>
+            {voiceError && <p className="mt-2 text-xs text-red-600">{voiceError}</p>}
+          </div>
+
           {/* Waveform Visualization */}
           <div className="bg-gray-50 rounded-lg p-4">
             <canvas ref={canvasRef} width={400} height={100} className="w-full h-20 rounded" />
@@ -306,10 +478,17 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
       {transcriptionResult && (
         <Card className="border-border/50">
           <CardHeader>
-            <CardTitle className="text-lg text-maroon-800 flex items-center">
-              <Award className="w-5 h-5 mr-2" />
-              Recitation Feedback
-            </CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <CardTitle className="text-lg text-maroon-800 flex items-center">
+                <Award className="w-5 h-5 mr-2" />
+                Recitation Feedback
+              </CardTitle>
+              {resultSource && (
+                <Badge className={getResultSourceBadge()}>
+                  {resultSource === "browser" ? "On-device AI" : "Server AI"}
+                </Badge>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Overall Score */}
@@ -359,7 +538,7 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
               <div className="space-y-3">
                 <h4 className="font-semibold text-maroon-800">Areas for Improvement:</h4>
                 <div className="space-y-2">
-                  {transcriptionResult.feedback.errors.slice(0, 5).map((error: any, index: number) => (
+                  {transcriptionResult.feedback.errors.slice(0, 5).map((error, index) => (
                     <div key={index} className="flex items-center space-x-3 p-2 bg-red-50 rounded">
                       <Badge variant="outline" className="text-red-700 border-red-300">
                         {error.type}
