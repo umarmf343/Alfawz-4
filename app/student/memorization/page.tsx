@@ -9,7 +9,6 @@ import { Progress } from "@/components/ui/progress"
 import { getActiveSession } from "@/lib/data/auth"
 import { listStudentMemorizationPlans } from "@/lib/data/teacher-database"
 import { formatVerseReference } from "@/lib/quran-data"
-import { MemorizationStudioPanel } from "@/components/memorization/memorization-studio-panel"
 
 const REPETITION_TARGET = 20
 
@@ -60,8 +59,6 @@ export default function StudentMemorizationPage() {
             <AlertDescription>{nudgeMessage}</AlertDescription>
           </Alert>
         )}
-
-        <MemorizationStudioPanel />
 
         {assignedPlans.length === 0 ? (
           <Card className="border-dashed border-emerald-200 bg-white/80">
