@@ -70,6 +70,23 @@ type HasanatPopup = {
   variant: "hasanat" | "celebration"
 }
 
+type QuranNavigationNextDetail = {
+  surahNumber: number
+  ayahNumber: number
+}
+
+type ButtonHasanatAscension = {
+  id: number
+  ariaLabel?: string
+  variant: "animated" | "static"
+}
+
+declare global {
+  interface WindowEventMap {
+    "quran:navigation:next": CustomEvent<QuranNavigationNextDetail>
+  }
+}
+
 type CelebrationState = {
   reason: "dailyTarget" | "surahComplete" | "dailySurah"
   title: string
@@ -231,7 +248,9 @@ const formatTimeDisplay = (seconds: number) => {
 
 
 export default function QuranReaderPage() {
-  const { dashboard, incrementDailyTarget, submitRecitationResult, recordQuranReaderProgress } = useUser()
+  const { profile, dashboard, incrementDailyTarget, submitRecitationResult, recordQuranReaderProgress } = useUser()
+  const userLocale = profile?.locale ?? "en"
+  const prefersArabicInterface = userLocale.toLowerCase().startsWith("ar")
   const dailyTarget = dashboard?.dailyTarget
   const dailyTargetGoal = dailyTarget?.targetAyahs ?? 0
   const dailyTargetCompleted = dailyTarget?.completedAyahs ?? 0
@@ -269,6 +288,8 @@ export default function QuranReaderPage() {
   const [sessionRecited, setSessionRecited] = useState(0)
   const [sessionHasanat, setSessionHasanat] = useState(0)
   const [hasanatPopups, setHasanatPopups] = useState<HasanatPopup[]>([])
+  const [buttonHasanatAscents, setButtonHasanatAscents] = useState<ButtonHasanatAscension[]>([])
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
   const [celebration, setCelebration] = useState<CelebrationState | null>(null)
   const isCelebrationOpen = Boolean(celebration)
   const [hasDailyGoalCelebrated, setHasDailyGoalCelebrated] = useState(false)
@@ -331,6 +352,8 @@ export default function QuranReaderPage() {
 
   const popupTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const awardedAyahsRef = useRef<Set<string>>(new Set())
+  const buttonHasanatTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  const buttonAnimationCooldownRef = useRef(0)
 
   const currentChallengeTarget = useMemo(
     () => INITIAL_CHALLENGE_TARGET + (eggLevel - 1) * CHALLENGE_TARGET_STEP,
@@ -376,6 +399,29 @@ export default function QuranReaderPage() {
     [],
   )
 
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return
+    }
+
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches)
+
+    updatePreference()
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", updatePreference)
+      return () => {
+        mediaQuery.removeEventListener("change", updatePreference)
+      }
+    }
+
+    mediaQuery.addListener(updatePreference)
+    return () => {
+      mediaQuery.removeListener(updatePreference)
+    }
+  }, [])
+
   const spawnHasanatPopup = useCallback((popup: Omit<HasanatPopup, "id">) => {
     const id = Date.now() + Math.random()
     setHasanatPopups((previous) => [
@@ -395,6 +441,66 @@ export default function QuranReaderPage() {
 
     popupTimeoutsRef.current.push(timeoutId)
   }, [])
+  const emitNavigationNext = useCallback((detail: QuranNavigationNextDetail) => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    window.dispatchEvent(new CustomEvent<QuranNavigationNextDetail>("quran:navigation:next", { detail }))
+  }, [])
+  const spawnButtonHasanatAscension = useCallback(
+    (detail?: QuranNavigationNextDetail) => {
+      if (typeof window === "undefined") {
+        return
+      }
+
+      const now = Date.now()
+      if (now - buttonAnimationCooldownRef.current < 800) {
+        return
+      }
+
+      buttonAnimationCooldownRef.current = now
+
+      const id = now + Math.random()
+
+      setButtonHasanatAscents((previous) => {
+        const trimmed = previous.length >= 3 ? previous.slice(previous.length - 2) : previous
+        return [
+          ...trimmed,
+          {
+            id,
+            ariaLabel: detail
+              ? `Advanced to ayah ${detail.ayahNumber} of surah ${detail.surahNumber}`
+              : undefined,
+            variant: prefersReducedMotion ? "static" : "animated",
+          },
+        ]
+      })
+
+      const timeoutId = window.setTimeout(() => {
+        setButtonHasanatAscents((previous) => previous.filter((popup) => popup.id !== id))
+        buttonHasanatTimeoutsRef.current = buttonHasanatTimeoutsRef.current.filter((entry) => entry !== timeoutId)
+      }, prefersReducedMotion ? 1000 : 1600)
+
+      buttonHasanatTimeoutsRef.current.push(timeoutId)
+    },
+    [prefersReducedMotion],
+  )
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return
+    }
+
+    const handleNavigationNext = (event: WindowEventMap["quran:navigation:next"]) => {
+      spawnButtonHasanatAscension(event.detail)
+    }
+
+    window.addEventListener("quran:navigation:next", handleNavigationNext)
+    return () => {
+      window.removeEventListener("quran:navigation:next", handleNavigationNext)
+    }
+  }, [spawnButtonHasanatAscension])
   const awardHasanatForCurrentAyah = useCallback(() => {
     if (!activeAyah) {
       return false
@@ -452,6 +558,10 @@ export default function QuranReaderPage() {
         window.clearTimeout(timeoutId)
       })
       popupTimeoutsRef.current = []
+      buttonHasanatTimeoutsRef.current.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId)
+      })
+      buttonHasanatTimeoutsRef.current = []
     }
   }, [])
 
@@ -998,6 +1108,7 @@ export default function QuranReaderPage() {
       return
     }
 
+    const willAdvance = currentAyah < totalAyahs - 1
     const isNewRecitation = awardHasanatForCurrentAyah()
     if (isNewRecitation) {
       incrementDailyTarget(1)
@@ -1030,6 +1141,13 @@ export default function QuranReaderPage() {
     }
     setIsPlaying(false)
     setCurrentAyah((index) => (index < totalAyahs - 1 ? index + 1 : index))
+    if (willAdvance) {
+      const upcomingAyah = surahData.ayahs[currentAyah + 1]
+      emitNavigationNext({
+        surahNumber: surahData.metadata.number,
+        ayahNumber: getAyahDisplayNumber(upcomingAyah, currentAyah + 1),
+      })
+    }
     setVersesRecited((previous) => {
       const baseCount = challengeStatus === "failed" ? 0 : previous
       const nextCount = Math.min(baseCount + 1, currentChallengeTarget)
@@ -1054,12 +1172,15 @@ export default function QuranReaderPage() {
     currentAyah,
     currentChallengeTarget,
     eggLevel,
+    emitNavigationNext,
+    getAyahDisplayNumber,
     incrementDailyTarget,
     isTimerActive,
     spawnHasanatPopup,
     surahData.metadata.englishName,
     surahData.metadata.name,
     surahData.metadata.number,
+    surahData.ayahs,
     totalAyahs,
   ])
 
@@ -2126,15 +2247,47 @@ export default function QuranReaderPage() {
                         {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-1" />}
                       </Button>
 
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleNextAyah}
-                        disabled={totalAyahs === 0}
-                        className="bg-transparent"
-                      >
-                        <SkipForward className="w-4 h-4" />
-                      </Button>
+                      <div className="relative">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleNextAyah}
+                          disabled={totalAyahs === 0}
+                          className="bg-transparent"
+                          aria-describedby={buttonHasanatAscents.length > 0 ? "hasanat-ascent-feedback" : undefined}
+                        >
+                          <SkipForward className="w-4 h-4" />
+                        </Button>
+                        <div
+                          id="hasanat-ascent-feedback"
+                          aria-live="polite"
+                          aria-atomic="true"
+                          className="pointer-events-none absolute left-1/2 top-0 z-30 flex -translate-x-1/2 -translate-y-3 flex-col items-center gap-1"
+                        >
+                          {buttonHasanatAscents.map((popup) => (
+                            <div
+                              key={popup.id}
+                              role="status"
+                              aria-label={popup.ariaLabel ?? "+1 hasanat ascended"}
+                              className={cn(
+                                "pointer-events-none select-none rounded-full border border-emerald-200/40 bg-white/10 px-3 py-1 text-[0.8rem] font-light text-emerald-100 shadow-[0_0_12px_rgba(52,211,153,0.35)] backdrop-blur-sm will-change-transform",
+                                popup.variant === "animated"
+                                  ? "animate-hasanat-rise-from-button"
+                                  : "opacity-95",
+                              )}
+                            >
+                              <div className="flex flex-col items-center leading-tight" aria-hidden="true">
+                                <span className="text-sm font-light tracking-wide text-emerald-200/90">+1 حسنة</span>
+                                {!prefersArabicInterface && (
+                                  <span className="text-[0.6rem] font-medium uppercase tracking-[0.4em] text-emerald-100/70">
+                                    +1 Hasanat
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
 
                     {audioError && (
