@@ -25,6 +25,7 @@ import {
   RotateCcw,
   AlertCircle,
   Sparkles,
+  ArrowLeft,
   ArrowUpRight,
   ArrowDownRight,
   Loader2,
@@ -1991,6 +1992,18 @@ export default function QuranReaderPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center space-x-4">
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="gap-2 px-2"
+              >
+                <Link href="/dashboard" className="flex items-center gap-2">
+                  <ArrowLeft className="h-4 w-4" />
+                  <span className="hidden sm:inline">Back to Dashboard</span>
+                  <span className="sm:hidden">Dashboard</span>
+                </Link>
+              </Button>
               <Link href="/dashboard" className="flex items-center space-x-3">
                 <div className="w-8 h-8 gradient-maroon rounded-lg flex items-center justify-center">
                   <BookOpen className="w-5 h-5 text-white" />

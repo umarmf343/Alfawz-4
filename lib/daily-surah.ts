@@ -129,8 +129,8 @@ export function getDailySurahRecommendations(now: Date = new Date()): DailySurah
   }
 
   if (hour >= 18) {
-    recommendations.push(buildRecommendation("mulk"))
     recommendations.push(buildRecommendation("quls"))
+    recommendations.push(buildRecommendation("waqiah"))
   } else if (hour < 10) {
     recommendations.push(buildRecommendation("yasin"))
   } else {

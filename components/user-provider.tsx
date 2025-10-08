@@ -157,6 +157,87 @@ function createFallbackDashboardRecord(studentId: string): StudentDashboardRecor
   }
 }
 
+const containsRestrictedKeyword = (value?: string | null) => {
+  if (!value) {
+    return false
+  }
+
+  const normalized = value.toLowerCase()
+  return normalized.includes("mulk") || normalized.includes("fatiha")
+}
+
+const containsTafkhimKeyword = (value?: string | null) => {
+  if (!value) {
+    return false
+  }
+
+  return value.toLowerCase().includes("tafkh")
+}
+
+function sanitizeDashboardRecord(record: StudentDashboardRecord): StudentDashboardRecord {
+  const sanitizedRecitationTasks = record.recitationTasks.filter((task) => {
+    if (containsRestrictedKeyword(task.surah) || containsRestrictedKeyword(task.notes)) {
+      return false
+    }
+
+    const hasRestrictedFocus = (task.focusAreas ?? []).some(
+      (area) => containsRestrictedKeyword(area) || containsTafkhimKeyword(area),
+    )
+
+    return !hasRestrictedFocus
+  })
+
+  const sanitizedTajweedFocus = record.tajweedFocus.filter(
+    (focus) =>
+      !containsRestrictedKeyword(focus.rule) &&
+      !containsRestrictedKeyword(focus.focusArea) &&
+      !containsRestrictedKeyword(focus.notes) &&
+      !containsTafkhimKeyword(focus.rule) &&
+      !containsTafkhimKeyword(focus.focusArea),
+  )
+
+  const sanitizedMemorizationSummary = {
+    ...record.memorizationSummary,
+    focusArea: containsRestrictedKeyword(record.memorizationSummary.focusArea)
+      ? ""
+      : record.memorizationSummary.focusArea,
+  }
+
+  const sanitizedGamePanel = {
+    ...record.gamePanel,
+    tasks: record.gamePanel.tasks.filter(
+      (task) => !containsRestrictedKeyword(task.title) && !containsRestrictedKeyword(task.description),
+    ),
+  }
+
+  return {
+    ...record,
+    activities: record.activities.filter((activity) => !containsRestrictedKeyword(activity.surah)),
+    goals: record.goals.filter((goal) => !containsRestrictedKeyword(goal.title)),
+    teacherNotes: record.teacherNotes.filter((note) => !containsRestrictedKeyword(note.note)),
+    recitationTasks: sanitizedRecitationTasks,
+    recitationSessions: record.recitationSessions.filter(
+      (session) => !containsRestrictedKeyword(session.surah),
+    ),
+    memorizationQueue: record.memorizationQueue.filter(
+      (task) => !containsRestrictedKeyword(task.surah) && !containsRestrictedKeyword(task.notes),
+    ),
+    memorizationPlaylists: record.memorizationPlaylists.filter(
+      (playlist) =>
+        !containsRestrictedKeyword(playlist.title) &&
+        !containsRestrictedKeyword(playlist.description) &&
+        !containsRestrictedKeyword(playlist.focus),
+    ),
+    memorizationSummary: sanitizedMemorizationSummary,
+    tajweedFocus: sanitizedTajweedFocus,
+    gamePanel: sanitizedGamePanel,
+    dailySurahLog: record.dailySurahLog.filter(
+      (entry) =>
+        !containsRestrictedKeyword(entry.title) && !containsRestrictedKeyword(entry.encouragement),
+    ),
+  }
+}
+
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const session = getActiveSession()
   const defaultLearnerId = session?.userId ?? "user_001"
@@ -176,8 +257,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [stats, setStats] = useState<UserStats>(initialState?.stats ?? createEmptyStats())
   const [habits, setHabits] = useState<HabitQuest[]>(initialState?.habits ?? [])
   const [teachers, setTeachers] = useState<TeacherProfile[]>([])
+  const fallbackDashboardRecord = sanitizeDashboardRecord(createFallbackDashboardRecord(defaultLearnerId))
+  const initialDashboardRecord = initialState?.dashboard
+    ? sanitizeDashboardRecord(initialState.dashboard)
+    : fallbackDashboardRecord
   const [dashboard, setDashboard] = useState<StudentDashboardRecord | null>(
-    initialState?.dashboard ?? createFallbackDashboardRecord(defaultLearnerId),
+    initialDashboardRecord,
   )
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -186,7 +271,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     setProfile(state.profile)
     setStats(state.stats)
     setHabits(state.habits)
-    setDashboard(state.dashboard)
+    setDashboard(sanitizeDashboardRecord(state.dashboard))
   }, [])
 
   useEffect(() => {
@@ -207,7 +292,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           applyLearnerState(learnerState)
           setError(null)
         } else {
-          setDashboard(createFallbackDashboardRecord(studentId))
+          setDashboard(sanitizeDashboardRecord(createFallbackDashboardRecord(studentId)))
           setError("Learner record not found")
         }
       } catch (caught) {
@@ -216,7 +301,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         }
         const message = caught instanceof Error ? caught.message : "Failed to load dashboard data"
         setError(message)
-        setDashboard((current) => current ?? createFallbackDashboardRecord(studentId))
+        setDashboard((current) => current ?? sanitizeDashboardRecord(createFallbackDashboardRecord(studentId)))
       } finally {
         if (!cancelled) {
           setIsLoading(false)

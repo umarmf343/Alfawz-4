@@ -1091,19 +1091,19 @@ export default function DashboardPage() {
                       <p className="text-sm text-green-700">Record a recitation to see detailed feedback.</p>
                     )}
                   </div>
-                  <div className="rounded-lg border border-amber-100 bg-amber-50 p-4">
-                    <p className="text-xs uppercase tracking-wide text-amber-600">Tajweed readiness</p>
-                    <p className="text-3xl font-bold text-amber-700">{tajweedReadiness}%</p>
-                    <Progress value={tajweedReadiness} className="mt-3 h-2 bg-amber-200/60" />
-                    <p className="mt-2 text-xs text-amber-600">
-                      {tajweedFocus.length > 0
-                        ? `${tajweedMasteredCount} mastered • ${tajweedImprovingCount} improving • ${tajweedNeedsSupportCount} need support`
-                        : "Complete an assignment to unlock insights"}
-                    </p>
-                    <p className="mt-1 text-xs text-amber-600/80">
-                      Avg tajweed score {averageTajweedScore}%
-                    </p>
-                  </div>
+                  {tajweedFocus.length > 0 && (
+                    <div className="rounded-lg border border-amber-100 bg-amber-50 p-4">
+                      <p className="text-xs uppercase tracking-wide text-amber-600">Tajweed readiness</p>
+                      <p className="text-3xl font-bold text-amber-700">{tajweedReadiness}%</p>
+                      <Progress value={tajweedReadiness} className="mt-3 h-2 bg-amber-200/60" />
+                      <p className="mt-2 text-xs text-amber-600">
+                        {`${tajweedMasteredCount} mastered • ${tajweedImprovingCount} improving • ${tajweedNeedsSupportCount} need support`}
+                      </p>
+                      <p className="mt-1 text-xs text-amber-600/80">
+                        Avg tajweed score {averageTajweedScore}%
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -1152,67 +1152,64 @@ export default function DashboardPage() {
                 )}
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold text-maroon-900">Tajweed focus areas</h4>
-                  <Badge variant="secondary" className="text-xs">
-                    {tajweedFocus.length} active
-                  </Badge>
-                </div>
-                {tajweedFocus.map((focus) => {
-                  const progressPercent = focus.targetScore
-                    ? Math.max(0, Math.min(100, Math.round((focus.currentScore / focus.targetScore) * 100)))
-                    : 0
-                  return (
-                    <div
-                      key={focus.id}
-                      className="rounded-lg border border-maroon-100 bg-white p-4 shadow-sm space-y-3"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
+              {tajweedFocus.length > 0 && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-maroon-900">Tajweed focus areas</h4>
+                    <Badge variant="secondary" className="text-xs">
+                      {tajweedFocus.length} active
+                    </Badge>
+                  </div>
+                  {tajweedFocus.map((focus) => {
+                    const progressPercent = focus.targetScore
+                      ? Math.max(0, Math.min(100, Math.round((focus.currentScore / focus.targetScore) * 100)))
+                      : 0
+                    return (
+                      <div
+                        key={focus.id}
+                        className="rounded-lg border border-maroon-100 bg-white p-4 shadow-sm space-y-3"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-maroon-900">{focus.rule}</p>
+                            <p className="text-xs text-gray-600">{focus.focusArea}</p>
+                            <p className="text-xs text-gray-500">
+                              Assigned by {teacherMap.get(focus.teacherId) ?? "Instructor"}
+                            </p>
+                          </div>
+                          <Badge
+                            variant="secondary"
+                            className={`text-xs ${tajweedStatusStyles[focus.status] ?? ""}`}
+                          >
+                            {tajweedStatusLabels[focus.status] ?? focus.status}
+                          </Badge>
+                        </div>
                         <div>
-                          <p className="text-sm font-semibold text-maroon-900">{focus.rule}</p>
-                          <p className="text-xs text-gray-600">{focus.focusArea}</p>
-                          <p className="text-xs text-gray-500">
-                            Assigned by {teacherMap.get(focus.teacherId) ?? "Instructor"}
+                          <Progress value={progressPercent} className="h-2" />
+                          <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
+                            <span>Current {focus.currentScore}%</span>
+                            <span>Target {focus.targetScore}%</span>
+                          </div>
+                        </div>
+                        <div className="space-y-1 text-xs text-maroon-700">
+                          <p>{focus.notes}</p>
+                          <p className="text-gray-500">
+                            Last reviewed {focus.lastReviewed ? new Date(focus.lastReviewed).toLocaleString() : "Not yet"}
                           </p>
                         </div>
-                        <Badge
-                          variant="secondary"
-                          className={`text-xs ${tajweedStatusStyles[focus.status] ?? ""}`}
-                        >
-                          {tajweedStatusLabels[focus.status] ?? focus.status}
-                        </Badge>
-                      </div>
-                      <div>
-                        <Progress value={progressPercent} className="h-2" />
-                        <div className="mt-2 flex items-center justify-between text-xs text-gray-600">
-                          <span>Current {focus.currentScore}%</span>
-                          <span>Target {focus.targetScore}%</span>
+                        <div className="text-xs text-gray-600">
+                          <p className="font-semibold text-maroon-800">Recommended drills</p>
+                          <ul className="mt-1 list-disc list-inside space-y-1">
+                            {focus.recommendedExercises.map((exercise) => (
+                              <li key={exercise}>{exercise}</li>
+                            ))}
+                          </ul>
                         </div>
                       </div>
-                      <div className="space-y-1 text-xs text-maroon-700">
-                        <p>{focus.notes}</p>
-                        <p className="text-gray-500">
-                          Last reviewed {focus.lastReviewed ? new Date(focus.lastReviewed).toLocaleString() : "Not yet"}
-                        </p>
-                      </div>
-                      <div className="text-xs text-gray-600">
-                        <p className="font-semibold text-maroon-800">Recommended drills</p>
-                        <ul className="mt-1 list-disc list-inside space-y-1">
-                          {focus.recommendedExercises.map((exercise) => (
-                            <li key={exercise}>{exercise}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  )
-                })}
-                {tajweedFocus.length === 0 && (
-                  <div className="rounded-lg border border-dashed border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-700">
-                    Complete a recitation submission to unlock personalised tajweed insights.
-                  </div>
-                )}
-              </div>
+                    )
+                  })}
+                </div>
+              )}
 
               {nextRecitationTask && (
                 <div className="rounded-lg border border-maroon-100 bg-cream-50 p-4">
