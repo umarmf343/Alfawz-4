@@ -5,7 +5,7 @@ import type { CSSProperties } from "react"
 
 import { ArabicText } from "@/components/arabic-text"
 import { MushafOverlayMode, getTajweedRuleColor } from "@/lib/mushaf-fonts"
-import type { LiveMistake } from "@/lib/tajweed-analysis"
+import type { LiveMistake } from "@/lib/recitation-analysis"
 import type { Ayah as QuranAyah } from "@/lib/quran-api"
 import { cn } from "@/lib/utils"
 

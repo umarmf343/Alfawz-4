@@ -12,7 +12,7 @@ import {
   MISTAKE_CATEGORY_META,
   type LiveSessionSummary,
   type MistakeCategory,
-} from "@/lib/tajweed-analysis"
+} from "@/lib/recitation-analysis"
 import { createBrowserVoiceEngine, BrowserVoiceEngine } from "@/lib/voice/browser-voice-engine"
 
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
@@ -336,17 +336,17 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
 
     const summary: LiveSessionSummary = {
       ...baseSummary,
-      analysis: {
-        ...baseSummary.analysis,
-        engine: useOnDeviceAI ? "on-device" : baseSummary.analysis.engine,
-        latencyMs,
-        description: useOnDeviceAI
-          ? "Browser speech recognition processed locally with sub-200ms responsiveness."
-          : baseSummary.analysis.description,
-        stack: useOnDeviceAI
-          ? ["Web Speech API", "Device microphone", "Client tajwīd heuristics"]
-          : baseSummary.analysis.stack,
-      },
+        analysis: {
+          ...baseSummary.analysis,
+          engine: useOnDeviceAI ? "on-device" : baseSummary.analysis.engine,
+          latencyMs,
+          description: useOnDeviceAI
+            ? "Browser speech recognition processed locally with sub-200ms responsiveness."
+            : baseSummary.analysis.description,
+          stack: useOnDeviceAI
+            ? ["Web Speech API", "Device microphone", "Client recitation heuristics"]
+            : baseSummary.analysis.stack,
+        },
     }
 
     setTranscriptionResult(summary)

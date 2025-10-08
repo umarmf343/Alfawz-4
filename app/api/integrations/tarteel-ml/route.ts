@@ -35,7 +35,7 @@ const INFERENCE_PROFILE = {
   description:
     "TensorRT-optimised streaming keeps end-to-end recitation recognition under 200ms even on long surah segments.",
   poweredBy: "NVIDIA Tensor Core GPUs",
-  stack: ["NVIDIA TensorRT streaming", "CUDA 12.3 kernels", "Tarteel tajwīd scorer"],
+  stack: ["NVIDIA TensorRT streaming", "CUDA 12.3 kernels", "Tarteel recitation scorer"],
   telemetry: [
     {
       label: "Latency (p95)",
@@ -44,20 +44,20 @@ const INFERENCE_PROFILE = {
     },
     {
       label: "Mistake classes",
-      value: "6 word-level",
-      description: "Missed, incorrect, extra, harakat, pronunciation, tajweed deviations.",
+      value: "3 word-level",
+      description: "Missed, incorrect, and extra word deviations.",
     },
     {
       label: "Reliability",
       value: "99.5% uptime",
-      description: "Dual-region GPU workers with health-checked queues for tajwīd scoring.",
+      description: "Dual-region GPU workers with health-checked queues for recitation feedback.",
     },
   ],
 }
 
 const MISTAKE_DETECTION = {
   overview:
-    "Word-level detection mirrors the public Tarteel experience so reviewers can triage missed, incorrect, and tajwīd-specific cues immediately.",
+    "Word-level detection mirrors the public Tarteel experience so reviewers can triage missed, incorrect, and extra-word cues immediately.",
   categories: [
     {
       id: "missed_word",
@@ -69,9 +69,9 @@ const MISTAKE_DETECTION = {
     {
       id: "incorrect_word",
       label: "Incorrect words",
-      description: "Detects substitutions or misreadings before tajwīd overlays are generated.",
+      description: "Detects substitutions or misreadings before overlays are generated.",
       status: "production" as const,
-      highlights: ["Aligns Tarteel tokens with Mushaf text", "Captures makhārij drift for coaching"],
+      highlights: ["Aligns Tarteel tokens with Mushaf text", "Captures pronunciation drift for coaching"],
     },
     {
       id: "extra_word",
@@ -79,27 +79,6 @@ const MISTAKE_DETECTION = {
       description: "Flags insertions so learners trim unintended repetitions.",
       status: "production" as const,
       highlights: ["Triggered on repeated tokens", "Surfaces audio snippets for playback"],
-    },
-    {
-      id: "harakat",
-      label: "Fatha / Damma / Kasra",
-      description: "Monitors short-vowel accuracy with tajwīd-aligned heuristics.",
-      status: "beta" as const,
-      highlights: ["Diffs diacritics against Mushaf baselines", "Escalates to tajwīd specialists for review"],
-    },
-    {
-      id: "pronunciation",
-      label: "Pronunciation",
-      description: "Captures makhārij and heavy-letter articulation issues for rapid remediation.",
-      status: "production" as const,
-      highlights: ["Maps letters to articulation groups", "Supports live Tarteel prompts"],
-    },
-    {
-      id: "tajweed",
-      label: "Tajweed",
-      description: "Aggregates rule-specific deviations such as madd, ghunnah, and qalqalah.",
-      status: "production" as const,
-      highlights: ["Rule-level scoring exported to dashboards", "Syncs with Mushaf overlays"],
     },
   ],
 }

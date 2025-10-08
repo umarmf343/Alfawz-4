@@ -20,7 +20,7 @@ import {
 } from "lucide-react"
 
 import AppLayout from "@/components/app-layout"
-import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
+import { LiveRecitationAnalyzer } from "@/components/live-recitation-analyzer"
 import { MushafPageSpread } from "@/components/MushafPageSpread"
 import { SRSStudySession } from "@/components/srs-study-session"
 import { Badge } from "@/components/ui/badge"
@@ -41,7 +41,7 @@ import type {
 } from "@/lib/data/teacher-database"
 import type { SRSCard } from "@/lib/srs-algorithm"
 
-const FALLBACK_TAJWEED_SESSION = {
+const FALLBACK_RECITATION_SESSION = {
   surah: "Al-Fatiha",
   ayahRange: "1-3",
   verses: [
@@ -340,7 +340,11 @@ function RecitationBossGame({ task, onSubmit, isSubmitting, verses, surah, ayahR
         <CardContent className="space-y-6">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-lg border border-dashed border-maroon-200 bg-white">
-              <LiveTajweedAnalyzer surah={surah} ayahRange={ayahRange} verses={verses.length > 0 ? verses : FALLBACK_TAJWEED_SESSION.verses} />
+              <LiveRecitationAnalyzer
+                surah={surah}
+                ayahRange={ayahRange}
+                verses={verses.length > 0 ? verses : FALLBACK_RECITATION_SESSION.verses}
+              />
             </div>
             <div className="rounded-lg border border-dashed border-maroon-200 bg-white p-4 space-y-4">
               <div>
@@ -356,7 +360,7 @@ function RecitationBossGame({ task, onSubmit, isSubmitting, verses, surah, ayahR
                   id="practice-notes"
                   value={practiceNotes}
                   onChange={(event) => setPracticeNotes(event.target.value)}
-                  placeholder="Note tajweed rules, tricky transitions, or breath reminders."
+                  placeholder="Note recitation tips, tricky transitions, or breath reminders."
                   className="min-h-[140px]"
                 />
               </div>
@@ -492,7 +496,7 @@ function createHabitSteps(task: GamificationTaskRecord, habitTitle: string): str
   if (normalizedTitle.includes("recitation")) {
     return [
       "Warm up with three deep breaths while reciting basmala.",
-      "Recite today&apos;s assigned ayahs aloud focusing on tajweed cues.",
+      "Recite today&apos;s assigned ayahs aloud focusing on recitation cues.",
       "Record a quick audio snippet and listen back for clarity.",
       "Study today&apos;s Qur&apos;an word and verse meaning before logging completion.",
     ]
@@ -532,7 +536,7 @@ function buildSrsCards(
         userId: "learner",
         ayahId: `${taskId}_1`,
         surahId: taskId,
-        content: FALLBACK_TAJWEED_SESSION.verses[0]?.arabic ?? "",
+        content: FALLBACK_RECITATION_SESSION.verses[0]?.arabic ?? "",
         easeFactor,
         interval,
         repetitions,
@@ -770,9 +774,9 @@ export default function GameDetailPage() {
         task={task}
         onSubmit={async () => handleRecitationSubmit()}
         isSubmitting={isSubmittingRecitation}
-        verses={recitationTask?.verses ?? FALLBACK_TAJWEED_SESSION.verses}
-        surah={recitationTask?.surah ?? FALLBACK_TAJWEED_SESSION.surah}
-        ayahRange={recitationTask?.ayahRange ?? FALLBACK_TAJWEED_SESSION.ayahRange}
+        verses={recitationTask?.verses ?? FALLBACK_RECITATION_SESSION.verses}
+        surah={recitationTask?.surah ?? FALLBACK_RECITATION_SESSION.surah}
+        ayahRange={recitationTask?.ayahRange ?? FALLBACK_RECITATION_SESSION.ayahRange}
         targetAccuracy={recitationTask?.targetAccuracy ?? 90}
       />
     )
@@ -865,7 +869,7 @@ export default function GameDetailPage() {
                 </div>
                 <div className="flex items-start gap-2">
                   <ChevronRight className="h-4 w-4 text-maroon-500 mt-0.5" />
-                  Record a 30-second clip and listen back for tajweed consistency.
+                  Record a 30-second clip and listen back for recitation consistency.
                 </div>
                 <div className="flex items-start gap-2">
                   <ChevronRight className="h-4 w-4 text-maroon-500 mt-0.5" />

@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import AppLayout from "@/components/app-layout"
 import { PremiumGate } from "@/components/premium-gate"
 import { MushafPageSpread } from "@/components/MushafPageSpread"
-import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
+import { LiveRecitationAnalyzer } from "@/components/live-recitation-analyzer"
 import { useToast } from "@/hooks/use-toast"
 import { useUser } from "@/hooks/use-user"
 import { StudentWelcomeAudio } from "@/components/student/StudentWelcomeAudio"
@@ -1253,7 +1253,7 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              <LiveTajweedAnalyzer
+              <LiveRecitationAnalyzer
                 surah={liveAnalysisSurah}
                 ayahRange={liveAnalysisAyahRange ?? undefined}
                 verses={liveAnalysisVerses}

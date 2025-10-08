@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { createLiveSessionSummary } from "@/lib/tajweed-analysis"
+import { createLiveSessionSummary } from "@/lib/recitation-analysis"
 import { TarteelTranscriptionError, transcribeWithTarteel } from "@/lib/tarteel-client"
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
@@ -71,9 +71,8 @@ export async function POST(request: Request) {
         analysis: {
           engine: "tarteel",
           latencyMs: Number.isFinite(inferenceLatencyMs) ? Number(inferenceLatencyMs) : null,
-          description:
-            "Cloud-hosted Tarteel recitation engine with tajwīd-aware scoring tuned for sub-200ms response times.",
-          stack: ["Tarteel speech recognition", "tarteel-ml alignment", "Tajwīd scoring service"],
+          description: "Cloud-hosted Tarteel transcription with streamlined word-level feedback.",
+          stack: ["Tarteel speech recognition", "Word alignment", "Recitation feedback heuristics"],
         },
       })
 

@@ -14,7 +14,7 @@ import { useSpeechRecognition, type SpeechRecognitionResultPayload } from "@/hoo
 import { useMicrophoneStream } from "@/hooks/useMicrophoneStream"
 import { encodePcmAsWav } from "@/lib/audio/pcm"
 
-interface LiveTajweedAnalyzerProps {
+interface LiveRecitationAnalyzerProps {
   surah: string
   ayahRange?: string
   verses: RecitationVerseRecord[]
@@ -60,7 +60,7 @@ const ARABIC_DIACRITICS = /[\u064B-\u065F\u0670]/g
 const ARABIC_TATWEEL = /\u0640/g
 const NON_ARABIC = /[^\u0621-\u064A\s]/g
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
-  "AI transcription isn't configured on this server yet. Add a TARTEEL_API_KEY to enable live tajweed analysis."
+  "AI transcription isn't configured on this server yet. Add a TARTEEL_API_KEY to enable live recitation analysis."
 const STREAM_CHUNK_TARGET_MS = 2500
 
 function normalizeArabic(input: string): string {
@@ -140,12 +140,12 @@ function buildHint(expected: string, heard: string, severity: IssueDescriptor["s
     return "There is a slight drift from the written form. Soften the articulation and keep the makhārij precise."
   }
   if (heard) {
-    return `The recogniser heard “${heard}”. Re-articulate to match the written word exactly and observe its tajweed rule.`
+    return `The recogniser heard “${heard}”. Re-articulate to match the written word exactly and stay aligned with the text.`
   }
-  return "Re-articulate this word carefully, paying attention to its specific tajweed characteristics."
+  return "Re-articulate this word carefully, focusing on clear pronunciation."
 }
 
-export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAnalyzerProps) {
+export function LiveRecitationAnalyzer({ surah, ayahRange, verses }: LiveRecitationAnalyzerProps) {
   const [transcript, setTranscript] = useState("")
   const [interimTranscript, setInterimTranscript] = useState("")
   const [recognizedTokens, setRecognizedTokens] = useState<string[]>([])
@@ -532,8 +532,8 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
           updateTranscriptFromChunk(result.transcription)
         }
       } catch (caught) {
-        console.error("Failed to finalise live tajweed analysis", caught)
-        setError("We couldn't generate the final tajweed summary. You can record another attempt and try again.")
+        console.error("Failed to finalise live recitation analysis", caught)
+        setError("We couldn't generate the final recitation summary. You can record another attempt and try again.")
       } finally {
         setIsFinalizing(false)
         allChunksRef.current = []
@@ -548,7 +548,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
     }
 
     if (!isSupported && !isStreamSupported) {
-      setError("Your browser does not support live tajweed analysis. Please try a modern Chromium-based browser.")
+      setError("Your browser does not support live recitation analysis. Please try a modern Chromium-based browser.")
       return
     }
 
@@ -865,7 +865,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
       <CardHeader className="space-y-1.5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <CardTitle className="text-lg flex items-center gap-2 text-maroon-900">
-            <Sparkles className="w-5 h-5 text-maroon-600" /> Live Tajweed Analyzer
+            <Sparkles className="w-5 h-5 text-maroon-600" /> Live Recitation Analyzer
           </CardTitle>
           <Badge
             variant={isListening ? "default" : "secondary"}
@@ -875,7 +875,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
           </Badge>
         </div>
         <p className="text-sm text-gray-600">
-          Real-time tajweed feedback for Surah {surah}
+          Real-time recitation feedback for Surah {surah}
           {ayahRange ? ` • ${ayahRange}` : ayahSummary ? ` • ${ayahSummary}` : ""}
         </p>
       </CardHeader>
@@ -885,7 +885,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
             <AlertCircle className="w-4 h-4" />
             <AlertTitle className="text-sm font-semibold">Browser not supported</AlertTitle>
             <AlertDescription className="text-xs text-muted-foreground">
-              Your browser does not support the MediaRecorder API required for live tajweed analysis. Please use a modern Chrome
+              Your browser does not support the MediaRecorder API required for live recitation analysis. Please use a modern Chrome
               or Edge browser.
             </AlertDescription>
           </Alert>
@@ -988,7 +988,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                       {correctCount} of {expectedTokens.length} words matched
                     </span>
                     <span>
-                      {analysisIssues.length} tajweed cue{analysisIssues.length === 1 ? "" : "s"} detected
+                      {analysisIssues.length} recitation cue{analysisIssues.length === 1 ? "" : "s"} detected
                     </span>
                     {extraTokens > 0 && (
                       <Badge variant="outline" className="text-xs border-amber-300 text-amber-700">
@@ -1005,7 +1005,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
 
                 <div className="space-y-2">
                   <h4 className="text-sm font-semibold text-maroon-900 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-amber-500" /> Tajweed cues
+                    <AlertCircle className="w-4 h-4 text-amber-500" /> Recitation cues
                   </h4>
                   {analysisIssues.length > 0 ? (
                     <div className="space-y-3">
@@ -1045,14 +1045,14 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                     </div>
                   ) : (
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-sm text-emerald-700">
-                      No tajweed deviations detected so far. Keep the beautiful recitation flowing.
+                      No recitation deviations detected so far. Keep the beautiful recitation flowing.
                     </div>
                   )}
                 </div>
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-maroon-200 bg-white/70 p-4 text-sm text-maroon-700">
-                Start the live analysis to stream the Qur&apos;an text you recite and highlight tajweed feedback in real time.
+                Start the live analysis to stream the Qur&apos;an text you recite and highlight recitation feedback in real time.
               </div>
             )}
 
@@ -1154,7 +1154,7 @@ export function LiveTajweedAnalyzer({ surah, ayahRange, verses }: LiveTajweedAna
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-gray-300 bg-white/70 p-4 text-sm text-gray-600">
-                    Tarteel is compiling the detailed tajweed summary for this session.
+                    Tarteel is compiling the detailed recitation summary for this session.
                   </div>
                 )}
               </div>

@@ -5,7 +5,7 @@ import { useMemo } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { MISTAKE_CATEGORY_META, type LiveMistake } from "@/lib/tajweed-analysis"
+import { MISTAKE_CATEGORY_META, type LiveMistake } from "@/lib/recitation-analysis"
 import type { MushafOverlayMode } from "@/lib/mushaf-fonts"
 import { cn } from "@/lib/utils"
 import { Activity, Mic, MicOff, Sparkles } from "lucide-react"
@@ -53,7 +53,7 @@ export function MobileRecitationClient({
     }
 
     if (overlayMode === "tajweed") {
-      return "Highlighting tajweed guidance"
+      return "Highlighting recitation guidance"
     }
 
     return "Highlighting pronunciation issues"
@@ -106,9 +106,9 @@ export function MobileRecitationClient({
               {!isLiveAnalysisSupported
                 ? unavailableMessage ||
                   "AI transcription isn't configured on this server yet. Add a TARTEEL_API_KEY and refresh."
-                : isLiveAnalysisActive
-                  ? "Speak clearly and maintain a steady pace."
-                  : "Tap the button to begin tajweed analysis."}
+                  : isLiveAnalysisActive
+                    ? "Speak clearly and maintain a steady pace."
+                    : "Tap the button to begin recitation analysis."}
             </p>
           )}
         </div>
@@ -125,14 +125,14 @@ export function MobileRecitationClient({
             {transcription ? transcription : "Your words will appear here during recitation."}
           </p>
           {latestMistake && overlayMode !== "none" && (
-            <div className="rounded-md border border-amber-300/60 bg-amber-50/70 p-2 text-xs text-amber-900">
-              <div className="flex items-center gap-1 font-medium">
-                <Sparkles className="h-3.5 w-3.5" /> Tajweed cue
-              </div>
-              <p className="mt-1">
-                {latestMistake.tajweedRules && latestMistake.tajweedRules.length > 0
-                  ? latestMistake.tajweedRules.join(", ")
-                  : "We detected a pronunciation issue. Review and try again."}
+              <div className="rounded-md border border-amber-300/60 bg-amber-50/70 p-2 text-xs text-amber-900">
+                <div className="flex items-center gap-1 font-medium">
+                  <Sparkles className="h-3.5 w-3.5" /> Recitation cue
+                </div>
+                <p className="mt-1">
+                  {latestMistake.tajweedRules && latestMistake.tajweedRules.length > 0
+                    ? latestMistake.tajweedRules.join(", ")
+                    : "We detected a pronunciation issue. Review and try again."}
               </p>
               {latestCategories.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1">
