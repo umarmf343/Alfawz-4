@@ -1,3 +1,11 @@
+import {
+  compareWords,
+  resolveDialect,
+  type DialectCode,
+  type DialectDetectionSource,
+  type DialectPhoneticModel,
+} from "./phonetics"
+
 const ARABIC_LETTER_REGEX = /\p{Script=Arabic}/gu
 
 export type MistakeCategory = "missed_word" | "incorrect_word" | "extra_word"
@@ -30,10 +38,20 @@ type Token = { raw: string; normalized: string }
 
 type MutableCategoryCount = Partial<Record<MistakeCategory, number>>
 
-type AlignmentEntry =
-  | { type: "match"; expected: string; detected: string; similarity: number }
-  | { type: "missing"; expected: string }
-  | { type: "extra"; detected: string }
+type MatchAlignmentEntry = {
+  type: "match"
+  expected: string
+  detected: string
+  similarity: number
+  textSimilarity: number
+  phoneticSimilarity: number
+}
+
+type MissingAlignmentEntry = { type: "missing"; expected: string }
+
+type ExtraAlignmentEntry = { type: "extra"; detected: string }
+
+type AlignmentEntry = MatchAlignmentEntry | MissingAlignmentEntry | ExtraAlignmentEntry
 
 export type LiveMistake = {
   index: number
@@ -41,6 +59,12 @@ export type LiveMistake = {
   word?: string
   correct?: string
   similarity?: number
+  similarityBreakdown?: {
+    combined: number
+    text: number
+    phonetic: number
+  }
+  confidence: number
   categories: MistakeCategory[]
   /**
    * Legacy field retained for compatibility with components that expect tajwīd
@@ -63,6 +87,38 @@ export type MistakeBreakdownEntry = {
   count: number
 }
 
+export type AlignmentConfidenceType = "match" | "missing" | "extra" | "substitution"
+
+export type AlignmentConfidenceEntry = {
+  index: number
+  type: AlignmentConfidenceType
+  confidence: number
+  expected?: string
+  detected?: string
+}
+
+export type MistakeConfidenceEntry = {
+  index: number
+  type: LiveMistake["type"]
+  confidence: number
+}
+
+export type ConfidenceBreakdown = {
+  overall: number
+  mistakes: MistakeConfidenceEntry[]
+  alignment: AlignmentConfidenceEntry[]
+}
+
+export type DialectInsight = {
+  code: DialectCode
+  label: string
+  description: string
+  source: DialectDetectionSource
+  weight: number
+  detectionConfidence: number
+  reasons: string[]
+}
+
 export type LiveSessionSummary = {
   transcription: string
   expectedText: string
@@ -81,8 +137,11 @@ export type LiveSessionSummary = {
       expected?: string
       transcribed?: string
       categories: MistakeCategory[]
+      confidence: number
     }[]
   }
+  confidence: ConfidenceBreakdown
+  dialect: DialectInsight
   hasanatPoints: number
   arabicLetterCount: number
   words?: { start: number; end: number; word: string }[]
@@ -97,13 +156,6 @@ const splitWords = (text: string): string[] =>
     .split(/\s+/)
     .filter((word) => word.length > 0)
 
-const normalizeForComparison = (word: string): string =>
-  word
-    .normalize("NFC")
-    .replace(/[\u0640\u200c\u200d]/g, "")
-    .replace(/[^\p{Letter}\p{Mark}\p{Number}]+/gu, "")
-    .toLowerCase()
-
 const normalizeForScoring = (word: string): string =>
   word
     .normalize("NFC")
@@ -112,57 +164,17 @@ const normalizeForScoring = (word: string): string =>
     .replace(/[^\p{Letter}\p{Mark}\p{Number}]+/gu, "")
     .toLowerCase()
 
-const levenshtein = (a: string, b: string): number => {
-  if (a === b) return 0
-  if (a.length === 0) return b.length
-  if (b.length === 0) return a.length
-
-  const matrix: number[][] = Array.from({ length: a.length + 1 }, () => Array(b.length + 1).fill(0))
-
-  for (let i = 0; i <= a.length; i += 1) {
-    matrix[i][0] = i
-  }
-  for (let j = 0; j <= b.length; j += 1) {
-    matrix[0][j] = j
-  }
-
-  for (let i = 1; i <= a.length; i += 1) {
-    for (let j = 1; j <= b.length; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      matrix[i][j] = Math.min(
-        matrix[i - 1][j] + 1,
-        matrix[i][j - 1] + 1,
-        matrix[i - 1][j - 1] + cost,
-      )
-    }
-  }
-
-  return matrix[a.length][b.length]
+type AlignmentContext = {
+  model: DialectPhoneticModel
+  substitutionThreshold: number
 }
 
-const wordSimilarity = (a: string, b: string): number => {
-  const normalizedA = normalizeForComparison(a)
-  const normalizedB = normalizeForComparison(b)
-  if (!normalizedA && !normalizedB) {
-    return 1
-  }
-  if (!normalizedA || !normalizedB) {
-    return 0
-  }
-
-  const distance = levenshtein(normalizedA, normalizedB)
-  const maxLength = Math.max(normalizedA.length, normalizedB.length)
-  if (maxLength === 0) {
-    return 1
-  }
-
-  return 1 - distance / maxLength
-}
+const DEFAULT_SUBSTITUTION_THRESHOLD = 0.75
 
 const tokenize = (text: string): Token[] =>
   splitWords(text).map((word) => ({ raw: word, normalized: normalizeForScoring(word) }))
 
-const alignWords = (expected: string, detected: string): AlignmentEntry[] => {
+const alignWords = (expected: string, detected: string, context: AlignmentContext): AlignmentEntry[] => {
   const expectedWords = tokenize(expected)
   const detectedWords = tokenize(detected)
 
@@ -190,7 +202,8 @@ const alignWords = (expected: string, detected: string): AlignmentEntry[] => {
 
   for (let i = 1; i <= m; i += 1) {
     for (let j = 1; j <= n; j += 1) {
-      const substitutionPenalty = 1 - wordSimilarity(expectedWords[i - 1].raw, detectedWords[j - 1].raw)
+      const comparison = compareWords(expectedWords[i - 1].raw, detectedWords[j - 1].raw, context.model)
+      const substitutionPenalty = 1 - comparison.combinedSimilarity
       let best = dp[i - 1][j - 1] + substitutionPenalty
       let choice: "match" | "delete" | "insert" = "match"
 
@@ -220,12 +233,14 @@ const alignWords = (expected: string, detected: string): AlignmentEntry[] => {
     if (i > 0 && j > 0 && action === "match") {
       const expectedWord = expectedWords[i - 1]
       const detectedWord = detectedWords[j - 1]
-      const similarity = wordSimilarity(expectedWord.raw, detectedWord.raw)
+      const comparison = compareWords(expectedWord.raw, detectedWord.raw, context.model)
       result.unshift({
-        type: similarity >= 0.75 ? "match" : "match",
+        type: "match",
         expected: expectedWord.raw,
         detected: detectedWord.raw,
-        similarity,
+        similarity: comparison.combinedSimilarity,
+        textSimilarity: comparison.textSimilarity,
+        phoneticSimilarity: comparison.phoneticSimilarity,
       })
       i -= 1
       j -= 1
@@ -257,19 +272,53 @@ const buildErrorMessage = (mistake: LiveMistake) => {
 
 const countArabicLetters = (text: string) => Array.from(text).filter((char) => ARABIC_LETTER_REGEX.test(char)).length
 
-const collectMistakes = (alignment: AlignmentEntry[]): LiveMistake[] => {
+const calculateMistakeConfidence = (
+  entry: MatchAlignmentEntry | null,
+  type: LiveMistake["type"],
+  context: AlignmentContext,
+): number => {
+  if (type === "substitution") {
+    const similarity = entry?.similarity ?? 0
+    const phoneticSimilarity = entry?.phoneticSimilarity ?? 0
+    const divergence = 1 - similarity
+    const base = 55 + divergence * 45
+    const phoneticPenalty = phoneticSimilarity * 35 * (1 - context.model.weight * 0.5)
+    const adjusted = base - phoneticPenalty + context.model.weight * 10
+    return clampScore(adjusted)
+  }
+
+  if (type === "missing") {
+    const base = 70 + context.model.weight * 20
+    return clampScore(base)
+  }
+
+  if (type === "extra") {
+    const base = 68 + (1 - context.model.weight) * 15
+    return clampScore(base)
+  }
+
+  return clampScore(60)
+}
+
+const collectMistakes = (alignment: AlignmentEntry[], context: AlignmentContext): LiveMistake[] => {
   const mistakes: LiveMistake[] = []
   let expectedIndex = 0
 
   alignment.forEach((entry) => {
     if (entry.type === "match") {
-      if (entry.similarity < 0.75) {
+      if (entry.similarity < context.substitutionThreshold) {
         mistakes.push({
           index: expectedIndex,
           type: "substitution",
           word: entry.detected,
           correct: entry.expected,
           similarity: entry.similarity,
+          similarityBreakdown: {
+            combined: entry.similarity,
+            text: entry.textSimilarity,
+            phonetic: entry.phoneticSimilarity,
+          },
+          confidence: calculateMistakeConfidence(entry, "substitution", context),
           categories: ["incorrect_word"],
         })
       }
@@ -282,6 +331,7 @@ const collectMistakes = (alignment: AlignmentEntry[]): LiveMistake[] => {
         index: expectedIndex,
         type: "missing",
         correct: entry.expected,
+        confidence: calculateMistakeConfidence(null, "missing", context),
         categories: ["missed_word"],
       })
       expectedIndex += 1
@@ -292,12 +342,56 @@ const collectMistakes = (alignment: AlignmentEntry[]): LiveMistake[] => {
       index: expectedIndex,
       type: "extra",
       word: entry.detected,
+      confidence: calculateMistakeConfidence(null, "extra", context),
       categories: ["extra_word"],
     })
   })
 
   return mistakes
 }
+
+const buildAlignmentConfidence = (
+  alignment: AlignmentEntry[],
+  context: AlignmentContext,
+): AlignmentConfidenceEntry[] =>
+  alignment.map((entry, index) => {
+    if (entry.type === "match") {
+      const isSubstitution = entry.similarity < context.substitutionThreshold
+      if (isSubstitution) {
+        return {
+          index,
+          type: "substitution" as const,
+          confidence: calculateMistakeConfidence(entry, "substitution", context),
+          expected: entry.expected,
+          detected: entry.detected,
+        }
+      }
+
+      return {
+        index,
+        type: "match" as const,
+        confidence: clampScore(entry.similarity * 100),
+        expected: entry.expected,
+        detected: entry.detected,
+      }
+    }
+
+    if (entry.type === "missing") {
+      return {
+        index,
+        type: "missing" as const,
+        confidence: calculateMistakeConfidence(null, "missing", context),
+        expected: entry.expected,
+      }
+    }
+
+    return {
+      index,
+      type: "extra" as const,
+      confidence: calculateMistakeConfidence(null, "extra", context),
+      detected: entry.detected,
+    }
+  })
 
 export const createLiveSessionSummary = (
   transcription: string,
@@ -306,17 +400,41 @@ export const createLiveSessionSummary = (
     durationSeconds?: number
     ayahId?: string
     analysis?: Partial<LiveAnalysisProfile>
+    dialect?: DialectCode | "auto"
+    localeHint?: string | null
+    substitutionThreshold?: number
   } = {},
 ): LiveSessionSummary => {
   const trimmedTranscription = transcription.trim()
   const trimmedExpected = expectedText.trim()
-  const alignment = alignWords(trimmedExpected, trimmedTranscription)
-  const mistakes = collectMistakes(alignment)
+  const dialectResolution = resolveDialect(options.dialect ?? "auto", {
+    expectedText: trimmedExpected,
+    transcript: trimmedTranscription,
+    localeHint: options.localeHint ?? null,
+    fallback: "standard",
+  })
+  const substitutionThreshold = Number.isFinite(options.substitutionThreshold)
+    ? Math.max(0.5, Math.min(0.95, Number(options.substitutionThreshold)))
+    : DEFAULT_SUBSTITUTION_THRESHOLD
+
+  const alignmentContext: AlignmentContext = {
+    model: dialectResolution.model,
+    substitutionThreshold,
+  }
+
+  const alignment = alignWords(trimmedExpected, trimmedTranscription, alignmentContext)
+  const mistakes = collectMistakes(alignment, alignmentContext)
+  const alignmentConfidence = buildAlignmentConfidence(alignment, alignmentContext)
+  const mistakeConfidenceEntries = mistakes.map((mistake) => ({
+    index: mistake.index,
+    type: mistake.type,
+    confidence: mistake.confidence,
+  }))
 
   const expectedTokens = splitWords(trimmedExpected)
   const totalExpected = expectedTokens.length || 1
   const correctCount = alignment.filter(
-    (entry) => entry.type === "match" && (entry as AlignmentEntry & { similarity: number }).similarity >= 0.75,
+    (entry) => entry.type === "match" && (entry as MatchAlignmentEntry).similarity >= substitutionThreshold,
   ).length
   const accuracy = clampScore((correctCount / totalExpected) * 100)
 
@@ -350,6 +468,7 @@ export const createLiveSessionSummary = (
     expected: mistake.correct,
     transcribed: mistake.word,
     categories: mistake.categories,
+    confidence: mistake.confidence,
   }))
 
   const categoryCounts = mistakes.reduce<MutableCategoryCount>((acc, mistake) => {
@@ -366,22 +485,61 @@ export const createLiveSessionSummary = (
     count: categoryCounts[category] ?? 0,
   })).filter((entry) => entry.count > 0)
 
+  const alignmentConfidenceAverage =
+    alignmentConfidence.length > 0
+      ? alignmentConfidence.reduce((sum, entry) => sum + entry.confidence, 0) / alignmentConfidence.length
+      : 100
+
+  const mistakeConfidenceAverage =
+    mistakeConfidenceEntries.length > 0
+      ? mistakeConfidenceEntries.reduce((sum, entry) => sum + entry.confidence, 0) / mistakeConfidenceEntries.length
+      : alignmentConfidenceAverage
+
+  const overallConfidenceScore = clampScore(alignmentConfidenceAverage * 0.6 + mistakeConfidenceAverage * 0.4)
+
+  const confidence: ConfidenceBreakdown = {
+    overall: overallConfidenceScore,
+    mistakes: mistakeConfidenceEntries,
+    alignment: alignmentConfidence,
+  }
+
+  const dialectInsight: DialectInsight = {
+    code: dialectResolution.model.code,
+    label: dialectResolution.model.label,
+    description: dialectResolution.model.description,
+    source: dialectResolution.source,
+    weight: dialectResolution.model.weight,
+    detectionConfidence: clampScore(dialectResolution.confidence * 100),
+    reasons: dialectResolution.reasons,
+  }
+
   const analysisEngine = options.analysis?.engine ?? "on-device"
+  const baseStack =
+    options.analysis?.stack ??
+    (analysisEngine === "tarteel"
+      ? ["Tarteel speech recognition", "Word-level alignment", "Recitation feedback heuristics"]
+      : ["Browser speech recognition", "Word-level alignment", "Recitation feedback heuristics"])
+  const stackWithDialect = baseStack.includes("Dialect-adaptive phonetic alignment")
+    ? baseStack
+    : [...baseStack, "Dialect-adaptive phonetic alignment"]
+
+  const baseDescription =
+    options.analysis?.description ??
+    (analysisEngine === "tarteel"
+      ? "Tarteel transcription with simplified word-level alignment."
+      : analysisEngine === "nvidia"
+        ? "GPU-accelerated transcription with lightweight word alignment."
+        : "Client-side speech recognition paired with lightweight word alignment.")
+
+  const descriptionWithDialect = baseDescription.includes(dialectResolution.model.label)
+    ? baseDescription
+    : `${baseDescription} Dialect model: ${dialectResolution.model.label}.`
+
   const analysis: LiveAnalysisProfile = {
     engine: analysisEngine,
     latencyMs: options.analysis?.latencyMs ?? null,
-    description:
-      options.analysis?.description ??
-      (analysisEngine === "tarteel"
-        ? "Tarteel transcription with simplified word-level alignment."
-        : analysisEngine === "nvidia"
-          ? "GPU-accelerated transcription with lightweight word alignment."
-          : "Client-side speech recognition paired with lightweight word alignment."),
-    stack:
-      options.analysis?.stack ??
-      (analysisEngine === "tarteel"
-        ? ["Tarteel speech recognition", "Word-level alignment", "Recitation feedback heuristics"]
-        : ["Browser speech recognition", "Word-level alignment", "Recitation feedback heuristics"]),
+    description: descriptionWithDialect,
+    stack: stackWithDialect,
   }
 
   const hasanatPoints = Math.max(5, Math.round((accuracy / 100) * totalExpected * 4))
@@ -406,6 +564,8 @@ export const createLiveSessionSummary = (
       feedback: qualitativeFeedback,
       errors,
     },
+    confidence,
+    dialect: dialectInsight,
     hasanatPoints,
     arabicLetterCount,
     words,

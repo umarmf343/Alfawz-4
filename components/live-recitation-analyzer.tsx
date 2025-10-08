@@ -1111,6 +1111,32 @@ export function LiveRecitationAnalyzer({ surah, ayahRange, verses }: LiveRecitat
                       </div>
                     </div>
 
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3">
+                        <p className="text-xs font-semibold uppercase text-emerald-700">Detection confidence</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xl font-semibold text-emerald-800">{finalSummary.confidence.overall}%</span>
+                          <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">
+                            {finalSummary.confidence.mistakes.length} uncertain words
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-emerald-800">
+                          Combines phonetic and textual similarity. Lower-confidence words may require human review.
+                        </p>
+                      </div>
+                      <div className="space-y-2 rounded-lg border border-indigo-200 bg-indigo-50/70 p-3">
+                        <p className="text-xs font-semibold uppercase text-indigo-700">Dialect model</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-indigo-900">{finalSummary.dialect.label}</span>
+                          <Badge variant="secondary" className="bg-indigo-100 text-indigo-700">
+                            {finalSummary.dialect.detectionConfidence}% match
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-indigo-700">{finalSummary.dialect.description}</p>
+                        <p className="text-[11px] text-indigo-600">Source: {finalSummary.dialect.source}</p>
+                      </div>
+                    </div>
+
                     <div className="rounded-lg border border-gold-200 bg-gold-50/80 p-4 text-center">
                       <p className="text-xs uppercase tracking-wide text-gold-700">Hasanat earned</p>
                       <p className="text-3xl font-bold text-gold-700">+{finalSummary.hasanatPoints}</p>
@@ -1131,6 +1157,7 @@ export function LiveRecitationAnalyzer({ surah, ayahRange, verses }: LiveRecitat
                             <div key={`${issue.type}-${index}`} className="rounded-md border border-amber-200 bg-amber-50/80 p-3 text-xs">
                               <p className="font-semibold text-maroon-800 capitalize">{issue.type}</p>
                               <p className="text-maroon-700 mt-1">{issue.message}</p>
+                              <p className="text-[11px] text-blue-700">Confidence {issue.confidence ?? finalSummary.confidence.overall}%</p>
                             </div>
                           ))}
                         </div>
