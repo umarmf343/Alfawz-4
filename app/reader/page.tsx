@@ -283,6 +283,7 @@ export default function QuranReaderPage() {
   const [sessionHasanat, setSessionHasanat] = useState(0)
   const [hasanatPopups, setHasanatPopups] = useState<HasanatPopup[]>([])
   const [celebration, setCelebration] = useState<CelebrationState | null>(null)
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
   const isCelebrationOpen = Boolean(celebration)
   const [hasDailyGoalCelebrated, setHasDailyGoalCelebrated] = useState(false)
   const [recitationMetrics, setRecitationMetrics] = useState<RecitationMetric[]>(() => [
@@ -395,7 +396,11 @@ export default function QuranReaderPage() {
     }
 
     const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)")
-    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches)
+    const updatePreference = () => {
+      const prefersReduced = mediaQuery.matches
+      setPrefersReducedMotion(prefersReduced)
+      tokenSpawner.setReducedMotionPreference(prefersReduced)
+    }
 
     updatePreference()
 
@@ -1872,7 +1877,7 @@ export default function QuranReaderPage() {
   ])
 
   useEffect(() => {
-    if (!celebration) {
+    if (!celebration || prefersReducedMotion) {
       return
     }
 
@@ -1923,7 +1928,7 @@ export default function QuranReaderPage() {
         window.clearTimeout(timeoutId)
       }
     }
-  }, [celebration])
+  }, [celebration, prefersReducedMotion])
 
   const isLiveAnalysisActive = isRecording || isAnalysisStarted
   const highlightedTranscription = useMemo(() => {
