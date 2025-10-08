@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import dynamic from "next/dynamic"
 import { useCallback, useMemo, useState } from "react"
 import { BookOpen, Clock, Sparkles, Trophy } from "lucide-react"
 
@@ -15,6 +16,21 @@ import type { DailySurahRecommendation } from "@/lib/daily-surah"
 interface DailySurahRecitationExperienceProps {
   detail: DailySurahRecommendation
 }
+
+const QuranReader = dynamic(
+  () => import("@/components/quran-reader").then((module) => module.QuranReader),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-64 items-center justify-center rounded-2xl border border-maroon-100 bg-white/80">
+        <div className="space-y-2 text-center">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-maroon-600 border-t-transparent" />
+          <p className="text-sm text-maroon-700">Preparing Qur&apos;an reader…</p>
+        </div>
+      </div>
+    ),
+  },
+)
 
 export function DailySurahRecitationExperience({ detail }: DailySurahRecitationExperienceProps) {
   const { dashboard, completeDailySurahRecitation } = useUser()
@@ -33,6 +49,18 @@ export function DailySurahRecitationExperience({ detail }: DailySurahRecitationE
     () => detail.sections.reduce((sum, section) => sum + section.ayahCount, 0),
     [detail.sections],
   )
+
+  const primarySection = detail.sections[0]
+  const initialSurahNumber = primarySection?.surahNumber ?? 1
+  const initialAyahNumber = useMemo(() => {
+    const firstVerseKey = primarySection?.verses[0]?.key
+    if (!firstVerseKey) {
+      return 1
+    }
+    const [, ayahPart] = firstVerseKey.split(":")
+    const ayahNumber = Number.parseInt(ayahPart ?? "1", 10)
+    return Number.isNaN(ayahNumber) ? 1 : ayahNumber
+  }, [primarySection?.verses])
 
   const launchConfetti = useCallback(async () => {
     const confetti = (await import("canvas-confetti")).default
@@ -146,6 +174,28 @@ export function DailySurahRecitationExperience({ detail }: DailySurahRecitationE
             {celebrationMessage}
           </div>
         )}
+      </section>
+
+      <section className="space-y-4">
+        <div className="rounded-2xl border border-maroon-100 bg-white/90 p-4 shadow-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1 text-sm text-maroon-700">
+              <p className="font-semibold text-maroon-900">Interactive Qur&apos;an session</p>
+              <p>Recite directly inside the reader below—navigate verses, play audio, and keep your hasanāt momentum going.</p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+              {detail.sections.map((section) => (
+                <span
+                  key={section.surahNumber}
+                  className="rounded-full border border-maroon-200 bg-cream-50 px-3 py-1 font-medium text-maroon-700"
+                >
+                  Surah {section.englishName}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <QuranReader initialSurah={initialSurahNumber} initialAyah={initialAyahNumber} />
       </section>
 
       <section className="space-y-4">
