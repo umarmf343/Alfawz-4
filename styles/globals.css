@@ -162,6 +162,49 @@
   }
 }
 
+@keyframes hasanatTokenFloat {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(-50%, calc(-50% - 10px)) scale(1);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(-50%, calc(-50% - var(--hasanat-float-distance, 72px))) scale(1.02);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% - var(--hasanat-float-distance, 84px))) scale(1);
+  }
+}
+
+@keyframes hasanatCounterPulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes hasanatCounterFlash {
+  0% {
+    opacity: 1;
+  }
+  45% {
+    opacity: 0.65;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
 @layer utilities {
   .animate-hasanat-float {
     animation: hasanatFloat 1.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
@@ -169,5 +212,18 @@
 
   .animate-hasanat-rise-from-button {
     animation: hasanatRiseFromButton 1.6s cubic-bezier(0.2, 0.8, 0.4, 1) forwards;
+  }
+
+  .animate-hasanat-token-float {
+    animation: hasanatTokenFloat var(--hasanat-float-duration, 900ms)
+      cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .animate-hasanat-counter {
+    animation: hasanatCounterPulse 0.2s ease-out;
+  }
+
+  .animate-hasanat-counter-reduced {
+    animation: hasanatCounterFlash 0.2s ease-out;
   }
 }

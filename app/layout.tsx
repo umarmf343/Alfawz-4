@@ -8,6 +8,7 @@ import { Tajawal } from "next/font/google"
 import "./globals.css"
 import { UserProvider } from "@/components/user-provider"
 import { Toaster } from "@/components/ui/toaster"
+import { FloatingTokensLayer } from "@/components/hasanat/floating-tokens-layer"
 
 const tajawal = Tajawal({ subsets: ["arabic"], weight: ["400", "700"], variable: "--font-tajawal" })
 
@@ -43,6 +44,7 @@ export default function RootLayout({
       <body className={`font-sans ${GeistSans.variable} ${GeistMono.variable} ${tajawal.variable} antialiased`}>
         <UserProvider>
           <Suspense fallback={<div>Loading...</div>}>{children}</Suspense>
+          <FloatingTokensLayer />
           <Toaster />
         </UserProvider>
         {isAnalyticsEnabled ? <Analytics /> : null}
