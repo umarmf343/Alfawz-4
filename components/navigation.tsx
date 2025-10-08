@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useUser } from "@/hooks/use-user"
@@ -29,7 +29,8 @@ import {
 export default function Navigation() {
   const [isOpen, setIsOpen] = useState(false)
   const pathname = usePathname()
-  const { profile, isPremium } = useUser()
+  const router = useRouter()
+  const { profile, isPremium, signOut } = useUser()
 
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: Home },
@@ -190,7 +191,9 @@ export default function Navigation() {
               className="w-full justify-start text-gray-700 bg-transparent"
               onClick={() => {
                 console.log("[v0] User logging out")
-                // In a real implementation, this would handle logout
+                signOut()
+                setIsOpen(false)
+                router.push("/auth/login")
               }}
             >
               <LogOut className="h-4 w-4 mr-2" />
