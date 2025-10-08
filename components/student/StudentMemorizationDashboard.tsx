@@ -7,7 +7,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -15,6 +14,13 @@ import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
 import { Toggle } from "@/components/ui/toggle"
 import { useToast } from "@/components/ui/use-toast"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   type CreatePersonalPlanPayload,
   type StudentMemorizationPlanContextDTO,
@@ -24,8 +30,8 @@ import {
 import { formatVerseReference } from "@/lib/quran-data"
 import {
   expandVerseRange,
+  getSurahOptions,
   normalizeVerseKey,
-  parseCommaSeparatedVerseKeys,
   validateVerseKeys,
 } from "@/lib/verse-validator"
 import { cn } from "@/lib/utils"
@@ -43,6 +49,7 @@ interface PersonalTemplate {
   description: string
   verseKeys: string[]
   badge?: string
+  isCustom?: boolean
 }
 
 const cadenceOptions = [
@@ -88,10 +95,12 @@ const templates: PersonalTemplate[] = [
     badge: "Evening review",
   },
   {
-    id: "steadfast",
-    title: "Steadfast Steps",
-    description: "Build a foundation with Ya-Sin and Al-Inshirah.",
-    verseKeys: [...expandVerseRange(36, 1, 10), ...expandVerseRange(94, 1, 8)],
+    id: "custom-selection",
+    title: "Personal selection",
+    description: "Handpick a surah and ayat range that speak to you.",
+    verseKeys: [],
+    badge: "Your choice",
+    isCustom: true,
   },
 ]
 
@@ -99,6 +108,37 @@ const anchorDescriptions: Record<string, string> = {
   "after-fajr": "Let the dawn prayer flow straight into your hifz.",
   "after-maghrib": "Wind down the day with a tranquil recitation circle.",
   "study-break": "Use a study pause to refresh with memorization.",
+}
+
+const reminderDefaults: Record<string, string> = {
+  "after-fajr": "05:30",
+  "after-maghrib": "18:45",
+  "study-break": "14:00",
+}
+
+const surahOptions = getSurahOptions()
+
+const customTemplateId = templates.find((template) => template.isCustom)?.id ?? null
+
+function formatReminderLabel(anchor: string): string {
+  const time = reminderDefaults[anchor]
+  const description = anchorDescriptions[anchor]
+  if (!time) {
+    return description ?? "Reminders enabled"
+  }
+  const [hourString, minuteString] = time.split(":")
+  const hour = Number.parseInt(hourString ?? "", 10)
+  const minute = Number.parseInt(minuteString ?? "", 10)
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) {
+    return description ?? "Reminders enabled"
+  }
+  const date = new Date()
+  date.setHours(hour, minute, 0, 0)
+  const formattedTime = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date)
+  return description ? `${description} • ${formattedTime}` : `Reminder at ${formattedTime}`
 }
 
 function uniqueVerseKeys(keys: string[]): string[] {
@@ -114,32 +154,6 @@ function uniqueVerseKeys(keys: string[]): string[] {
   return ordered
 }
 
-function parseVerseInput(input: string): string[] {
-  if (!input.trim()) {
-    return []
-  }
-  const segments = parseCommaSeparatedVerseKeys(input)
-  const expanded: string[] = []
-  segments.forEach((segment) => {
-    const rangeMatch = segment.match(/^(\d+):(\d+)-(\d+)$/)
-    if (rangeMatch) {
-      const surah = Number.parseInt(rangeMatch[1] ?? "", 10)
-      const start = Number.parseInt(rangeMatch[2] ?? "", 10)
-      const end = Number.parseInt(rangeMatch[3] ?? "", 10)
-      if (Number.isFinite(surah) && Number.isFinite(start) && Number.isFinite(end)) {
-        try {
-          expanded.push(...expandVerseRange(surah, start, end))
-        } catch (error) {
-          console.error("Invalid range", error)
-        }
-      }
-      return
-    }
-    expanded.push(segment)
-  })
-  return expanded
-}
-
 export function StudentMemorizationDashboard({
   initialPlans,
   nudgeMessage,
@@ -150,14 +164,13 @@ export function StudentMemorizationDashboard({
   const [activePlanId, setActivePlanId] = useState<string | undefined>(initialActivePlanId)
   const [isSavingFocus, setIsSavingFocus] = useState<string | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
-    templates.length > 0 ? templates[0]!.id : null,
+    customTemplateId ?? (templates[0]?.id ?? null),
   )
-  const [title, setTitle] = useState(templates[0]?.title ?? "")
-  const [intention, setIntention] = useState("Strengthen my heart with consistent remembrance.")
   const [habitAnchor, setHabitAnchor] = useState<string>(anchorSuggestions[0]?.value ?? "after-fajr")
   const [cadence, setCadence] = useState<string>(cadenceOptions[0]?.value ?? "daily")
-  const [customVerses, setCustomVerses] = useState("")
-  const [reminderTime, setReminderTime] = useState("06:30")
+  const [selectedSurahNumber, setSelectedSurahNumber] = useState<number>(surahOptions[0]?.number ?? 1)
+  const [startAyah, setStartAyah] = useState<number>(1)
+  const [endAyah, setEndAyah] = useState<number>(1)
   const [selectedDays, setSelectedDays] = useState<string[]>([
     "monday",
     "tuesday",
@@ -174,11 +187,35 @@ export function StudentMemorizationDashboard({
     [selectedTemplateId],
   )
 
+  const currentSurah = useMemo(
+    () => surahOptions.find((option) => option.number === selectedSurahNumber) ?? surahOptions[0],
+    [selectedSurahNumber],
+  )
+
+  const customVerseKeys = useMemo(() => {
+    if (!selectedTemplate?.isCustom) {
+      return []
+    }
+    if (!currentSurah) {
+      return []
+    }
+    try {
+      return expandVerseRange(currentSurah.number, startAyah, endAyah)
+    } catch (error) {
+      console.error("Invalid custom range", error)
+      return []
+    }
+  }, [currentSurah, endAyah, selectedTemplate?.isCustom, startAyah])
+
   const verseKeys = useMemo(() => {
-    const templateKeys = selectedTemplate ? selectedTemplate.verseKeys : []
-    const manualKeys = parseVerseInput(customVerses)
-    return uniqueVerseKeys([...templateKeys, ...manualKeys])
-  }, [customVerses, selectedTemplate])
+    if (selectedTemplate?.isCustom) {
+      return uniqueVerseKeys(customVerseKeys)
+    }
+    if (!selectedTemplate) {
+      return []
+    }
+    return uniqueVerseKeys(selectedTemplate.verseKeys)
+  }, [customVerseKeys, selectedTemplate])
 
   const verseValidation = useMemo(() => validateVerseKeys(verseKeys), [verseKeys])
 
@@ -187,13 +224,38 @@ export function StudentMemorizationDashboard({
     const totalPlans = plans.length
     const activePlan = plans.find((plan) => plan.plan.id === activePlanId)
     const cadenceOption = cadenceOptions.find((option) => option.value === cadence)
+    const reminderSummary = formatReminderLabel(habitAnchor)
+    const focusLabel = (() => {
+      if (selectedTemplate?.isCustom && currentSurah) {
+        if (startAyah === endAyah) {
+          return `${currentSurah.arabicName} • Ayah ${startAyah}`
+        }
+        return `${currentSurah.arabicName} • Ayat ${startAyah}-${endAyah}`
+      }
+      if (selectedTemplate) {
+        return selectedTemplate.title
+      }
+      return "Select a focus to begin"
+    })()
     return {
       totalVerses,
       totalPlans,
       activePlanTitle: activePlan?.plan.title,
       cadenceLabel: cadenceOption?.title ?? cadence,
+      reminderSummary,
+      focusLabel,
     }
-  }, [activePlanId, cadence, plans, verseValidation.validKeys.length])
+  }, [
+    activePlanId,
+    cadence,
+    currentSurah,
+    habitAnchor,
+    plans,
+    selectedTemplate,
+    startAyah,
+    endAyah,
+    verseValidation.validKeys.length,
+  ])
 
   const handleToggleDay = (value: string) => {
     setSelectedDays((prev) => {
@@ -206,9 +268,13 @@ export function StudentMemorizationDashboard({
 
   const handleTemplateSelect = (template: PersonalTemplate) => {
     setSelectedTemplateId(template.id)
-    setTitle(template.title)
-    if (!customVerses.trim()) {
-      setIntention(`Hold fast to ${template.title.toLowerCase()} each week.`)
+    if (template.isCustom) {
+      setSelectedSurahNumber((current) => {
+        const matching = surahOptions.find((option) => option.number === current)
+        return matching ? matching.number : surahOptions[0]?.number ?? 1
+      })
+      setStartAyah(1)
+      setEndAyah(1)
     }
   }
 
@@ -216,23 +282,30 @@ export function StudentMemorizationDashboard({
     event.preventDefault()
     setSubmissionError(null)
 
-    if (!title.trim()) {
-      setSubmissionError("Give your plan a meaningful name.")
+    if (verseValidation.validKeys.length === 0) {
+      setSubmissionError("Select at least one valid verse to memorize.")
       return
     }
 
-    if (verseValidation.validKeys.length === 0) {
-      setSubmissionError("Add at least one valid verse to memorize.")
-      return
-    }
+    const planTitle = (() => {
+      if (selectedTemplate?.isCustom && currentSurah) {
+        if (startAyah === endAyah) {
+          return `${currentSurah.arabicName} • Ayah ${startAyah}`
+        }
+        return `${currentSurah.arabicName} • Ayat ${startAyah}-${endAyah}`
+      }
+      if (selectedTemplate) {
+        return selectedTemplate.title
+      }
+      return "Personal memorization focus"
+    })()
 
     const payload: CreatePersonalPlanPayload = {
-      title,
+      title: planTitle,
       verseKeys: verseValidation.validKeys,
       cadence,
-      intention,
       habitCue: anchorDescriptions[habitAnchor] ?? habitAnchor,
-      reminderTime,
+      reminderTime: reminderDefaults[habitAnchor],
       checkInDays: selectedDays,
       startDate: new Date().toISOString(),
       notes: notes.trim() ? notes : undefined,
@@ -328,10 +401,10 @@ export function StudentMemorizationDashboard({
           <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 text-sm text-emerald-800">
             <div className="flex items-center gap-2 text-emerald-700">
               <Sparkles className="h-4 w-4" />
-              Anchor intention
+              Reminder schedule
             </div>
             <p className="mt-2 text-sm text-maroon-700">
-              “{intention}”
+              {planSummary.reminderSummary}
             </p>
           </div>
         </div>
@@ -380,55 +453,108 @@ export function StudentMemorizationDashboard({
                       <Badge className="mt-3 bg-amber-200 text-amber-900">{template.badge}</Badge>
                     )}
                     <p className="mt-3 text-xs text-emerald-700">
-                      {template.verseKeys.length} verse{template.verseKeys.length === 1 ? "" : "s"}
+                      {template.isCustom
+                        ? `${customVerseKeys.length} verse${customVerseKeys.length === 1 ? "" : "s"} selected`
+                        : `${template.verseKeys.length} verse${template.verseKeys.length === 1 ? "" : "s"}`}
                     </p>
                   </button>
                 )
               })}
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <Label htmlFor="plan-title">Plan name</Label>
-                <Input
-                  id="plan-title"
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                  placeholder="e.g. Dawn fortress"
-                />
+            {selectedTemplate?.isCustom && currentSurah && (
+              <div className="grid gap-4 md:grid-cols-3">
+                <div>
+                  <Label htmlFor="surah-select">Surah</Label>
+                  <Select
+                    value={String(selectedSurahNumber)}
+                    onValueChange={(value) => {
+                      const parsed = Number.parseInt(value, 10)
+                      const option = surahOptions.find((entry) => entry.number === parsed)
+                      setSelectedSurahNumber(option?.number ?? surahOptions[0]?.number ?? 1)
+                      setStartAyah(1)
+                      setEndAyah(1)
+                    }}
+                  >
+                    <SelectTrigger id="surah-select" className="mt-1">
+                      <SelectValue placeholder="Choose a surah" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {surahOptions.map((option) => (
+                        <SelectItem key={option.number} value={String(option.number)}>
+                          {option.number}. {option.arabicName} ({option.englishName})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-2 text-xs text-maroon-600">
+                    {currentSurah.arabicName} contains {currentSurah.ayahCount} ayat.
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="start-ayah-select">Start verse</Label>
+                  <Select
+                    value={String(startAyah)}
+                    onValueChange={(value) => {
+                      const parsed = Number.parseInt(value, 10)
+                      if (!Number.isFinite(parsed)) {
+                        return
+                      }
+                      setStartAyah(parsed)
+                      setEndAyah((previous) => (previous < parsed ? parsed : previous))
+                    }}
+                  >
+                    <SelectTrigger id="start-ayah-select" className="mt-1">
+                      <SelectValue placeholder="Select start ayah" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: currentSurah.ayahCount }, (_, index) => index + 1).map((ayah) => (
+                        <SelectItem key={ayah} value={String(ayah)}>
+                          Ayah {ayah}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="end-ayah-select">End verse</Label>
+                  <Select
+                    value={String(endAyah)}
+                    onValueChange={(value) => {
+                      const parsed = Number.parseInt(value, 10)
+                      if (!Number.isFinite(parsed)) {
+                        return
+                      }
+                      setEndAyah(parsed < startAyah ? startAyah : parsed)
+                    }}
+                  >
+                    <SelectTrigger id="end-ayah-select" className="mt-1">
+                      <SelectValue placeholder="Select end ayah" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: currentSurah.ayahCount - (startAyah - 1) }, (_, index) => startAyah + index).map(
+                        (ayah) => (
+                          <SelectItem key={ayah} value={String(ayah)}>
+                            Ayah {ayah}
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-2 text-xs text-maroon-600">Focus preview: {planSummary.focusLabel}</p>
+                </div>
               </div>
-              <div>
-                <Label htmlFor="reminder-time">Reminder time</Label>
-                <Input
-                  id="reminder-time"
-                  type="time"
-                  value={reminderTime}
-                  onChange={(event) => setReminderTime(event.target.value)}
-                />
-              </div>
-            </div>
+            )}
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <Label htmlFor="intention">Intention statement</Label>
-                <Textarea
-                  id="intention"
-                  value={intention}
-                  onChange={(event) => setIntention(event.target.value)}
-                  placeholder="Why do you want to hold these ayat?"
-                  rows={3}
-                />
-              </div>
-              <div>
-                <Label htmlFor="notes">Personal du’a or notes</Label>
-                <Textarea
-                  id="notes"
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
-                  placeholder="Add a reminder from your teacher or a personal du’a."
-                  rows={3}
-                />
-              </div>
+            <div>
+              <Label htmlFor="notes">Personal du’a or notes</Label>
+              <Textarea
+                id="notes"
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Add a reminder from your teacher or a personal du’a."
+                rows={3}
+              />
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -500,20 +626,6 @@ export function StudentMemorizationDashboard({
                   </Toggle>
                 ))}
               </div>
-            </div>
-
-            <div>
-              <Label htmlFor="custom-verses">Add or adjust verses (comma separated)</Label>
-              <Textarea
-                id="custom-verses"
-                value={customVerses}
-                onChange={(event) => setCustomVerses(event.target.value)}
-                placeholder="112:1-4, 2:255"
-                rows={3}
-              />
-              <p className="mt-2 text-xs text-maroon-600">
-                You can enter individual ayat (e.g. 55:33) or ranges (e.g. 36:1-10). We’ll validate every reference.
-              </p>
             </div>
 
             <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm text-emerald-800">
