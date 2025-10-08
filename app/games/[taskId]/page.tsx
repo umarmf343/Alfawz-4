@@ -9,7 +9,6 @@ import {
   Brain,
   CheckCircle2,
   ChevronRight,
-  Flame,
   Gamepad2,
   ListChecks,
   Mic,
@@ -21,7 +20,6 @@ import {
 
 import AppLayout from "@/components/app-layout"
 import { LiveRecitationAnalyzer } from "@/components/live-recitation-analyzer"
-import { MushafPageSpread } from "@/components/MushafPageSpread"
 import { SRSStudySession } from "@/components/srs-study-session"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -463,13 +461,6 @@ function DailyTargetGame({ task, completed, target, onLogAyah, isLogging }: Dail
             </div>
             <Progress value={percent} className="h-3 mt-4" />
             <p className="text-xs text-gray-500 mt-2">Complete {Math.max(target - completed, 0)} more ayahs to secure the streak.</p>
-          </div>
-
-          <div className="rounded-lg border border-dashed border-maroon-200 bg-white p-4">
-            <h3 className="text-sm font-semibold text-maroon-800 mb-3 flex items-center gap-2">
-              <Flame className="h-4 w-4" /> Guided reading session
-            </h3>
-            <MushafPageSpread className="rounded-lg border border-maroon-100" />
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
