@@ -45,14 +45,13 @@ import { calculateHasanatForText, countArabicLetters } from "@/lib/hasanat"
 import { tokenSpawner } from "@/lib/hasanat/token-spawner"
 import { cn } from "@/lib/utils"
 import {
-  annotateTajweedMistakes,
-  analyzeMistakes,
-  calculateTajweedMetricScores,
+  calculateRecitationMetricScores,
+  createLiveSessionSummary,
   MISTAKE_CATEGORY_META,
   type LiveMistake,
   type LiveSessionSummary,
   type MistakeCategory,
-} from "@/lib/tajweed-analysis"
+} from "@/lib/recitation-analysis"
 import { MUSHAF_FONTS_AVAILABLE, type MushafOverlayMode } from "@/lib/mushaf-fonts"
 
 const FALLBACK_AUDIO_BASE = "https://cdn.islamic.network/quran/audio/128/ar.alafasy"
@@ -209,7 +208,7 @@ type ReciterKey = keyof typeof RECITER_AUDIO_SLUGS
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
   "AI transcription isn't configured on this server yet. Add a TARTEEL_API_KEY and refresh to enable live analysis."
 
-const DEFAULT_ANALYSIS_PROMPT = "Start the live analysis to receive tajweed feedback in real time."
+const DEFAULT_ANALYSIS_PROMPT = "Start the live analysis to receive recitation feedback in real time."
 
 const TRANSCRIPTION_AVAILABLE = process.env.NEXT_PUBLIC_TRANSCRIPTION_ENABLED === "true"
 
@@ -222,7 +221,7 @@ const CHALLENGE_TARGET_STEP = 2
 const getChallengeDuration = (level: number) =>
   Math.max(MIN_CHALLENGE_DURATION, INITIAL_CHALLENGE_DURATION - (level - 1) * CHALLENGE_DURATION_STEP)
 
-type TajweedMetric = {
+type RecitationMetric = {
   id: string
   label: string
   score: number
@@ -286,34 +285,34 @@ export default function QuranReaderPage() {
   const [celebration, setCelebration] = useState<CelebrationState | null>(null)
   const isCelebrationOpen = Boolean(celebration)
   const [hasDailyGoalCelebrated, setHasDailyGoalCelebrated] = useState(false)
-  const [tajweedMetrics, setTajweedMetrics] = useState<TajweedMetric[]>(() => [
+  const [recitationMetrics, setRecitationMetrics] = useState<RecitationMetric[]>(() => [
     {
-      id: "makharij",
-      label: "Makharij",
-      score: 87,
+      id: "accuracy",
+      label: "Accuracy",
+      score: 88,
       trend: 0,
-      description: "Clarity of articulation points",
+      description: "Word-for-word alignment with the ayah text",
     },
     {
-      id: "madd",
-      label: "Madd",
-      score: 82,
+      id: "completeness",
+      label: "Completeness",
+      score: 84,
       trend: 0,
-      description: "Consistency of elongation",
+      description: "Coverage of the expected words in the verse",
     },
     {
-      id: "ghunnah",
-      label: "Ghunnah",
-      score: 85,
+      id: "flow",
+      label: "Flow",
+      score: 86,
       trend: 0,
-      description: "Nasal resonance balance",
+      description: "Smooth pacing without substitutions",
     },
     {
-      id: "qalqalah",
-      label: "Qalqalah",
-      score: 79,
+      id: "extras",
+      label: "Extra words",
+      score: 92,
       trend: 0,
-      description: "Echo on heavy letters",
+      description: "Control of additions beyond the verse",
     },
   ])
   const [isLiveAnalysisSupported, setIsLiveAnalysisSupported] = useState<boolean>(() => TRANSCRIPTION_AVAILABLE)
@@ -841,19 +840,19 @@ export default function QuranReaderPage() {
   }, [selectedSurah, reciter])
 
   const weakestMetric = useMemo(() => {
-    if (tajweedMetrics.length === 0) {
+    if (recitationMetrics.length === 0) {
       return null
     }
-    return tajweedMetrics.reduce((lowest, metric) => (metric.score < lowest.score ? metric : lowest), tajweedMetrics[0])
-  }, [tajweedMetrics])
+    return recitationMetrics.reduce((lowest, metric) => (metric.score < lowest.score ? metric : lowest), recitationMetrics[0])
+  }, [recitationMetrics])
 
-  const averageTajweed = useMemo(() => {
-    if (tajweedMetrics.length === 0) {
+  const averageRecitationMetric = useMemo(() => {
+    if (recitationMetrics.length === 0) {
       return 0
     }
-    const total = tajweedMetrics.reduce((sum, metric) => sum + metric.score, 0)
-    return Math.round(total / tajweedMetrics.length)
-  }, [tajweedMetrics])
+    const total = recitationMetrics.reduce((sum, metric) => sum + metric.score, 0)
+    return Math.round(total / recitationMetrics.length)
+  }, [recitationMetrics])
 
   const mushafFontSupportText = useMemo(() => {
     if (!isMushafTypographySupported) {
@@ -1347,11 +1346,13 @@ export default function QuranReaderPage() {
           const expectedText = expectedTextRef.current
 
           if (expectedText) {
-            const annotated = annotateTajweedMistakes(analyzeMistakes(combinedText, expectedText))
-            setLiveMistakes(annotated)
+            const summary = createLiveSessionSummary(combinedText, expectedText, {
+              analysis: { engine: "on-device" },
+            })
+            setLiveMistakes(summary.mistakes)
 
-            const scores = calculateTajweedMetricScores(annotated, expectedText)
-            setTajweedMetrics((metrics) =>
+            const scores = calculateRecitationMetricScores(summary.mistakes, expectedText)
+            setRecitationMetrics((metrics) =>
               metrics.map((metric) => {
                 const key = metric.id as keyof typeof scores
                 const nextScore = scores[key] ?? metric.score
@@ -1446,21 +1447,31 @@ export default function QuranReaderPage() {
         }
 
         if (expectedText && transcriptText) {
-          const annotated =
-            summaryMistakes.length > 0
-              ? summaryMistakes
-              : annotateTajweedMistakes(analyzeMistakes(transcriptText, expectedText))
-          setLiveMistakes(annotated)
-
-          const scores = calculateTajweedMetricScores(annotated, expectedText)
-          setTajweedMetrics((metrics) =>
-            metrics.map((metric) => {
-              const key = metric.id as keyof typeof scores
-              const nextScore = scores[key] ?? metric.score
-              const trend = Math.round(nextScore - metric.score)
-              return { ...metric, score: nextScore, trend }
-            }),
-          )
+          if (summaryMistakes.length === 0) {
+            const fallbackSummary = createLiveSessionSummary(transcriptText, expectedText, {
+              analysis: { engine: "tarteel", latencyMs: result.analysis.latencyMs },
+            })
+            setLiveMistakes(fallbackSummary.mistakes)
+            const fallbackScores = calculateRecitationMetricScores(fallbackSummary.mistakes, expectedText)
+            setRecitationMetrics((metrics) =>
+              metrics.map((metric) => {
+                const key = metric.id as keyof typeof fallbackScores
+                const nextScore = fallbackScores[key] ?? metric.score
+                const trend = Math.round(nextScore - metric.score)
+                return { ...metric, score: nextScore, trend }
+              }),
+            )
+          } else {
+            const scores = calculateRecitationMetricScores(summaryMistakes, expectedText)
+            setRecitationMetrics((metrics) =>
+              metrics.map((metric) => {
+                const key = metric.id as keyof typeof scores
+                const nextScore = scores[key] ?? metric.score
+                const trend = Math.round(nextScore - metric.score)
+                return { ...metric, score: nextScore, trend }
+              }),
+            )
+          }
         }
 
         const durationSeconds = result.duration
@@ -1472,7 +1483,7 @@ export default function QuranReaderPage() {
         recordingStartRef.current = null
 
         setAnalysisMessage(
-          `Session analysed — accuracy ${result.feedback.accuracy}% and tajweed precision ${result.feedback.overallScore}%.`,
+          `Session analysed — accuracy ${result.feedback.accuracy}% and recitation quality ${result.feedback.overallScore}%.`,
         )
 
         if (expectedText) {
@@ -1611,7 +1622,7 @@ export default function QuranReaderPage() {
         setLiveMistakes([])
         setLiveSessionSummary(null)
         setLiveAnalysisError(null)
-        setAnalysisMessage("Review your tajweed insights and resume when ready.")
+        setAnalysisMessage("Review your recitation insights and resume when ready.")
       } else if (!options?.skipFinalize) {
         setAnalysisMessage("Compiling your recitation summary…")
       }
@@ -1745,7 +1756,7 @@ export default function QuranReaderPage() {
       setLiveAnalysisError(null)
       setAnalysisMessage(
         isLiveAnalysisSupported
-          ? "Start the live analysis to receive tajweed feedback in real time."
+          ? "Start the live analysis to receive recitation feedback in real time."
           : TRANSCRIPTION_UNAVAILABLE_MESSAGE,
       )
     }
@@ -1755,7 +1766,7 @@ export default function QuranReaderPage() {
     if (!isAnalysisStarted && !isRecording) {
       setAnalysisMessage(
         isLiveAnalysisSupported
-          ? "Start the live analysis to receive tajweed feedback in real time."
+          ? "Start the live analysis to receive recitation feedback in real time."
           : TRANSCRIPTION_UNAVAILABLE_MESSAGE,
       )
       setLiveAnalysisError(null)
@@ -1810,7 +1821,7 @@ export default function QuranReaderPage() {
     }
 
     const timeoutId = setTimeout(() => {
-      setTajweedMetrics((metrics) => metrics.map((metric) => ({ ...metric, trend: 0 })))
+      setRecitationMetrics((metrics) => metrics.map((metric) => ({ ...metric, trend: 0 })))
     }, 1500)
 
     return () => {
@@ -1926,9 +1937,8 @@ export default function QuranReaderPage() {
       const matchingMistake = liveMistakes.find(
         (mistake) => mistake.index === index && typeof mistake.word === "string" && mistake.word.length > 0,
       )
-      const hasTajweed = Boolean(matchingMistake?.tajweedRules && matchingMistake.tajweedRules.length > 0)
       const className = matchingMistake
-        ? hasTajweed
+        ? matchingMistake.type === "substitution"
           ? "bg-amber-100 text-amber-900 ring-1 ring-amber-200"
           : "bg-rose-100 text-rose-900 ring-1 ring-rose-200"
         : ""
@@ -2312,7 +2322,7 @@ export default function QuranReaderPage() {
                   <div className="space-y-5 rounded-xl border border-primary/30 bg-background/80 p-6 shadow-inner">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <h3 className="text-lg font-semibold text-primary">Live Tajweed Analysis</h3>
+                        <h3 className="text-lg font-semibold text-primary">Live Recitation Analysis</h3>
                         <p className="text-sm text-muted-foreground">
                           Real-time insights on your recitation quality.
                         </p>
@@ -2329,13 +2339,13 @@ export default function QuranReaderPage() {
                       <div className="bg-muted/40 rounded-lg p-4 space-y-2">
                         <div className="flex items-center justify-between text-sm font-medium">
                           <span>Average score</span>
-                          <span>{averageTajweed}%</span>
+                          <span>{averageRecitationMetric}%</span>
                         </div>
-                        <Progress value={averageTajweed} className="h-2" />
+                        <Progress value={averageRecitationMetric} className="h-2" />
                       </div>
 
                       <div className="lg:col-span-2 space-y-3">
-                        {tajweedMetrics.map((metric) => (
+                        {recitationMetrics.map((metric) => (
                           <div key={metric.id} className="space-y-2 rounded-lg border border-border/60 p-3">
                             <div className="flex items-center justify-between text-sm font-medium">
                               <span>{metric.label}</span>
@@ -2405,23 +2415,21 @@ export default function QuranReaderPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <span className="font-semibold text-foreground">Mistakes & Tajweed alerts</span>
+                        <span className="font-semibold text-foreground">Mistakes & Recitation alerts</span>
                         {liveMistakes.length > 0 ? (
                           <ul className="space-y-2 text-sm">
                             {liveMistakes.map((mistake) => (
                               <li
                                 key={`${mistake.index}-${mistake.word || "missing"}`}
                                 className={`rounded-md border p-3 ${
-                                  mistake.tajweedRules && mistake.tajweedRules.length > 0
+                                  mistake.type === "substitution"
                                     ? "border-amber-200 bg-amber-50 text-amber-800"
                                     : "border-rose-200 bg-rose-50 text-rose-700"
                                 }`}
                               >
                                 <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wide">
                                   <span>
-                                    {mistake.tajweedRules && mistake.tajweedRules.length > 0
-                                      ? "Tajweed alert"
-                                      : "Transcription issue"}
+                                    {mistake.type === "substitution" ? "Recitation alert" : "Transcription issue"}
                                   </span>
                                   <span className="rounded-full bg-background/70 px-2 py-0.5 text-[0.65rem] font-medium text-foreground/80">
                                     {mistake.type === "missing"
@@ -2451,17 +2459,13 @@ export default function QuranReaderPage() {
                                     ))}
                                   </div>
                                 )}
-                                {mistake.tajweedRules && mistake.tajweedRules.length > 0 ? (
-                                  <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-foreground/80">
-                                    {mistake.tajweedRules.map((rule) => (
-                                      <li key={rule}>{rule}</li>
-                                    ))}
-                                  </ul>
-                                ) : (
-                                  <div className="mt-2 text-xs text-foreground/70">
-                                    Articulation adjustment recommended.
-                                  </div>
-                                )}
+                                <div className="mt-2 text-xs text-foreground/70">
+                                  {mistake.type === "missing"
+                                    ? "Recite the expected word to stay aligned with the verse."
+                                    : mistake.type === "extra"
+                                      ? "Remove the extra wording to match the verse exactly."
+                                      : `Similarity ${(Math.round((mistake.similarity ?? 0) * 100))}% — refine pronunciation to match the text.`}
+                                </div>
                               </li>
                             ))}
                           </ul>
@@ -2475,7 +2479,7 @@ export default function QuranReaderPage() {
 
                     {isFinalizingLiveSession && (
                       <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
-                        <Loader2 className="h-4 w-4 animate-spin" /> Generating your full tajweed summary…
+                        <Loader2 className="h-4 w-4 animate-spin" /> Generating your full recitation summary…
                       </div>
                     )}
 
@@ -3017,7 +3021,7 @@ export default function QuranReaderPage() {
                     <div>
                       <p className="text-sm font-medium">Mushaf typography</p>
                       <p className="text-xs text-muted-foreground">
-                        Render āyāt using the Madinah Mushaf outlines layered with tajweed cues.
+                        Render āyāt using the Madinah Mushaf outlines layered with recitation cues.
                       </p>
                     </div>
                     <Switch
@@ -3040,7 +3044,7 @@ export default function QuranReaderPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="tajweed">Tajweed guidance</SelectItem>
+                        <SelectItem value="tajweed">Recitation guidance</SelectItem>
                         <SelectItem value="mistakes">Pronunciation issues</SelectItem>
                         <SelectItem value="none">Hide overlays</SelectItem>
                       </SelectContent>

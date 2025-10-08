@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import AppLayout from "@/components/app-layout"
-import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
+import { LiveRecitationAnalyzer } from "@/components/live-recitation-analyzer"
 import { PremiumGate } from "@/components/premium-gate"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -176,11 +176,11 @@ export default function HabitQuestPage() {
     if (!selectedHabit || !questSurah) {
       return []
     }
-    return [
-      `Listen to the guided recitation for ${questSurah.englishName} (${questVerseRange}).`,
-      `Record your own recitation with the live analyzer and review the tajwīd guidance.`,
-      `Capture a heartfelt reflection about ${selectedHabit.title.toLowerCase()} in your notes.`,
-    ]
+      return [
+        `Listen to the guided recitation for ${questSurah.englishName} (${questVerseRange}).`,
+        `Record your own recitation with the live analyzer and review the feedback.`,
+        `Capture a heartfelt reflection about ${selectedHabit.title.toLowerCase()} in your notes.`,
+      ]
   }, [questSurah, questVerseRange, selectedHabit])
 
   useEffect(() => {
@@ -716,20 +716,20 @@ export default function HabitQuestPage() {
 
               <Card className="border-maroon-100 shadow-md">
                 <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <CardTitle className="flex items-center gap-2 text-lg text-maroon-900">
-                    <Mic className="h-5 w-5 text-maroon-600" /> Live tajwīd analyzer
-                  </CardTitle>
+                    <CardTitle className="flex items-center gap-2 text-lg text-maroon-900">
+                      <Mic className="h-5 w-5 text-maroon-600" /> Live recitation analyzer
+                    </CardTitle>
                   <Badge className="bg-maroon-50 text-maroon-700 border-maroon-200">Ayah {questVerseRange}</Badge>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <LiveTajweedAnalyzer
+                  <LiveRecitationAnalyzer
                     surah={questSurah?.englishName ?? "Surah"}
                     ayahRange={questVerseRange}
                     verses={analyzerVerses}
                   />
-                  <p className="text-xs text-gray-500">
-                    Hit record, recite the range, then review the instant tajwīd feedback before moving on.
-                  </p>
+                    <p className="text-xs text-gray-500">
+                      Hit record, recite the range, then review the instant recitation feedback before moving on.
+                    </p>
                 </CardContent>
               </Card>
 
@@ -778,15 +778,15 @@ export default function HabitQuestPage() {
                   <CardTitle className="flex items-center gap-2 text-lg text-maroon-900">
                     <Pen className="h-5 w-5 text-maroon-600" /> Reflection journal
                   </CardTitle>
-                  <CardDescription className="text-sm text-maroon-600">
-                    Capture what resonated from today&apos;s verses or tajwīd focus.
-                  </CardDescription>
+                    <CardDescription className="text-sm text-maroon-600">
+                      Capture what resonated from today&apos;s verses or recitation focus.
+                    </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <Textarea
                     value={reflectionNotes}
                     onChange={(event) => setReflectionNotes(event.target.value)}
-                    placeholder="Document your feelings, tajwīd corrections, or du&apos;a intentions."
+                      placeholder="Document your feelings, recitation corrections, or du&apos;a intentions."
                     className="min-h-[120px]"
                   />
                   <p className="text-xs text-gray-500">
@@ -842,7 +842,7 @@ export default function HabitQuestPage() {
                     Your browser does not support the audio element.
                   </audio>
                   <p className="text-xs text-white/60">
-                    Listen once before recording to anchor tajwīd precision.
+                    Listen once before recording to anchor recitation precision.
                   </p>
                 </div>
               )}

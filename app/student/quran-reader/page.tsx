@@ -4,7 +4,7 @@ import { useMemo } from "react"
 import { BookOpenCheck } from "lucide-react"
 
 import { MushafPageSpread } from "@/components/MushafPageSpread"
-import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
+import { LiveRecitationAnalyzer } from "@/components/live-recitation-analyzer"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -31,16 +31,16 @@ function LiveAnalysisPanel() {
     return (
       <Card className="border-dashed">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg text-slate-700">
-            <BookOpenCheck className="h-5 w-5 text-amber-600" aria-hidden />
-            Ready for live tajwīd analysis
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-slate-600">
-          اختر آية من المصحف لبدء التحليل الفوري لأدائك في التجويد. سيتم تمييز الآية المختارة باللون الذهبي داخل صفحات
-          المصحف.
-        </CardContent>
-      </Card>
+            <CardTitle className="flex items-center gap-2 text-lg text-slate-700">
+              <BookOpenCheck className="h-5 w-5 text-amber-600" aria-hidden />
+              Ready for live recitation analysis
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-slate-600">
+            اختر آية من المصحف لبدء التحليل الفوري لأدائك في التلاوة. سيتم تمييز الآية المختارة باللون الذهبي داخل صفحات
+            المصحف.
+          </CardContent>
+        </Card>
     )
   }
 
@@ -76,7 +76,7 @@ function LiveAnalysisPanel() {
 
         <Separator />
 
-        <LiveTajweedAnalyzer
+        <LiveRecitationAnalyzer
           surah={currentVerse.englishName ?? currentVerse.surahName}
           ayahRange={`Ayah ${currentVerse.ayahNumber}`}
           verses={verseRecords}
