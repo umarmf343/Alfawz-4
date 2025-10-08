@@ -65,9 +65,20 @@ type ReaderAyah = QuranAyah & {
 
 type HasanatPopup = {
   id: number
-  amount: number
   label: string
+  amount?: number
+  variant: "hasanat" | "celebration"
 }
+
+type CelebrationState = {
+  reason: "dailyTarget" | "surahComplete" | "dailySurah"
+  title: string
+  description: string
+  highlight?: string
+  footnote?: string
+}
+
+const DAILY_SURAH_NUMBERS = new Set([18, 112, 113, 114])
 
 const FALLBACK_SURAH: {
   metadata: QuranSurah
@@ -258,8 +269,9 @@ export default function QuranReaderPage() {
   const [sessionRecited, setSessionRecited] = useState(0)
   const [sessionHasanat, setSessionHasanat] = useState(0)
   const [hasanatPopups, setHasanatPopups] = useState<HasanatPopup[]>([])
-  const [isCelebrationOpen, setIsCelebrationOpen] = useState(false)
-  const [hasCelebrated, setHasCelebrated] = useState(false)
+  const [celebration, setCelebration] = useState<CelebrationState | null>(null)
+  const isCelebrationOpen = Boolean(celebration)
+  const [hasDailyGoalCelebrated, setHasDailyGoalCelebrated] = useState(false)
   const [tajweedMetrics, setTajweedMetrics] = useState<TajweedMetric[]>(() => [
     {
       id: "makharij",
@@ -356,14 +368,23 @@ export default function QuranReaderPage() {
     return `Recite ${versesRemaining} more ${verseLabel} to break the egg.`
   }, [challengeStatus, currentChallengeTarget, hasChallengeStarted, versesRecited])
 
-  const spawnHasanatPopup = useCallback((amount: number, label: string) => {
+  const activeAyah = surahData.ayahs[currentAyah]
+  const totalAyahs = surahData.ayahs.length
+
+  const getAyahDisplayNumber = useCallback(
+    (ayah: ReaderAyah | undefined, index: number) => ayah?.numberInSurah ?? ayah?.number ?? index + 1,
+    [],
+  )
+
+  const spawnHasanatPopup = useCallback((popup: Omit<HasanatPopup, "id">) => {
     const id = Date.now() + Math.random()
     setHasanatPopups((previous) => [
       ...previous,
       {
         id,
-        amount,
-        label,
+        label: popup.label,
+        amount: popup.amount,
+        variant: popup.variant ?? (typeof popup.amount === "number" ? "hasanat" : "celebration"),
       },
     ])
 
@@ -374,7 +395,6 @@ export default function QuranReaderPage() {
 
     popupTimeoutsRef.current.push(timeoutId)
   }, [])
-
   const awardHasanatForCurrentAyah = useCallback(() => {
     if (!activeAyah) {
       return false
@@ -398,7 +418,11 @@ export default function QuranReaderPage() {
 
     const surahLabel =
       surahData.metadata.englishName || surahData.metadata.name || `Surah ${surahData.metadata.number}`
-    spawnHasanatPopup(hasanatAwarded, `${surahLabel} • Ayah ${ayahNumber}`)
+    spawnHasanatPopup({
+      amount: hasanatAwarded,
+      label: `${surahLabel} • Ayah ${ayahNumber}`,
+      variant: "hasanat",
+    })
     setSessionHasanat((previous) => previous + hasanatAwarded)
 
     recordQuranReaderProgress({
@@ -817,21 +841,15 @@ export default function QuranReaderPage() {
   const recordingStartRef = useRef<number | null>(null)
   const recorderMimeTypeRef = useRef<string | null>(null)
   const gwaniAudioRef = useRef<HTMLAudioElement>(null)
-  const activeAyah = surahData.ayahs[currentAyah]
   const expectedTextRef = useRef(activeAyah?.text ?? "")
   const ayahIdRef = useRef(
     `${surahData.metadata.number}:${activeAyah?.numberInSurah ?? activeAyah?.number ?? currentAyah + 1}`,
   )
-  const totalAyahs = surahData.ayahs.length
   const activeAudioSrc = useMemo(() => ayahAudioUrls[currentAyah] ?? "", [ayahAudioUrls, currentAyah])
   const gwaniAudioSrc = useMemo(() => {
     const paddedNumber = gwaniSelectedSurah.toString().padStart(3, "0")
     return `${GWANI_ARCHIVE_BASE_URL}/${paddedNumber}.mp3`
   }, [gwaniSelectedSurah])
-  const getAyahDisplayNumber = useCallback(
-    (ayah: ReaderAyah | undefined, index: number) => ayah?.numberInSurah ?? ayah?.number ?? index + 1,
-    [],
-  )
   const ayahSelectValue = totalAyahs === 0 ? "" : getAyahDisplayNumber(activeAyah, currentAyah).toString()
   const gwaniSurahDetails = useMemo(
     () => surahList.find((surah) => surah.number === gwaniSelectedSurah) ?? FALLBACK_SURAH.metadata,
@@ -1054,6 +1072,31 @@ export default function QuranReaderPage() {
     if (isNewRecitation) {
       incrementDailyTarget(1)
       setSessionRecited((count) => count + 1)
+
+      if (totalAyahs > 0 && currentAyah >= totalAyahs - 1) {
+        const surahNumber = surahData.metadata.number
+        const arabicName = surahData.metadata.name || `Surah ${surahNumber}`
+        const englishName = surahData.metadata.englishName
+        const combinedName = englishName ? `${arabicName} • ${englishName}` : arabicName
+        const isDailySurah = DAILY_SURAH_NUMBERS.has(surahNumber)
+
+        spawnHasanatPopup({
+          label: `${isDailySurah ? "Daily" : ""} Surah complete • ${combinedName}`.trim(),
+          variant: "celebration",
+        })
+
+        setCelebration({
+          reason: isDailySurah ? "dailySurah" : "surahComplete",
+          title: isDailySurah ? "Daily Surah complete!" : "Surah complete!",
+          description: isDailySurah
+            ? `You wrapped up ${combinedName}. Keep this sunnah alive in your routine!`
+            : `You completed ${combinedName}. May the Qur'an stay with your heart!`,
+          highlight: `Surah ${surahNumber}: ${combinedName}`,
+          footnote: isDailySurah
+            ? "These protective surahs guard your mornings and evenings—keep reciting them daily."
+            : "Revisit this surah soon to deepen your memorisation and reflection.",
+        })
+      }
     }
     setIsPlaying(false)
     setCurrentAyah((index) => (index < totalAyahs - 1 ? index + 1 : index))
@@ -1078,10 +1121,15 @@ export default function QuranReaderPage() {
     activeAyah,
     awardHasanatForCurrentAyah,
     challengeStatus,
+    currentAyah,
     currentChallengeTarget,
     eggLevel,
     incrementDailyTarget,
     isTimerActive,
+    spawnHasanatPopup,
+    surahData.metadata.englishName,
+    surahData.metadata.name,
+    surahData.metadata.number,
     totalAyahs,
   ])
 
@@ -1722,18 +1770,40 @@ export default function QuranReaderPage() {
     if (dailyTargetGoal === 0) {
       return
     }
+
     const goalMet = dailyTargetCompleted >= dailyTargetGoal
-    if (goalMet && sessionRecited > 0 && !hasCelebrated) {
-      setIsCelebrationOpen(true)
-      setHasCelebrated(true)
+    if (goalMet && sessionRecited > 0 && !hasDailyGoalCelebrated) {
+      const goalLabel = dailyTargetGoal === 1 ? "ayah" : "ayahs"
+      spawnHasanatPopup({
+        label: `Daily target reached • ${dailyTargetGoal} ${goalLabel}`,
+        variant: "celebration",
+      })
+
+      setCelebration((current) =>
+        current ?? {
+          reason: "dailyTarget",
+          title: "Masha’Allah!",
+          description: `You just secured today’s goal of ${dailyTargetGoal} ${goalLabel}. May Allah shower you with barakah—keep the flow going!`,
+          highlight: `Completed today: ${dailyTargetCompleted} ${goalLabel}`,
+          footnote: "Every ayah beyond the goal still counts toward your mastery and teacher reports.",
+        },
+      )
+      setHasDailyGoalCelebrated(true)
     }
-    if (!goalMet && hasCelebrated) {
-      setHasCelebrated(false)
+
+    if (!goalMet && hasDailyGoalCelebrated) {
+      setHasDailyGoalCelebrated(false)
     }
-  }, [dailyTargetCompleted, dailyTargetGoal, sessionRecited, hasCelebrated])
+  }, [
+    dailyTargetCompleted,
+    dailyTargetGoal,
+    hasDailyGoalCelebrated,
+    sessionRecited,
+    spawnHasanatPopup,
+  ])
 
   useEffect(() => {
-    if (!isCelebrationOpen) {
+    if (!celebration) {
       return
     }
 
@@ -1784,7 +1854,7 @@ export default function QuranReaderPage() {
         window.clearTimeout(timeoutId)
       }
     }
-  }, [isCelebrationOpen])
+  }, [celebration])
 
   const isLiveAnalysisActive = isRecording || isAnalysisStarted
   const highlightedTranscription = useMemo(() => {
@@ -1824,10 +1894,24 @@ export default function QuranReaderPage() {
         {hasanatPopups.map((popup) => (
           <div
             key={popup.id}
-            className="animate-hasanat-float rounded-full bg-emerald-500/95 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30"
+            className={cn(
+              "animate-hasanat-float rounded-full px-4 py-2 text-sm font-semibold text-white shadow-lg",
+              popup.variant === "celebration"
+                ? "bg-gradient-to-r from-amber-500 via-rose-500 to-fuchsia-500 shadow-rose-500/30"
+                : "bg-emerald-500/95 shadow-emerald-500/30",
+            )}
           >
-            +{popup.amount.toLocaleString()} hasanat
-            <span className="ml-2 text-xs font-medium text-emerald-100">{popup.label}</span>
+            {popup.variant === "hasanat" && typeof popup.amount === "number" ? (
+              <>
+                +{popup.amount.toLocaleString()} hasanat
+                <span className="ml-2 text-xs font-medium text-emerald-100">{popup.label}</span>
+              </>
+            ) : (
+              <span className="flex items-center gap-2 text-xs sm:text-sm">
+                <Sparkles className="h-4 w-4" aria-hidden />
+                {popup.label}
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -2929,32 +3013,52 @@ export default function QuranReaderPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isCelebrationOpen} onOpenChange={setIsCelebrationOpen}>
+      <Dialog
+        open={isCelebrationOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCelebration(null)
+          }
+        }}
+      >
         <DialogContent className="max-w-md text-center border-0 bg-white/95 backdrop-blur-md">
           <DialogHeader className="space-y-3">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-emerald-100 to-emerald-200 shadow-inner">
               <Sparkles className="h-7 w-7 text-emerald-700" />
             </div>
-            <DialogTitle className="text-3xl font-semibold text-maroon-900">Masha’Allah!</DialogTitle>
+            <DialogTitle className="text-3xl font-semibold text-maroon-900">
+              {celebration?.title ?? "Masha’Allah!"}
+            </DialogTitle>
             <DialogDescription className="text-base text-maroon-700">
-              You just secured today’s goal of {dailyTargetGoal} ayahs. May Allah shower you with barakah—keep the flow going!
+              {celebration?.description ?? "Keep the recitation flowing and unlock new milestones."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Total recited today: <span className="font-semibold text-maroon-900">{dailyTargetCompleted}</span> ayahs
-            </p>
-            <p className="text-xs text-emerald-700">
-              Every ayah beyond the goal still counts toward your mastery and teacher reports.
-            </p>
+            {celebration?.highlight && (
+              <p className="text-sm text-muted-foreground">
+                <span className="font-semibold text-maroon-900">{celebration.highlight}</span>
+              </p>
+            )}
+            {celebration?.reason === "dailyTarget" ? (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Total recited today: <span className="font-semibold text-maroon-900">{dailyTargetCompleted}</span> ayahs
+                </p>
+                {celebration.footnote && (
+                  <p className="text-xs text-emerald-700">{celebration.footnote}</p>
+                )}
+              </>
+            ) : (
+              celebration?.footnote && <p className="text-xs text-emerald-700">{celebration.footnote}</p>
+            )}
           </div>
           <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-            <Button variant="outline" className="flex-1" onClick={() => setIsCelebrationOpen(false)}>
+            <Button variant="outline" className="flex-1" onClick={() => setCelebration(null)}>
               Keep Reciting
             </Button>
             <Button
               className="flex-1 bg-gradient-to-r from-maroon-600 to-maroon-700 text-white border-0"
-              onClick={() => setIsCelebrationOpen(false)}
+              onClick={() => setCelebration(null)}
             >
               Continue Session
             </Button>
