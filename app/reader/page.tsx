@@ -25,7 +25,6 @@ import {
   RotateCcw,
   AlertCircle,
   Sparkles,
-  Activity,
   ArrowUpRight,
   ArrowDownRight,
   Loader2,
@@ -42,6 +41,7 @@ import { MobileRecitationClient } from "@/components/recitation/mobile-recitatio
 import { useMushafFontLoader } from "@/hooks/useMushafFontLoader"
 import type { MicrophonePermissionStatus } from "@/hooks/useMicrophoneStream"
 import { quranAPI, type Surah as QuranSurah, type Ayah as QuranAyah } from "@/lib/quran-api"
+import { calculateHasanatForText, countArabicLetters } from "@/lib/hasanat"
 import { cn } from "@/lib/utils"
 import {
   annotateTajweedMistakes,
@@ -61,6 +61,12 @@ const GWANI_RECITER_NAME = "Shaykh Gwani Dahir"
 type ReaderAyah = QuranAyah & {
   translation?: string
   transliteration?: string
+}
+
+type HasanatPopup = {
+  id: number
+  amount: number
+  label: string
 }
 
 const FALLBACK_SURAH: {
@@ -214,7 +220,7 @@ const formatTimeDisplay = (seconds: number) => {
 
 
 export default function QuranReaderPage() {
-  const { dashboard, incrementDailyTarget, submitRecitationResult } = useUser()
+  const { dashboard, incrementDailyTarget, submitRecitationResult, recordQuranReaderProgress } = useUser()
   const dailyTarget = dashboard?.dailyTarget
   const dailyTargetGoal = dailyTarget?.targetAyahs ?? 0
   const dailyTargetCompleted = dailyTarget?.completedAyahs ?? 0
@@ -250,6 +256,8 @@ export default function QuranReaderPage() {
   const [surahError, setSurahError] = useState<string | null>(null)
   const [audioError, setAudioError] = useState<string | null>(null)
   const [sessionRecited, setSessionRecited] = useState(0)
+  const [sessionHasanat, setSessionHasanat] = useState(0)
+  const [hasanatPopups, setHasanatPopups] = useState<HasanatPopup[]>([])
   const [isCelebrationOpen, setIsCelebrationOpen] = useState(false)
   const [hasCelebrated, setHasCelebrated] = useState(false)
   const [tajweedMetrics, setTajweedMetrics] = useState<TajweedMetric[]>(() => [
@@ -306,7 +314,11 @@ export default function QuranReaderPage() {
   const [isTimerActive, setIsTimerActive] = useState(false)
   const [challengeStatus, setChallengeStatus] = useState<"idle" | "cracked" | "failed">("idle")
   const [hasChallengeStarted, setHasChallengeStarted] = useState(false)
+  const [isEggSplashOpen, setIsEggSplashOpen] = useState(false)
   const allAyahsToggleId = useId()
+
+  const popupTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  const awardedAyahsRef = useRef<Set<string>>(new Set())
 
   const currentChallengeTarget = useMemo(
     () => INITIAL_CHALLENGE_TARGET + (eggLevel - 1) * CHALLENGE_TARGET_STEP,
@@ -343,6 +355,81 @@ export default function QuranReaderPage() {
     const verseLabel = versesRemaining === 1 ? "verse" : "verses"
     return `Recite ${versesRemaining} more ${verseLabel} to break the egg.`
   }, [challengeStatus, currentChallengeTarget, hasChallengeStarted, versesRecited])
+
+  const spawnHasanatPopup = useCallback((amount: number, label: string) => {
+    const id = Date.now() + Math.random()
+    setHasanatPopups((previous) => [
+      ...previous,
+      {
+        id,
+        amount,
+        label,
+      },
+    ])
+
+    const timeoutId = window.setTimeout(() => {
+      setHasanatPopups((previous) => previous.filter((popup) => popup.id !== id))
+      popupTimeoutsRef.current = popupTimeoutsRef.current.filter((entry) => entry !== timeoutId)
+    }, 1600)
+
+    popupTimeoutsRef.current.push(timeoutId)
+  }, [])
+
+  const awardHasanatForCurrentAyah = useCallback(() => {
+    if (!activeAyah) {
+      return false
+    }
+
+    const ayahNumber = getAyahDisplayNumber(activeAyah, currentAyah)
+    const verseKey = `${surahData.metadata.number}:${ayahNumber}`
+
+    if (awardedAyahsRef.current.has(verseKey)) {
+      return false
+    }
+
+    const lettersCount = countArabicLetters(activeAyah.text)
+    const hasanatAwarded = calculateHasanatForText(activeAyah.text)
+
+    if (lettersCount === 0 || hasanatAwarded === 0) {
+      return false
+    }
+
+    awardedAyahsRef.current.add(verseKey)
+
+    const surahLabel =
+      surahData.metadata.englishName || surahData.metadata.name || `Surah ${surahData.metadata.number}`
+    spawnHasanatPopup(hasanatAwarded, `${surahLabel} • Ayah ${ayahNumber}`)
+    setSessionHasanat((previous) => previous + hasanatAwarded)
+
+    recordQuranReaderProgress({
+      verseKey,
+      surah: surahLabel,
+      ayahNumber,
+      pageNumber: activeAyah.page,
+      lettersCount,
+      hasanatAwarded,
+    })
+
+    return true
+  }, [
+    activeAyah,
+    currentAyah,
+    getAyahDisplayNumber,
+    recordQuranReaderProgress,
+    spawnHasanatPopup,
+    surahData.metadata.englishName,
+    surahData.metadata.name,
+    surahData.metadata.number,
+  ])
+
+  useEffect(() => {
+    return () => {
+      popupTimeoutsRef.current.forEach((timeoutId) => {
+        window.clearTimeout(timeoutId)
+      })
+      popupTimeoutsRef.current = []
+    }
+  }, [])
 
   const gwaniTheme = useMemo(() => {
     if (gwaniError) {
@@ -888,12 +975,13 @@ export default function QuranReaderPage() {
     }
   }
 
-  const handleNextAyah = () => {
-    if (currentAyah < totalAyahs - 1) {
-      setCurrentAyah(currentAyah + 1)
-      setIsPlaying(false)
+  const handleNextAyah = useCallback(() => {
+    if (totalAyahs === 0) {
+      return
     }
-  }
+
+    handleReciteAyah()
+  }, [handleReciteAyah, totalAyahs])
 
   const handlePrevAyah = () => {
     if (currentAyah > 0) {
@@ -957,9 +1045,16 @@ export default function QuranReaderPage() {
     setIsPlaying(false)
   }
 
-  const handleReciteAyah = () => {
-    incrementDailyTarget(1)
-    setSessionRecited((count) => count + 1)
+  const handleReciteAyah = useCallback(() => {
+    if (!activeAyah) {
+      return
+    }
+
+    const isNewRecitation = awardHasanatForCurrentAyah()
+    if (isNewRecitation) {
+      incrementDailyTarget(1)
+      setSessionRecited((count) => count + 1)
+    }
     setIsPlaying(false)
     setCurrentAyah((index) => (index < totalAyahs - 1 ? index + 1 : index))
     setVersesRecited((previous) => {
@@ -979,7 +1074,32 @@ export default function QuranReaderPage() {
         setIsTimerActive(true)
       }
     }
-  }
+  }, [
+    activeAyah,
+    awardHasanatForCurrentAyah,
+    challengeStatus,
+    currentChallengeTarget,
+    eggLevel,
+    incrementDailyTarget,
+    isTimerActive,
+    totalAyahs,
+  ])
+
+  useEffect(() => {
+    if (challengeStatus !== "cracked") {
+      setIsEggSplashOpen(false)
+      return
+    }
+
+    setIsEggSplashOpen(true)
+    const timeoutId = window.setTimeout(() => {
+      setIsEggSplashOpen(false)
+    }, 1800)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [challengeStatus])
 
   useEffect(() => {
     if (!isTimerActive) {
@@ -1697,6 +1817,20 @@ export default function QuranReaderPage() {
 
   return (
     <div className="min-h-screen bg-gradient-cream">
+      <div
+        className="pointer-events-none fixed right-6 top-24 z-50 flex flex-col items-end gap-2"
+        aria-live="polite"
+      >
+        {hasanatPopups.map((popup) => (
+          <div
+            key={popup.id}
+            className="animate-hasanat-float rounded-full bg-emerald-500/95 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30"
+          >
+            +{popup.amount.toLocaleString()} hasanat
+            <span className="ml-2 text-xs font-medium text-emerald-100">{popup.label}</span>
+          </div>
+        ))}
+      </div>
       {/* Header */}
       <header className="border-b border-border/50 bg-background/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -1811,6 +1945,15 @@ export default function QuranReaderPage() {
                         </span>
                         <span className="font-mono text-base">{formattedTimer}</span>
                       </div>
+                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-sm">
+                        <span className="inline-flex items-center gap-2">
+                          <Sparkles className="h-4 w-4" aria-hidden />
+                          Session hasanat
+                        </span>
+                        <span className="mt-1 block text-base font-mono text-emerald-800">
+                          +{sessionHasanat.toLocaleString()}
+                        </span>
+                      </div>
                       <div className="flex flex-col gap-2">
                         <Button
                           size="sm"
@@ -1903,7 +2046,7 @@ export default function QuranReaderPage() {
                         variant="outline"
                         size="sm"
                         onClick={handleNextAyah}
-                        disabled={currentAyah === Math.max(totalAyahs - 1, 0)}
+                        disabled={totalAyahs === 0}
                         className="bg-transparent"
                       >
                         <SkipForward className="w-4 h-4" />
@@ -2270,9 +2413,6 @@ export default function QuranReaderPage() {
 
                 <div className="pt-4 border-t border-muted/60 space-y-3">
                   <div className="flex flex-wrap items-center justify-center gap-3">
-                    <Button className="gradient-maroon text-white border-0 px-6" onClick={handleReciteAyah}>
-                      <Activity className="w-4 h-4 mr-2" /> Mark Ayah Recited
-                    </Button>
                     <Badge
                       variant="secondary"
                       className={`text-xs ${dailyGoalMet ? "bg-emerald-100 text-emerald-700" : ""}`}
@@ -2281,11 +2421,17 @@ export default function QuranReaderPage() {
                         ? "Daily goal complete"
                         : `${remainingAyahs} ayah${remainingAyahs === 1 ? "" : "s"} remaining`}
                     </Badge>
+                    <Badge
+                      variant="outline"
+                      className="text-xs border-emerald-200 bg-emerald-50 text-emerald-700"
+                    >
+                      Session hasanat +{sessionHasanat.toLocaleString()}
+                    </Badge>
                   </div>
-                    <p className="text-xs text-muted-foreground text-center">
-                      Each marked ayah updates your daily target automatically.
-                    </p>
-                  </div>
+                  <p className="text-xs text-muted-foreground text-center">
+                    Advancing with the next button logs your recitation and rewards hasanat automatically.
+                  </p>
+                </div>
 
                 {/* All Ayahs List */}
                 <div className="space-y-4">
@@ -2768,6 +2914,20 @@ export default function QuranReaderPage() {
           </div>
       </div>
     </div>
+
+      <Dialog open={isEggSplashOpen} onOpenChange={setIsEggSplashOpen}>
+        <DialogContent className="max-w-sm border-0 bg-white/95 text-center shadow-xl">
+          <DialogHeader className="space-y-3">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 shadow-inner">
+              <Egg className="h-7 w-7 text-emerald-700" aria-hidden />
+            </div>
+            <DialogTitle className="text-2xl font-semibold text-emerald-900">Egg cracked!</DialogTitle>
+            <DialogDescription className="text-sm text-emerald-700">
+              You shattered the challenge shell and leveled up the Break the Egg quest.
+            </DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isCelebrationOpen} onOpenChange={setIsCelebrationOpen}>
         <DialogContent className="max-w-md text-center border-0 bg-white/95 backdrop-blur-md">
