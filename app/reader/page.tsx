@@ -11,6 +11,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Progress } from "@/components/ui/progress"
 import { useUser } from "@/hooks/use-user"
+import { useToast } from "@/hooks/use-toast"
 import {
   Play,
   Pause,
@@ -215,6 +216,7 @@ const formatTimeDisplay = (seconds: number) => {
 
 export default function QuranReaderPage() {
   const { dashboard, incrementDailyTarget, submitRecitationResult } = useUser()
+  const { toast } = useToast()
   const dailyTarget = dashboard?.dailyTarget
   const dailyTargetGoal = dailyTarget?.targetAyahs ?? 0
   const dailyTargetCompleted = dailyTarget?.completedAyahs ?? 0
@@ -252,6 +254,9 @@ export default function QuranReaderPage() {
   const [sessionRecited, setSessionRecited] = useState(0)
   const [isCelebrationOpen, setIsCelebrationOpen] = useState(false)
   const [hasCelebrated, setHasCelebrated] = useState(false)
+  const [hasSurahCelebrated, setHasSurahCelebrated] = useState(false)
+  const [surahCelebrationMessage, setSurahCelebrationMessage] = useState<string | null>(null)
+  const surahCelebrationTimeoutRef = useRef<number | null>(null)
   const [tajweedMetrics, setTajweedMetrics] = useState<TajweedMetric[]>(() => [
     {
       id: "makharij",
@@ -981,6 +986,20 @@ export default function QuranReaderPage() {
     }
   }
 
+  const launchSurahCompletionConfetti = useCallback(async () => {
+    const confetti = (await import("canvas-confetti")).default
+    const defaults = {
+      spread: 78,
+      scalar: 1.12,
+      ticks: 230,
+      origin: { y: 0.6 },
+      colors: ["#0f766e", "#22c55e", "#0ea5e9", "#f97316", "#fde68a"],
+    }
+
+    confetti({ ...defaults, particleCount: 200, origin: { ...defaults.origin, x: 0.3 } })
+    confetti({ ...defaults, particleCount: 210, origin: { ...defaults.origin, x: 0.7 } })
+  }, [])
+
   useEffect(() => {
     if (!isTimerActive) {
       return
@@ -1613,6 +1632,48 @@ export default function QuranReaderPage() {
   }, [dailyTargetCompleted, dailyTargetGoal, sessionRecited, hasCelebrated])
 
   useEffect(() => {
+    const surahAyahCount = Math.max(totalAyahs, surahData.metadata.numberOfAyahs ?? 0)
+    if (surahAyahCount === 0) {
+      return
+    }
+
+    const isOnFinalAyah = currentAyah >= surahAyahCount - 1 && surahAyahCount > 0
+    if (isOnFinalAyah && sessionRecited > 0) {
+      if (!hasSurahCelebrated) {
+        setHasSurahCelebrated(true)
+        const surahName = surahData.metadata.englishName || surahData.metadata.name || `Surah ${selectedSurah}`
+        setSurahCelebrationMessage(`Masha’Allah! You just completed Surah ${surahName}. 🌟`)
+        toast({
+          title: "Surah complete",
+          description: `Surah ${surahName} has been completed. Keep building toward your next khatm!`,
+        })
+        void launchSurahCompletionConfetti()
+
+        if (surahCelebrationTimeoutRef.current) {
+          window.clearTimeout(surahCelebrationTimeoutRef.current)
+        }
+        surahCelebrationTimeoutRef.current = window.setTimeout(() => {
+          setSurahCelebrationMessage(null)
+          surahCelebrationTimeoutRef.current = null
+        }, 6000)
+      }
+    } else if (hasSurahCelebrated) {
+      setHasSurahCelebrated(false)
+    }
+  }, [
+    currentAyah,
+    hasSurahCelebrated,
+    launchSurahCompletionConfetti,
+    selectedSurah,
+    sessionRecited,
+    surahData.metadata.englishName,
+    surahData.metadata.name,
+    surahData.metadata.numberOfAyahs,
+    toast,
+    totalAyahs,
+  ])
+
+  useEffect(() => {
     if (!isCelebrationOpen) {
       return
     }
@@ -1665,6 +1726,15 @@ export default function QuranReaderPage() {
       }
     }
   }, [isCelebrationOpen])
+
+  useEffect(() => {
+    return () => {
+      if (surahCelebrationTimeoutRef.current) {
+        window.clearTimeout(surahCelebrationTimeoutRef.current)
+        surahCelebrationTimeoutRef.current = null
+      }
+    }
+  }, [])
 
   const isLiveAnalysisActive = isRecording || isAnalysisStarted
   const highlightedTranscription = useMemo(() => {
@@ -1766,6 +1836,12 @@ export default function QuranReaderPage() {
 
               <CardContent className="relative space-y-8 pb-8">
                 <section className="relative overflow-hidden rounded-2xl border border-amber-100 bg-gradient-to-r from-amber-50 via-white to-amber-100/70 p-5 shadow-sm">
+                  {surahCelebrationMessage ? (
+                    <div className="mb-4 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm font-medium text-emerald-800 shadow-inner">
+                      <Sparkles className="h-4 w-4" aria-hidden />
+                      <span>{surahCelebrationMessage}</span>
+                    </div>
+                  ) : null}
                   <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
                     <div className="flex flex-1 items-start gap-4">
                       <div

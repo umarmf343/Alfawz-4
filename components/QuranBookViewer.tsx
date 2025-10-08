@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, Egg, Target, Timer, Volume2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, Egg, Sparkles, Target, Timer, Volume2 } from "lucide-react"
 
 import pages from "@/data/mushaf-pages.json"
 import { getSurahInfo, getVerseText, parseVerseKey, type VerseKey } from "@/lib/quran-data"
@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import { useQuranReader, type VerseSelection } from "@/hooks/use-quran-reader"
 import { useUser } from "@/hooks/use-user"
+import { useToast } from "@/hooks/use-toast"
 import { calculateHasanatForText, countArabicLetters } from "@/lib/hasanat"
 
 const TOTAL_PAGES = 604
@@ -71,7 +72,8 @@ function getChallengeDuration(level: number): number {
 
 export function QuranBookViewer() {
   const { currentVerse, setCurrentVerse } = useQuranReader()
-  const { recordQuranReaderProgress } = useUser()
+  const { recordQuranReaderProgress, dashboard } = useUser()
+  const { toast } = useToast()
   const [currentOddPage, setCurrentOddPage] = useState<number>(1)
   const [pageInput, setPageInput] = useState<string>("1")
   const [isAnimating, setIsAnimating] = useState(false)
@@ -80,6 +82,16 @@ export function QuranBookViewer() {
   const [hasanatPopups, setHasanatPopups] = useState<HasanatPopup[]>([])
   const popupTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const awardedVersesRef = useRef<Set<string>>(new Set())
+  const celebratedSurahsRef = useRef<Set<number>>(new Set())
+  const [celebrationBanner, setCelebrationBanner] = useState<
+    | null
+    | {
+        type: "surah" | "daily"
+        message: string
+      }
+  >(null)
+  const bannerTimeoutRef = useRef<number | null>(null)
+  const [hasCelebratedDailyGoal, setHasCelebratedDailyGoal] = useState(false)
   const [eggLevel, setEggLevel] = useState(1)
   const [versesRecited, setVersesRecited] = useState(0)
   const [timeRemaining, setTimeRemaining] = useState(() => getChallengeDuration(1))
@@ -98,6 +110,59 @@ export function QuranBookViewer() {
     }
     return Math.min(100, Math.round((versesRecited / currentChallengeTarget) * 100))
   }, [currentChallengeTarget, versesRecited])
+
+  const dailyTargetGoal = dashboard?.dailyTarget.targetAyahs ?? 0
+  const dailyTargetCompleted = dashboard?.dailyTarget.completedAyahs ?? 0
+
+  const showCelebrationBanner = useCallback((type: "surah" | "daily", message: string) => {
+    if (bannerTimeoutRef.current) {
+      window.clearTimeout(bannerTimeoutRef.current)
+      bannerTimeoutRef.current = null
+    }
+    setCelebrationBanner({ type, message })
+    bannerTimeoutRef.current = window.setTimeout(() => {
+      setCelebrationBanner(null)
+      bannerTimeoutRef.current = null
+    }, 6000)
+  }, [])
+
+  const launchConfettiBurst = useCallback(async (colors: string[]) => {
+    const confetti = (await import("canvas-confetti")).default
+    const defaults = {
+      spread: 80,
+      scalar: 1.1,
+      ticks: 220,
+      origin: { y: 0.62 },
+      colors,
+    }
+
+    confetti({ ...defaults, particleCount: 200, origin: { ...defaults.origin, x: 0.32 } })
+    confetti({ ...defaults, particleCount: 220, origin: { ...defaults.origin, x: 0.68 } })
+  }, [])
+
+  const celebrateSurahCompletion = useCallback(
+    (surahName: string) => {
+      showCelebrationBanner("surah", `Masha’Allah! You completed Surah ${surahName}. 🌙`)
+      toast({
+        title: "Surah complete",
+        description: `Surah ${surahName} is now sealed in your ledger. Keep the khatm journey glowing!`,
+      })
+      void launchConfettiBurst(["#0f766e", "#0ea5e9", "#f97316", "#fde68a", "#a855f7"])
+    },
+    [launchConfettiBurst, showCelebrationBanner, toast],
+  )
+
+  const celebrateDailyTarget = useCallback(
+    (completed: number, goal: number) => {
+      showCelebrationBanner("daily", `Daily goal reached! ${completed} ayahs recited — target of ${goal} secured.`)
+      toast({
+        title: "Daily target secured",
+        description: `You reached today’s ${goal}-ayah intention. Every verse beyond continues to brighten your scale.`,
+      })
+      void launchConfettiBurst(["#047857", "#10b981", "#f59e0b", "#fde68a", "#dc2626"])
+    },
+    [launchConfettiBurst, showCelebrationBanner, toast],
+  )
 
   const formattedTimer = useMemo(() => {
     const minutes = Math.floor(timeRemaining / 60)
@@ -172,7 +237,17 @@ export function QuranBookViewer() {
       lettersCount,
       hasanatAwarded,
     })
-  }, [currentVerse, recordQuranReaderProgress, spawnHasanatPopup])
+
+    const surahInfo = getSurahInfo(currentVerse.surahNumber)
+    if (
+      surahInfo &&
+      currentVerse.ayahNumber >= surahInfo.ayahCount &&
+      !celebratedSurahsRef.current.has(currentVerse.surahNumber)
+    ) {
+      celebratedSurahsRef.current.add(currentVerse.surahNumber)
+      celebrateSurahCompletion(currentVerse.englishName ?? currentVerse.surahName)
+    }
+  }, [celebrateSurahCompletion, currentVerse, recordQuranReaderProgress, spawnHasanatPopup])
 
   useEffect(() => {
     return () => {
@@ -180,6 +255,10 @@ export function QuranBookViewer() {
         clearTimeout(timeoutId)
       })
       popupTimeoutsRef.current = []
+      if (bannerTimeoutRef.current) {
+        window.clearTimeout(bannerTimeoutRef.current)
+        bannerTimeoutRef.current = null
+      }
     }
   }, [])
 
@@ -394,6 +473,24 @@ export function QuranBookViewer() {
     }
   }, [handleNext, handlePrevious])
 
+  useEffect(() => {
+    if (dailyTargetGoal === 0) {
+      return
+    }
+
+    if (dailyTargetCompleted >= dailyTargetGoal) {
+      if (!hasCelebratedDailyGoal) {
+        setHasCelebratedDailyGoal(true)
+        celebrateDailyTarget(dailyTargetCompleted, dailyTargetGoal)
+      }
+      return
+    }
+
+    if (hasCelebratedDailyGoal) {
+      setHasCelebratedDailyGoal(false)
+    }
+  }, [celebrateDailyTarget, dailyTargetCompleted, dailyTargetGoal, hasCelebratedDailyGoal])
+
   const animationClass = isAnimating
     ? flipDirection === "forward"
       ? "mushaf-turn-forward"
@@ -511,6 +608,20 @@ export function QuranBookViewer() {
           Navigate the Mushaf pages, select an āyah, and start your live tajwīd analysis instantly.
         </p>
       </header>
+
+      {celebrationBanner ? (
+        <div
+          className={cn(
+            "flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm shadow-md transition-all",
+            celebrationBanner.type === "surah"
+              ? "border-emerald-200 bg-emerald-50/90 text-emerald-800"
+              : "border-amber-200 bg-amber-50/90 text-amber-800",
+          )}
+        >
+          <Sparkles className="h-4 w-4" aria-hidden />
+          <span>{celebrationBanner.message}</span>
+        </div>
+      ) : null}
 
       <div
         className={cn(
