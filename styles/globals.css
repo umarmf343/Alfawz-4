@@ -143,8 +143,31 @@
   }
 }
 
+@keyframes hasanatRiseFromButton {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 16px, 0) scale(0.85);
+  }
+  20% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: translate3d(0, -56px, 0) scale(1.05);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(0, -88px, 0) scale(0.95);
+  }
+}
+
 @layer utilities {
   .animate-hasanat-float {
     animation: hasanatFloat 1.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  .animate-hasanat-rise-from-button {
+    animation: hasanatRiseFromButton 1.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   }
 }

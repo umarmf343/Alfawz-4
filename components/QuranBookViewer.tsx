@@ -79,6 +79,7 @@ export function QuranBookViewer() {
   const [sessionHasanat, setSessionHasanat] = useState(0)
   const [hasanatPopups, setHasanatPopups] = useState<HasanatPopup[]>([])
   const popupTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  const nextButtonRef = useRef<HTMLButtonElement | null>(null)
   const awardedVersesRef = useRef<Set<string>>(new Set())
   const [eggLevel, setEggLevel] = useState(1)
   const [versesRecited, setVersesRecited] = useState(0)
@@ -402,20 +403,6 @@ export function QuranBookViewer() {
 
   return (
     <article className="relative mx-auto flex w-full max-w-6xl flex-col gap-8 px-4 py-8">
-      <div
-        className="pointer-events-none absolute right-4 top-4 z-40 flex flex-col items-end gap-2"
-        aria-live="polite"
-      >
-        {hasanatPopups.map((popup) => (
-          <div
-            key={popup.id}
-            className="animate-hasanat-float rounded-full bg-emerald-500/95 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30"
-          >
-            +{popup.amount.toLocaleString()} hasanat
-            <span className="ml-2 text-xs font-medium text-emerald-100">{popup.surah}</span>
-          </div>
-        ))}
-      </div>
       <section className="relative overflow-hidden rounded-3xl border border-amber-100 bg-gradient-to-r from-amber-50 via-white to-amber-100/70 p-6 shadow-sm">
         <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-1 items-start gap-4">
@@ -597,16 +584,33 @@ export function QuranBookViewer() {
             <ChevronLeft className="h-4 w-4" aria-hidden />
             الصفحة السابقة
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleNext}
-            disabled={currentOddPage >= MAX_ODD_PAGE}
-            aria-label="Next page spread"
-          >
-            الصفحة التالية
-            <ChevronRight className="h-4 w-4" aria-hidden />
-          </Button>
+          <div className="relative">
+            <Button
+              ref={nextButtonRef}
+              type="button"
+              variant="outline"
+              onClick={handleNext}
+              disabled={currentOddPage >= MAX_ODD_PAGE}
+              aria-label="Next page spread"
+            >
+              الصفحة التالية
+              <ChevronRight className="h-4 w-4" aria-hidden />
+            </Button>
+            <div
+              className="pointer-events-none absolute left-1/2 top-0 z-40 flex -translate-x-1/2 -translate-y-2 flex-col items-center gap-2"
+              aria-live="polite"
+            >
+              {hasanatPopups.map((popup) => (
+                <div
+                  key={popup.id}
+                  className="animate-hasanat-rise-from-button rounded-full bg-emerald-500/95 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30"
+                >
+                  +{popup.amount.toLocaleString()} hasanat
+                  <span className="ml-2 text-xs font-medium text-emerald-100">{popup.surah}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="flex flex-col items-center text-sm text-slate-500 sm:items-start">
