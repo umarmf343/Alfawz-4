@@ -280,7 +280,6 @@ export default function QuranReaderPage() {
   const [surahError, setSurahError] = useState<string | null>(null)
   const [audioError, setAudioError] = useState<string | null>(null)
   const [sessionRecited, setSessionRecited] = useState(0)
-  const [sessionHasanat, setSessionHasanat] = useState(0)
   const [hasanatPopups, setHasanatPopups] = useState<HasanatPopup[]>([])
   const [celebration, setCelebration] = useState<CelebrationState | null>(null)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
@@ -471,7 +470,6 @@ export default function QuranReaderPage() {
       label: `${surahLabel} • Ayah ${ayahNumber}`,
       variant: "hasanat",
     })
-    setSessionHasanat((previous) => previous + hasanatAwarded)
 
     recordQuranReaderProgress({
       verseKey,
@@ -2116,15 +2114,6 @@ export default function QuranReaderPage() {
                         </span>
                         <span className="font-mono text-base">{formattedTimer}</span>
                       </div>
-                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-sm">
-                        <span className="inline-flex items-center gap-2">
-                          <Sparkles className="h-4 w-4" aria-hidden />
-                          Session hasanat
-                        </span>
-                        <span className="mt-1 block text-base font-mono text-emerald-800">
-                          +{sessionHasanat.toLocaleString()}
-                        </span>
-                      </div>
                       <div className="flex flex-col gap-2">
                         <Button
                           size="sm"
@@ -2588,12 +2577,6 @@ export default function QuranReaderPage() {
                       {dailyGoalMet
                         ? "Daily goal complete"
                         : `${remainingAyahs} ayah${remainingAyahs === 1 ? "" : "s"} remaining`}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className="text-xs border-emerald-200 bg-emerald-50 text-emerald-700"
-                    >
-                      Session hasanat +{sessionHasanat.toLocaleString()}
                     </Badge>
                   </div>
                   <p className="text-xs text-muted-foreground text-center">
