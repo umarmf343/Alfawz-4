@@ -10,7 +10,6 @@ import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { RecordingInterface } from "@/components/recording-interface"
-import { MushafPageSpread } from "@/components/MushafPageSpread"
 import { calculateHasanatForText } from "@/lib/hasanat"
 import { useUser } from "@/hooks/use-user"
 import {
@@ -150,14 +149,6 @@ export default function PracticePage() {
   const verseProgress = verseCount > 0 ? Math.round((countedTotal / verseCount) * 100) : 0
   const hasCurrentVerseCounted = countedVerses[currentVerseIndex] ?? false
   const isLastVerse = currentVerseIndex >= verseCount - 1
-
-  const assignmentStartAyah = useMemo(() => {
-    const range = activeTask.ayahRange
-    if (!range) return 1
-    const [start] = range.split("-")
-    const parsed = Number.parseInt(start ?? "1", 10)
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1
-  }, [activeTask.ayahRange])
 
   const handleTranscriptionComplete = useCallback(
     (result: PracticeTranscriptionResult) => {
@@ -451,11 +442,6 @@ export default function PracticePage() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Flipbook Quran Reader */}
-        <div className="mb-8">
-          <MushafPageSpread initialSurahName={activeTask.surah} initialAyah={assignmentStartAyah ?? undefined} />
-        </div>
 
         {/* Recording Interface */}
         <div className="mb-8">
