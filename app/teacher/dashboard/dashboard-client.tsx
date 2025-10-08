@@ -28,7 +28,7 @@ import {
   Users,
 } from "lucide-react"
 
-import type { TeacherRecitationTaskSummary } from "@/lib/data/teacher-database"
+import type { TeacherRecitationTaskSummary, TeacherStudentSummary } from "@/lib/data/teacher-database"
 import type { TeacherDashboardSnapshot, TeacherUpcomingSession } from "@/lib/teacher-dashboard"
 
 interface TeacherDashboardClientProps {
@@ -111,6 +111,20 @@ export default function TeacherDashboardClient({ snapshot }: TeacherDashboardCli
   )
 
   const studentDisplay = useMemo(() => new Map(Object.entries(studentDirectory)), [studentDirectory])
+  const studentSummaryMap = useMemo(
+    () => new Map(snapshot.students.map((student) => [student.id, student])),
+    [snapshot.students],
+  )
+  const totalClassStudents = useMemo(
+    () => snapshot.classes.reduce((total, classRecord) => total + classRecord.studentCount, 0),
+    [snapshot.classes],
+  )
+  const averageClassSize = useMemo(() => {
+    if (snapshot.classes.length === 0) {
+      return 0
+    }
+    return Math.round(totalClassStudents / snapshot.classes.length)
+  }, [snapshot.classes.length, totalClassStudents])
 
   const handleOpenReminder = (task: TeacherRecitationTaskSummary) => {
     setSelectedTask(task)
@@ -396,9 +410,10 @@ export default function TeacherDashboardClient({ snapshot }: TeacherDashboardCli
         </Card>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4 lg:w-auto lg:grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:grid-cols-5">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="assignments">Assignments</TabsTrigger>
+            <TabsTrigger value="classes">Classes</TabsTrigger>
             <TabsTrigger value="students">Students</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
           </TabsList>
@@ -674,6 +689,127 @@ export default function TeacherDashboardClient({ snapshot }: TeacherDashboardCli
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="classes" className="space-y-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-2xl font-bold">Class roster</h3>
+                <p className="text-sm text-muted-foreground">
+                  Monitor the circles entrusted to you and follow up with learners right from the dashboard.
+                </p>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                {snapshot.classes.length} class{snapshot.classes.length === 1 ? "" : "es"} • {totalClassStudents} learner
+                {totalClassStudents === 1 ? "" : "s"}
+              </div>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <Card className="border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Assigned classes</CardTitle>
+                  <CardDescription className="text-3xl font-semibold text-foreground">
+                    {snapshot.classes.length}
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+              <Card className="border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Enrolled learners</CardTitle>
+                  <CardDescription className="text-3xl font-semibold text-foreground">
+                    {totalClassStudents}
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+              <Card className="border-border/50">
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium text-muted-foreground">Average class size</CardTitle>
+                  <CardDescription className="text-3xl font-semibold text-foreground">{averageClassSize}</CardDescription>
+                </CardHeader>
+              </Card>
+            </div>
+
+            {snapshot.classes.length === 0 ? (
+              <Card className="border-border/50">
+                <CardContent className="flex flex-col items-center gap-4 py-10 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    You haven&apos;t been assigned to any classes yet. Once a class is created for you, it will appear here instantly.
+                  </p>
+                  <Link href="/teacher/classes">
+                    <Button variant="outline" className="bg-transparent">
+                      Manage classes
+                    </Button>
+                  </Link>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-4">
+                {snapshot.classes.map((classRecord) => {
+                  const enrolledStudents = classRecord.studentIds
+                    .map((studentId) => studentSummaryMap.get(studentId))
+                    .filter((student): student is TeacherStudentSummary => Boolean(student))
+                  const highlightedStudents = enrolledStudents.slice(0, 3)
+
+                  return (
+                    <Card key={classRecord.id} className="border-border/50">
+                      <CardHeader className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <CardTitle className="text-lg font-semibold">{classRecord.name}</CardTitle>
+                          <CardDescription>
+                            {classRecord.description ?? "No description has been added yet."}
+                          </CardDescription>
+                        </div>
+                        <div className="flex flex-col items-start gap-2 text-sm text-muted-foreground md:items-end">
+                          <Badge variant="secondary">
+                            {classRecord.schedule ?? "Schedule coming soon"}
+                          </Badge>
+                          <Badge variant="outline">{classRecord.studentCount} students</Badge>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {highlightedStudents.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">
+                            No learners have been assigned to this class yet.
+                          </p>
+                        ) : (
+                          <div className="space-y-3">
+                            {highlightedStudents.map((student) => (
+                              <div key={student.id} className="flex items-center justify-between rounded-lg border border-border/40 p-3">
+                                <div>
+                                  <p className="text-sm font-semibold">{student.name}</p>
+                                  <p className="text-xs text-muted-foreground">{student.email}</p>
+                                </div>
+                                <Badge variant="outline">{student.streak} day streak</Badge>
+                              </div>
+                            ))}
+                            {classRecord.studentCount > highlightedStudents.length ? (
+                              <p className="text-xs text-muted-foreground">
+                                And {classRecord.studentCount - highlightedStudents.length} more learner
+                                {classRecord.studentCount - highlightedStudents.length === 1 ? "" : "s"} awaiting your guidance.
+                              </p>
+                            ) : null}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap gap-2">
+                          <Link href="/teacher/classes">
+                            <Button variant="outline" size="sm" className="bg-transparent">
+                              View class details
+                            </Button>
+                          </Link>
+                          <Link href="/teacher/students">
+                            <Button variant="outline" size="sm" className="bg-transparent">
+                              Manage learners
+                            </Button>
+                          </Link>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="students" className="space-y-6">
