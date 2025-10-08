@@ -34,7 +34,7 @@ import {
   type QuranReaderRecitationInput,
   type QuranReaderRecitationResult,
 } from "@/lib/data/teacher-database"
-import { getActiveSession } from "@/lib/data/auth"
+import { getActiveSession, signOut as clearActiveSession } from "@/lib/data/auth"
 
 export type UserProfile = LearnerProfile
 export type UserStats = LearnerStats
@@ -67,6 +67,7 @@ interface UserContextValue {
   reviewMemorizationTask: (review: MemorizationReviewInput) => void
   completeDailySurahRecitation: (completion: DailySurahCompletionInput) => DailySurahCompletionResult
   recordQuranReaderProgress: (recitation: QuranReaderRecitationInput) => QuranReaderRecitationResult
+  signOut: () => void
 }
 
 const perksByPlan: Record<SubscriptionPlan, string[]> = {
@@ -454,6 +455,24 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     [applyLearnerState, studentId],
   )
 
+  const handleSignOut = useCallback(() => {
+    clearActiveSession()
+    setProfile({
+      id: studentId,
+      name: "Guest Learner",
+      email: "guest@alfawz.app",
+      role: "student",
+      locale: "en-US",
+      plan: "free",
+      joinedAt: new Date().toISOString(),
+    })
+    setStats(createEmptyStats())
+    setHabits([])
+    setDashboard(sanitizeDashboardRecord(createFallbackDashboardRecord(studentId)))
+    setTeachers([])
+    setError(null)
+  }, [studentId])
+
   const completeRecitationAssignment = useCallback(
     (taskId: string) => {
       const task = dashboard?.recitationTasks.find((entry) => entry.id === taskId)
@@ -554,6 +573,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       recordQuranReaderProgress,
       upgradeToPremium,
       downgradeToFree,
+      signOut: handleSignOut,
     }),
     [
       profile,
@@ -581,6 +601,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       recordQuranReaderProgress,
       upgradeToPremium,
       downgradeToFree,
+      handleSignOut,
     ],
   )
 
