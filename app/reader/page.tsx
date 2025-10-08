@@ -993,76 +993,6 @@ export default function QuranReaderPage() {
     }
   }
 
-  const handleNextAyah = useCallback(() => {
-    if (totalAyahs === 0) {
-      return
-    }
-
-    handleReciteAyah()
-  }, [handleReciteAyah, totalAyahs])
-
-  const handlePrevAyah = () => {
-    if (currentAyah > 0) {
-      setCurrentAyah(currentAyah - 1)
-      setIsPlaying(false)
-    }
-  }
-
-  const handleGwaniPlayPause = async () => {
-    const audio = gwaniAudioRef.current
-    if (!audio) {
-      return
-    }
-
-    if (isGwaniPlaying) {
-      audio.pause()
-      return
-    }
-
-    try {
-      setGwaniError(null)
-      if (audio.readyState < 2) {
-        setIsGwaniLoading(true)
-      }
-      await audio.play()
-    } catch (error) {
-      console.error("Failed to start Gwani Dahir audio", error)
-      setIsGwaniPlaying(false)
-      setIsGwaniLoading(false)
-      setGwaniError("Playback was blocked. Tap play again or try another moment.")
-    }
-  }
-
-  const handleGwaniProgressChange = (value: number[]) => {
-    const audio = gwaniAudioRef.current
-    if (!audio || !Number.isFinite(gwaniDuration) || gwaniDuration <= 0) {
-      return
-    }
-
-    const [nextTime] = value
-    if (!Number.isFinite(nextTime)) {
-      return
-    }
-
-    const clampedTime = Math.min(Math.max(nextTime, 0), gwaniDuration)
-    audio.currentTime = clampedTime
-    setGwaniCurrentTime(clampedTime)
-  }
-
-  const handleSyncReaderWithGwani = () => {
-    setSelectedSurah(gwaniSelectedSurah)
-    setCurrentAyah(0)
-    setIsPlaying(false)
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" })
-    }
-  }
-
-  const handleAyahClick = (index: number) => {
-    setCurrentAyah(index)
-    setIsPlaying(false)
-  }
-
   const handleReciteAyah = useCallback(() => {
     if (!activeAyah) {
       return
@@ -1132,6 +1062,76 @@ export default function QuranReaderPage() {
     surahData.metadata.number,
     totalAyahs,
   ])
+
+  const handleNextAyah = useCallback(() => {
+    if (totalAyahs === 0) {
+      return
+    }
+
+    handleReciteAyah()
+  }, [handleReciteAyah, totalAyahs])
+
+  const handlePrevAyah = () => {
+    if (currentAyah > 0) {
+      setCurrentAyah(currentAyah - 1)
+      setIsPlaying(false)
+    }
+  }
+
+  const handleGwaniPlayPause = async () => {
+    const audio = gwaniAudioRef.current
+    if (!audio) {
+      return
+    }
+
+    if (isGwaniPlaying) {
+      audio.pause()
+      return
+    }
+
+    try {
+      setGwaniError(null)
+      if (audio.readyState < 2) {
+        setIsGwaniLoading(true)
+      }
+      await audio.play()
+    } catch (error) {
+      console.error("Failed to start Gwani Dahir audio", error)
+      setIsGwaniPlaying(false)
+      setIsGwaniLoading(false)
+      setGwaniError("Playback was blocked. Tap play again or try another moment.")
+    }
+  }
+
+  const handleGwaniProgressChange = (value: number[]) => {
+    const audio = gwaniAudioRef.current
+    if (!audio || !Number.isFinite(gwaniDuration) || gwaniDuration <= 0) {
+      return
+    }
+
+    const [nextTime] = value
+    if (!Number.isFinite(nextTime)) {
+      return
+    }
+
+    const clampedTime = Math.min(Math.max(nextTime, 0), gwaniDuration)
+    audio.currentTime = clampedTime
+    setGwaniCurrentTime(clampedTime)
+  }
+
+  const handleSyncReaderWithGwani = () => {
+    setSelectedSurah(gwaniSelectedSurah)
+    setCurrentAyah(0)
+    setIsPlaying(false)
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" })
+    }
+  }
+
+  const handleAyahClick = (index: number) => {
+    setCurrentAyah(index)
+    setIsPlaying(false)
+  }
 
   useEffect(() => {
     if (challengeStatus !== "cracked") {
