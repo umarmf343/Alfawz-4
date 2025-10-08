@@ -33,3 +33,7 @@ export function useQuranReader() {
   }
   return context
 }
+
+export function useOptionalQuranReader() {
+  return useContext(QuranReaderContext) ?? null
+}

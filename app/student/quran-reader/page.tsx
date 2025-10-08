@@ -3,7 +3,7 @@
 import { useMemo } from "react"
 import { BookOpenCheck } from "lucide-react"
 
-import { QuranBookViewer } from "@/components/QuranBookViewer"
+import { MushafPageSpread } from "@/components/MushafPageSpread"
 import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -90,7 +90,7 @@ export default function StudentQuranReaderPage() {
   return (
     <QuranReaderProvider>
       <main className="flex flex-col gap-12 pb-16 pt-6">
-        <QuranBookViewer />
+        <MushafPageSpread />
         <section className="mx-auto w-full max-w-5xl px-4">
           <LiveAnalysisPanel />
         </section>

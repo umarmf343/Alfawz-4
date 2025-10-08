@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 
-import quranText from "@/data/quran-uthmani.json"
+import quranText from "@/data/quran/quran-uthmani.json"
 import { normalizeVerseKey } from "@/lib/verse-validator"
 
 const verseCache = new Map<string, string>()
