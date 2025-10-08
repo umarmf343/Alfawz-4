@@ -1,4 +1,4 @@
-import quranText from "@/data/quran-uthmani.json"
+import quranText from "@/data/quran/quran-uthmani.json"
 import surahMeta from "@/data/quran.json"
 
 export type VerseKey = `${number}:${number}`

@@ -1,7 +1,7 @@
 // Al-Quran Cloud API Integration
 // Provides access to authentic Quranic text, translations, and audio
 
-import localQuranText from "@/data/quran-uthmani.json"
+import localQuranText from "@/data/quran/quran-uthmani.json"
 import localSurahMeta from "@/data/quran.json"
 
 export interface Surah {

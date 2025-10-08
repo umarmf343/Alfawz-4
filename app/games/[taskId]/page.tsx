@@ -21,7 +21,7 @@ import {
 
 import AppLayout from "@/components/app-layout"
 import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
-import { QuranFlipBook } from "@/components/quran-flipbook"
+import { MushafPageSpread } from "@/components/MushafPageSpread"
 import { SRSStudySession } from "@/components/srs-study-session"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -465,7 +465,7 @@ function DailyTargetGame({ task, completed, target, onLogAyah, isLogging }: Dail
             <h3 className="text-sm font-semibold text-maroon-800 mb-3 flex items-center gap-2">
               <Flame className="h-4 w-4" /> Guided reading session
             </h3>
-            <QuranFlipBook className="rounded-lg border border-maroon-100" />
+            <MushafPageSpread className="rounded-lg border border-maroon-100" />
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">

@@ -10,7 +10,7 @@ import { Progress } from "@/components/ui/progress"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { RecordingInterface } from "@/components/recording-interface"
-import { QuranFlipBook } from "@/components/quran-flipbook"
+import { MushafPageSpread } from "@/components/MushafPageSpread"
 import { calculateHasanatForText } from "@/lib/hasanat"
 import { useUser } from "@/hooks/use-user"
 import {
@@ -454,7 +454,7 @@ export default function PracticePage() {
 
         {/* Flipbook Quran Reader */}
         <div className="mb-8">
-          <QuranFlipBook initialSurahName={activeTask.surah} initialAyah={assignmentStartAyah} />
+          <MushafPageSpread initialSurahName={activeTask.surah} initialAyah={assignmentStartAyah ?? undefined} />
         </div>
 
         {/* Recording Interface */}

@@ -17,7 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Skeleton } from "@/components/ui/skeleton"
 import AppLayout from "@/components/app-layout"
 import { PremiumGate } from "@/components/premium-gate"
-import { QuranFlipBook } from "@/components/quran-flipbook"
+import { MushafPageSpread } from "@/components/MushafPageSpread"
 import { LiveTajweedAnalyzer } from "@/components/live-tajweed-analyzer"
 import { useToast } from "@/hooks/use-toast"
 import { useUser } from "@/hooks/use-user"
@@ -1245,9 +1245,9 @@ export default function DashboardPage() {
                   <p className="text-xs text-gray-600">
                     Explore your current assignment directly inside the interactive mushaf reader.
                   </p>
-                  <QuranFlipBook
+                  <MushafPageSpread
                     initialSurahName={recitationFlipbookSurah}
-                    initialAyah={recitationFlipbookInitialAyah}
+                    initialAyah={recitationFlipbookInitialAyah ?? undefined}
                     className="border-maroon-100 bg-white"
                   />
                 </div>
