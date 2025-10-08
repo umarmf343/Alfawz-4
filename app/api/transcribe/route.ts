@@ -21,6 +21,17 @@ export async function POST(request: Request) {
     const expectedText = typeof expectedTextRaw === "string" ? expectedTextRaw : ""
     const ayahIdRaw = formData.get("ayahId")
     const ayahId = typeof ayahIdRaw === "string" ? ayahIdRaw : undefined
+    const dialectRaw = formData.get("dialect")
+    const dialect = typeof dialectRaw === "string" && dialectRaw.trim().length > 0 ? dialectRaw.trim() : undefined
+    const allowedDialects = new Set(["auto", "standard", "middle_eastern", "south_asian", "north_african"])
+    const normalizedDialect = dialect && allowedDialects.has(dialect) ? (dialect as "auto" | string) : undefined
+    const localeRaw = formData.get("locale") ?? formData.get("localeHint")
+    const localeHint = typeof localeRaw === "string" && localeRaw.trim().length > 0 ? localeRaw : null
+    const substitutionThresholdRaw = formData.get("substitutionThreshold")
+    const substitutionThreshold =
+      typeof substitutionThresholdRaw === "string" && substitutionThresholdRaw.trim().length > 0
+        ? Number.parseFloat(substitutionThresholdRaw)
+        : undefined
     const durationRaw = formData.get("durationSeconds") ?? formData.get("duration")
     const durationSeconds =
       typeof durationRaw === "string" && durationRaw.trim().length > 0
@@ -74,6 +85,9 @@ export async function POST(request: Request) {
           description: "Cloud-hosted Tarteel transcription with streamlined word-level feedback.",
           stack: ["Tarteel speech recognition", "Word alignment", "Recitation feedback heuristics"],
         },
+        dialect: normalizedDialect,
+        localeHint,
+        substitutionThreshold,
       })
 
       return NextResponse.json(summary)

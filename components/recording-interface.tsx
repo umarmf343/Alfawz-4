@@ -1,11 +1,20 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo } from "react"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Slider } from "@/components/ui/slider"
+import { Textarea } from "@/components/ui/textarea"
 import { Mic, Square, Play, Pause, RotateCcw, Upload, Award } from "lucide-react"
 import {
   createLiveSessionSummary,
@@ -14,6 +23,8 @@ import {
   type MistakeCategory,
 } from "@/lib/recitation-analysis"
 import { createBrowserVoiceEngine, BrowserVoiceEngine } from "@/lib/voice/browser-voice-engine"
+import { useVoiceFeedback } from "@/hooks/useVoiceFeedback"
+import type { DialectCode } from "@/lib/phonetics"
 
 const TRANSCRIPTION_UNAVAILABLE_MESSAGE =
   "AI transcription isn't configured on this server yet. Add a TARTEEL_API_KEY and refresh to enable AI feedback."
@@ -40,6 +51,14 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
   const [interimTranscript, setInterimTranscript] = useState("")
   const [voiceStatus, setVoiceStatus] = useState<"idle" | "listening" | "error">("idle")
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [selectedDialect, setSelectedDialect] = useState<"auto" | DialectCode>("auto")
+  const [substitutionThreshold, setSubstitutionThreshold] = useState(0.75)
+  const [localeHint, setLocaleHint] = useState<string | null>(null)
+  const [feedbackChoice, setFeedbackChoice] = useState<null | "accurate" | "inaccurate">(null)
+  const [feedbackNotes, setFeedbackNotes] = useState("")
+  const [correctionText, setCorrectionText] = useState("")
+  const [feedbackStatus, setFeedbackStatus] = useState<"idle" | "submitting" | "success" | "error">("idle")
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
   const lastAnalyzedTranscriptRef = useRef("")
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -48,6 +67,24 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
+
+  const voiceFeedback = useVoiceFeedback()
+  const dialectOptions = useMemo(
+    () => [
+      { value: "auto" as const, label: "Auto-detect" },
+      { value: "standard" as DialectCode, label: "Standard Tajwīd" },
+      { value: "middle_eastern" as DialectCode, label: "Middle Eastern" },
+      { value: "south_asian" as DialectCode, label: "South Asian" },
+      { value: "north_african" as DialectCode, label: "North African" },
+    ],
+    [],
+  )
+  const substitutionSliderValue = useMemo(() => [Math.round(substitutionThreshold * 100)], [substitutionThreshold])
+  const isSubmittingFeedback = feedbackStatus === "submitting"
+  const currentDialectLabel = useMemo(() => {
+    const match = dialectOptions.find((option) => option.value === selectedDialect)
+    return match?.label ?? "Auto-detect"
+  }, [dialectOptions, selectedDialect])
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -69,6 +106,23 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
       engine.destroy()
     }
   }, [])
+
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      setLocaleHint(navigator.language ?? null)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!transcriptionResult) {
+      return
+    }
+    setFeedbackChoice(null)
+    setFeedbackNotes("")
+    setCorrectionText("")
+    setFeedbackStatus("idle")
+    setFeedbackError(null)
+  }, [transcriptionResult])
 
   useEffect(() => {
     if (!voiceEngine) return
@@ -263,6 +317,12 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     setVoiceStatus("idle")
     lastAnalyzedTranscriptRef.current = ""
     voiceEngine?.cancel()
+    voiceFeedback.cancel()
+    setFeedbackChoice(null)
+    setFeedbackNotes("")
+    setCorrectionText("")
+    setFeedbackStatus("idle")
+    setFeedbackError(null)
   }
 
   const submitForTranscription = async () => {
@@ -270,11 +330,19 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
 
     setIsTranscribing(true)
     try {
+      setFeedbackStatus("idle")
+      setFeedbackError(null)
+      setFeedbackChoice(null)
       const formData = new FormData()
       formData.append("audio", audioBlob, "recording.wav")
       formData.append("expectedText", expectedText)
       formData.append("ayahId", ayahId)
       formData.append("durationSeconds", (recordingTime / 10).toFixed(1))
+      formData.append("dialect", selectedDialect)
+      if (localeHint) {
+        formData.append("localeHint", localeHint)
+      }
+      formData.append("substitutionThreshold", substitutionThreshold.toFixed(2))
 
       const response = await fetch("/api/transcribe", {
         method: "POST",
@@ -306,6 +374,49 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     }
   }
 
+  const submitRecitationFeedback = async () => {
+    if (!transcriptionResult || !feedbackChoice) return
+
+    setFeedbackStatus("submitting")
+    setFeedbackError(null)
+
+    try {
+      const response = await fetch("/api/recitation-feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ayahId,
+          dialect: transcriptionResult.dialect.code,
+          detectionSource: transcriptionResult.dialect.source,
+          isAccurate: feedbackChoice === "accurate",
+          systemConfidence: transcriptionResult.confidence.overall,
+          notes: feedbackNotes.trim() || undefined,
+          correction: correctionText.trim() || undefined,
+          mistakes: transcriptionResult.mistakes.map((mistake) => ({
+            index: mistake.index,
+            type: mistake.type,
+            word: mistake.word,
+            correct: mistake.correct,
+            confidence: mistake.confidence,
+            categories: mistake.categories,
+          })),
+          expectedText: transcriptionResult.expectedText,
+          transcription: transcriptionResult.transcription,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Feedback submission failed")
+      }
+
+      setFeedbackStatus("success")
+    } catch (error) {
+      console.error("Feedback submission error", error)
+      setFeedbackError(error instanceof Error ? error.message : "Unable to submit feedback")
+      setFeedbackStatus("error")
+    }
+  }
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = seconds % 60
@@ -330,6 +441,9 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     const baseSummary = createLiveSessionSummary(transcriptToAnalyze, expectedText, {
       durationSeconds: typeof durationSeconds === "number" ? Number(durationSeconds.toFixed(1)) : undefined,
       ayahId,
+      dialect: selectedDialect,
+      localeHint,
+      substitutionThreshold,
     })
     const endedAt = typeof performance !== "undefined" ? performance.now() : Date.now()
     const latencyMs = Math.max(1, Math.round(endedAt - startedAt))
@@ -352,7 +466,18 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     setTranscriptionResult(summary)
     setResultSource("browser")
     onTranscriptionComplete?.(summary)
-  }, [useOnDeviceAI, isRecording, analyzedTranscript, recordingTime, expectedText, ayahId, onTranscriptionComplete])
+  }, [
+    useOnDeviceAI,
+    isRecording,
+    analyzedTranscript,
+    recordingTime,
+    expectedText,
+    ayahId,
+    onTranscriptionComplete,
+    selectedDialect,
+    localeHint,
+    substitutionThreshold,
+  ])
 
   const getScoreColor = (score: number) => {
     if (score >= 90) return "text-green-600"
@@ -403,6 +528,13 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
     return type
   }
 
+  const lowConfidenceMistakes = useMemo(() => {
+    if (!transcriptionResult) {
+      return [] as LiveSessionSummary["mistakes"]
+    }
+    return transcriptionResult.mistakes.filter((mistake) => mistake.confidence < 75).slice(0, 3)
+  }, [transcriptionResult])
+
   return (
     <div className="space-y-6">
       {/* Expected Text Display */}
@@ -452,13 +584,50 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
                 : voiceStatus === "listening"
                   ? "..."
                   : "Start recording to view the live transcript."}
-            </div>
-            {voiceError && <p className="mt-2 text-xs text-red-600">{voiceError}</p>}
           </div>
+          {voiceError && <p className="mt-2 text-xs text-red-600">{voiceError}</p>}
+        </div>
 
-          {/* Waveform Visualization */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <canvas ref={canvasRef} width={400} height={100} className="w-full h-20 rounded" />
+        {/* Dialect & phonetic settings */}
+        <div className="grid gap-4 rounded-lg border border-blue-100 bg-blue-50/60 p-4 shadow-sm md:grid-cols-2">
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold uppercase text-blue-700">Dialect preference</Label>
+            <Select value={selectedDialect} onValueChange={(value) => setSelectedDialect(value as "auto" | DialectCode)}>
+              <SelectTrigger className="bg-white">
+                <SelectValue placeholder="Auto-detect" />
+              </SelectTrigger>
+              <SelectContent>
+                {dialectOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-blue-700">
+              Current model: <span className="font-semibold">{currentDialectLabel}</span>
+              {localeHint ? ` · Browser locale: ${localeHint}` : ""}
+            </p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold uppercase text-blue-700">Pronunciation sensitivity</Label>
+            <Slider
+              value={substitutionSliderValue}
+              min={55}
+              max={95}
+              step={1}
+              onValueChange={(value) => setSubstitutionThreshold(value[0] / 100)}
+            />
+            <p className="text-[11px] text-blue-700">
+              Threshold: <span className="font-semibold">{Math.round(substitutionThreshold * 100)}%</span>. Lower values allow more
+              dialect variation before marking a word as incorrect.
+            </p>
+          </div>
+        </div>
+
+        {/* Waveform Visualization */}
+        <div className="bg-gray-50 rounded-lg p-4">
+          <canvas ref={canvasRef} width={400} height={100} className="w-full h-20 rounded" />
             {isRecording && (
               <div className="text-center mt-2">
                 <Badge variant="secondary" className="bg-red-100 text-red-800">
@@ -571,6 +740,54 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
               </div>
             </div>
 
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2 rounded-lg border border-emerald-100 bg-emerald-50/60 p-4">
+                <p className="text-xs font-semibold uppercase text-emerald-700">Detection confidence</p>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-3xl font-bold text-emerald-700">
+                    {transcriptionResult.confidence.overall}%
+                  </span>
+                  <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">
+                    {lowConfidenceMistakes.length} words flagged for review
+                  </Badge>
+                </div>
+                <p className="text-xs text-emerald-800">
+                  Average certainty combining phonetic and textual alignment.
+                </p>
+                {lowConfidenceMistakes.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-[11px] font-semibold uppercase text-emerald-700">Manual review suggested</p>
+                    <ul className="space-y-1 text-xs text-emerald-800">
+                      {lowConfidenceMistakes.map((mistake) => (
+                        <li key={`${mistake.index}-${mistake.type}`} className="flex items-center justify-between">
+                          <span className="font-semibold">{mistake.correct ?? mistake.word}</span>
+                          <span>{mistake.confidence}%</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2 rounded-lg border border-indigo-100 bg-indigo-50/60 p-4">
+                <p className="text-xs font-semibold uppercase text-indigo-700">Dialect model in use</p>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-indigo-900">{transcriptionResult.dialect.label}</span>
+                  <Badge variant="secondary" className="bg-indigo-100 text-indigo-700">
+                    {transcriptionResult.dialect.detectionConfidence}% match
+                  </Badge>
+                </div>
+                <p className="text-xs text-indigo-800">{transcriptionResult.dialect.description}</p>
+                <p className="text-[11px] text-indigo-700">Source: {transcriptionResult.dialect.source}</p>
+                {transcriptionResult.dialect.reasons.length > 0 && (
+                  <ul className="list-disc space-y-1 pl-4 text-[11px] text-indigo-700">
+                    {transcriptionResult.dialect.reasons.map((reason, index) => (
+                      <li key={`${reason}-${index}`}>{reason}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+
             <div className="grid gap-4 rounded-lg border border-muted/60 bg-muted/30 p-4 md:grid-cols-2">
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase text-muted-foreground">Inference engine</p>
@@ -606,6 +823,90 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
                 {transcriptionResult.feedback.overallScore}%
               </div>
             </div>
+
+            {voiceFeedback.isSupported && (
+              <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50/60 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="font-semibold text-slate-800">Audio feedback playback</h4>
+                  <Badge variant="secondary" className="bg-slate-100 text-slate-700">
+                    {voiceFeedback.isSpeaking ? "Playing" : "Ready"}
+                  </Badge>
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-slate-600">Voice</Label>
+                    <Select
+                      value={voiceFeedback.preferences.voiceURI ?? "default"}
+                      onValueChange={(value) => voiceFeedback.setVoice(value === "default" ? null : value)}
+                    >
+                      <SelectTrigger className="bg-white">
+                        <SelectValue placeholder="Browser default" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="default">Browser default</SelectItem>
+                        {voiceFeedback.voices.map((voice) => (
+                          <SelectItem key={voice.voiceURI} value={voice.voiceURI}>
+                            {voice.name} · {voice.lang}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-slate-600">Speed</Label>
+                    <Slider
+                      value={[voiceFeedback.preferences.rate]}
+                      min={0.6}
+                      max={1.6}
+                      step={0.05}
+                      onValueChange={(value) => voiceFeedback.setRate(value[0])}
+                    />
+                    <p className="text-[11px] text-slate-600">{voiceFeedback.preferences.rate.toFixed(2)}×</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-slate-600">Pitch</Label>
+                    <Slider
+                      value={[voiceFeedback.preferences.pitch]}
+                      min={0.7}
+                      max={1.4}
+                      step={0.05}
+                      onValueChange={(value) => voiceFeedback.setPitch(value[0])}
+                    />
+                    <p className="text-[11px] text-slate-600">{voiceFeedback.preferences.pitch.toFixed(2)}</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => voiceFeedback.speak(transcriptionResult.expectedText)}>
+                    Play expected verse
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => voiceFeedback.speak(transcriptionResult.feedback.feedback, { queue: false })}
+                  >
+                    Play feedback message
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      voiceFeedback.speak(
+                        `Confidence ${transcriptionResult.confidence.overall} percent with ${lowConfidenceMistakes.length} uncertain words.`,
+                        { queue: false },
+                      )
+                    }
+                  >
+                    Play confidence summary
+                  </Button>
+                  <Button variant="ghost" onClick={voiceFeedback.cancel} className="text-slate-600">
+                    Stop audio
+                  </Button>
+                </div>
+                {voiceFeedback.voices.length === 0 && (
+                  <p className="text-[11px] text-slate-600">
+                    Additional voices become available when your browser has speech synthesis packs installed.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Feedback Message */}
             <div className="bg-blue-50 p-4 rounded-lg">
@@ -661,6 +962,9 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
                             ))}
                           </div>
                         )}
+                        <Badge variant="outline" className="border-blue-200 text-xs text-blue-700">
+                          Confidence {error.confidence}%
+                        </Badge>
                       </div>
                       <p className="text-sm text-red-800">{error.message}</p>
                       {(error.expected || error.transcribed) && (
@@ -682,6 +986,59 @@ export function RecordingInterface({ expectedText, ayahId, onTranscriptionComple
                 </div>
               </div>
             )}
+
+            {/* User feedback */}
+            <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/70 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="font-semibold text-emerald-800">Help us improve this detector</h4>
+                <Badge variant="secondary" className="bg-emerald-100 text-emerald-700">
+                  Crowdsourced quality
+                </Badge>
+              </div>
+              <p className="text-sm text-emerald-900">Was the automatic feedback accurate for this recitation?</p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={feedbackChoice === "accurate" ? "default" : "outline"}
+                  onClick={() => setFeedbackChoice("accurate")}
+                >
+                  Accurate
+                </Button>
+                <Button
+                  variant={feedbackChoice === "inaccurate" ? "destructive" : "outline"}
+                  onClick={() => setFeedbackChoice("inaccurate")}
+                >
+                  Needs review
+                </Button>
+              </div>
+              {feedbackChoice && (
+                <div className="space-y-3">
+                  <Textarea
+                    value={feedbackNotes}
+                    onChange={(event) => setFeedbackNotes(event.target.value)}
+                    placeholder="Optional: share context about the flagged mistakes."
+                  />
+                  <Textarea
+                    value={correctionText}
+                    onChange={(event) => setCorrectionText(event.target.value)}
+                    placeholder="Optional: provide the correct wording you recited."
+                  />
+                  <div className="flex items-center gap-3">
+                    <Button
+                      onClick={submitRecitationFeedback}
+                      disabled={isSubmittingFeedback || feedbackStatus === "success"}
+                    >
+                      {isSubmittingFeedback ? "Sending..." : "Send feedback"}
+                    </Button>
+                    {feedbackStatus === "success" && (
+                      <span className="text-sm text-emerald-700">JazakAllahu khayran! Feedback logged.</span>
+                    )}
+                    {feedbackStatus === "error" && feedbackError && (
+                      <span className="text-sm text-red-600">{feedbackError}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Transcription Comparison */}
             <div className="space-y-3">
