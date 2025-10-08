@@ -146,19 +146,19 @@
 @keyframes hasanatRiseFromButton {
   0% {
     opacity: 0;
-    transform: translate3d(0, 16px, 0) scale(0.85);
+    transform: translate3d(0, 24px, 0) scale(0.92);
   }
-  20% {
-    opacity: 1;
+  15% {
+    opacity: 0.9;
     transform: translate3d(0, 0, 0) scale(1);
   }
-  80% {
-    opacity: 1;
-    transform: translate3d(0, -56px, 0) scale(1.05);
+  70% {
+    opacity: 0.85;
+    transform: translate3d(0, -88px, 0) scale(1.08);
   }
   100% {
     opacity: 0;
-    transform: translate3d(0, -88px, 0) scale(0.95);
+    transform: translate3d(0, -120px, 0) scale(0.98);
   }
 }
 
@@ -168,6 +168,6 @@
   }
 
   .animate-hasanat-rise-from-button {
-    animation: hasanatRiseFromButton 1.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation: hasanatRiseFromButton 1.6s cubic-bezier(0.2, 0.8, 0.4, 1) forwards;
   }
 }
